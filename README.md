@@ -456,6 +456,86 @@ codex plugin add easy-rdbms@easy-rdbms
 커맨드는 `/db-select`, `/schema-design`, `/schema-review`. 스킬은 관련 작업이 언급되면 자동
 발동하므로 커맨드를 꼭 쓸 필요는 없습니다.
 
+Claude Code 전용 서브에이전트 `rdbms-modeler`·`rdbms-reviewer`는 스킬을 가리키는 얇은 래퍼입니다.
+Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어서, 같은 절차를 스킬 본문에 넣었습니다.
+
+세션 시작 훅은 `docker-compose.yml`, `.env`, `alembic.ini`, `prisma/schema.prisma`,
+`package.json`, `requirements.txt`, `Cargo.toml`, `go.mod` 등을 읽어 엔진을 한 번 알려줍니다.
+**MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
+말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
+
+### 반영된 내용
+
+#### `db-select` — 엔진 선택
+
+추천 전에 **13개 사실**을 먼저 묻습니다: 12개월 데이터량과 피크 트래픽, 읽기/쓰기 비율, 접근 패턴,
+RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, 개인정보·감사 요건, 1년·3년 예산,
+트래픽 형태, 이전할 기존 DB, 팀 경험. **"모르겠다"도 유효한 답**이고, 그럴 때는 교체하기 쉬운
+쪽으로 추천이 기울어집니다.
+
+그다음 5단계:
+
+1. **RDBMS가 맞는지** — 기본은 예, 구체적으로 PostgreSQL. DynamoDB·MongoDB·Redis·ClickHouse·
+   검색엔진으로 나갈 조건과 각각 무엇을 포기하는지. 그리고 **나갈 이유가 되지 못하는 반론 6개**
+   ("스키마가 자주 바뀔 것 같다", "SQL은 확장이 안 된다", "큐가 필요하다"…)를 하나씩 반박합니다.
+   ACID는 성능과 바꿀 수 있는 기능이 아니라 기본 요구로 둡니다.
+2. **규모 티어 0~4** — 데이터량 × 피크 QPS. 티어마다 **"지금은 하지 마라"** 열이 따로 있고,
+   비용이 싼 순서로 대응합니다(쿼리 수정 → 캐시 → 리플리카 → 스케일업 → 파티셔닝 →
+   분석 분리 → 그다음에야 샤딩).
+3. **MySQL vs PostgreSQL** — 항목별 비교. 티어 0~2에서 단건 읽기 벤치마크는 판단 근거가
+   아니라고 명시합니다.
+4. **배포 형태** — 컨테이너·매니지드·Aurora·서버리스·플랫폼 DB·분산 SQL, 각각의 주의점.
+5. **3년 TCO** — `references/cost-evaluation.md`에 비용 구성, TCO·장애위험 공식, 규모별 기본값,
+   판단 규칙이 있습니다. 실제 가격을 모를 때는 낮음/중간/높음으로 등급을 매기고 **가격이 아니라
+   등급이라는 사실을 함께 밝힙니다**.
+
+**멀티테넌시 형태**도 다룹니다 — 공유 테이블 + `tenant_id` / 스키마 per 테넌트 / DB per 테넌트.
+스키마 per 테넌트는 네임스페이스·권한 분리이고 **자원이나 장애 격리가 아니라는 점**을 포함합니다.
+
+결과는 최대 3후보 + 기본 추천 1개 + 등급화된 비용 평가 + 재검토 조건입니다. 재검토 조건은
+**측정 가능**해야 하고, "더 커지면"은 조건으로 인정하지 않습니다.
+
+#### `rdbms-modeling` — 3단계와 참조파일 11개
+
+먼저 **어느 정도까지 엄격하게 할지** 정합니다. 결제·재고·권한·계약·원장·감사는 3단계를 전부
+거치고, 개인 도구는 앞 두 단계를 축약할 수 있지만 **축약했다고 말해야** 합니다.
+
+**1단계 개념** — 업무 개념, 관계, 그리고 *사용자가 쓰는* 용어. 컬럼·자료형·키·DB 제품은 없습니다.
+`IS-A` 문장을 소리 내어 읽어서 서브타입 후보를 찾고, 어떤 것이 **무엇인지**와 **무엇을 하는
+중인지**를 분리합니다(상태와 역할은 둘 다 "종류"가 아닙니다). 확인 게이트에서 멈춥니다 — 용어를
+고치는 비용이 여기가 가장 쌉니다.
+
+**2단계 논리** — 엔터티·속성·PK/FK·카디널리티·NOT NULL·UNIQUE를 일반 자료형으로만. 정규화,
+일반화 검사, 이력 질문을 수행하고 확인 게이트에서 멈춥니다.
+
+**3단계 물리** — 이제야 엔진을 확정합니다. 논리 모델이 나와야 그 선택에 답할 수 있기 때문입니다.
+네이밍, 엔진 자료형, 식별자 결정, 제약, 인덱스, 뷰, 파티셔닝, 순서가 있는 마이그레이션 SQL, 그리고
+제약을 실제로 검증하는 샘플 데이터로 마칩니다.
+
+필요할 때만 로드되는 참조파일:
+
+| 파일 | 결정하는 것 |
+|---|---|
+| `normalization.md` | 1NF~3NF 규칙, BCNF 검사 절차, 비정규화 기준선 |
+| `generalization.md` | IS-A와 대체 가능성, 7질문, 3결과, 식별자 상속, 물리 매핑 |
+| `identifier-selection.md` | UID vs PK, 엔진별 저장 모델, UUIDv4/v7, `UUID_TO_BIN` swap 함정, PG 18 `uuidv7()` |
+| `foreign-keys.md` | 엔진 분기, PostgreSQL 6게이트, 참조 대상 규칙, 상속된 스키마 |
+| `partitioning.md` | 코드 기반 권고 정책, 권고·제외 조건, MySQL RANGE 한정 범위, 안전 파티션 운영 규칙 |
+| `history-entities.md` | 감사 vs 비즈니스 vs 유효시간, 8방식, 표준 이력 엔터티, 트랜잭션 플로우, 트리거 감사 예외 |
+| `denormalization.md` | 측정 기준선, 8방식, 더 싼 대안 9개, 동기화 방식, 적용 7조건 |
+| `db-internal-routines.md` | 프로시저·트리거·이벤트 3분류: 허용 유틸리티, 좁은 감사 예외, 금지되는 비즈니스 로직 |
+| `views-and-materialized-views.md` | 뷰 vs MView vs 집계 테이블, 원본 테이블 vs MView 인덱싱, `REFRESH CONCURRENTLY` 전제 |
+| `index-design.md` | 필요한 근거, 엔진별 쓰기 부담, 커버링 인덱스와 Heap Fetches, 패턴 매칭, FTS, 검색엔진 이관 신호 |
+| `cost-evaluation.md` | *(`db-select` 소속)* 비용 구성, 3년 TCO·장애위험 공식, 판단 규칙 |
+
+#### 엔진별로 다루는 것
+
+| | 내용 |
+|---|---|
+| **MySQL** | 8.4 LTS 트랙과 릴리스 정책, InnoDB + utf8mb4 기본값, 통화별 `decimal` 정밀도, `DATETIME` vs `TIMESTAMP`(Y2038), `INET6_ATON`, 복합 인덱스 순서, 기간 컬럼 쌍 최적화, `RANGE COLUMNS` 파티셔닝과 `REORGANIZE`, `REPEATABLE READ`와 갭락, 데드락 체크리스트, `SKIP LOCKED` 큐, 키셋 페이지네이션, `ngram` 파서 `FULLTEXT`, 리플리카 지연과 read-after-write 라우팅, GRANT 최소권한과 TLS, `my.cnf` 기준선, `wait_timeout` 대비 풀 사이징, Aurora용 JDBC 드라이버 선정 |
+| **PostgreSQL** | 16.7+ 기본값, 스키마 분리(`app`/`log`/`ref`), `SERIAL` 대신 `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `jsonb`, GIN/GiST/BRIN/부분/표현식 인덱스, `READ COMMITTED` 기본값과 `40001` 재시도, RLS가 **실제로 강제되게 하는 역할 전제**, advisory lock과 풀링 누수, 안전한 `LISTEN`/`NOTIFY`, `DEFAULT` 파티션이 있는 선언적 파티셔닝, pg_partman 5.x, 재기동 필요 설정과 리로드 설정 구분 |
+| **SQLite** | 3.37+ `STRICT` 테이블, PRAGMA 기준선(`foreign_keys`는 **기본 OFF**), 네이티브 타입이 없는 것들의 관례(돈은 정수 센트), rowid로서의 `INTEGER PRIMARY KEY`와 `AUTOINCREMENT`가 대개 불필요한 이유, `BEGIN IMMEDIATE` 기반 단일 라이터 설계, 네트워크 파일시스템을 배제하는 이유, FTS5, `VACUUM INTO` 백업, 그리고 `db-select`로 되돌아가는 전환 경로 |
+
 ### 핵심 방침
 
 - **요구사항이 바로 DDL이 되지 않습니다.** 개념 단계는 사용자 용어만 쓰고 DB 어휘를 배제하고, 논리
@@ -487,6 +567,24 @@ codex plugin add easy-rdbms@easy-rdbms
   테이블이며 비정규화 요구를 상속합니다.
 - **DB 내부 루틴은 하는 일로 갈립니다.** 저빈도 운영 유틸리티는 허용, 감사 트리거는 좁은 예외,
   비즈니스 로직은 금지.
+- **네이밍은 단일 출처입니다.** 소문자 `snake_case`, 단수형 테이블, 과거분사 시각 컬럼
+  (`created_at`/`updated_at`/`deleted_at`), 불리언 `is_`/`has_` 접두어, 제약·인덱스는 **소문자
+  접두어** `pk_` `fk_` `uq_` `chk_` `idx_` `fts_`. 대문자 `_IDX` 접미어는 PostgreSQL
+  case-folding에서 깨져 은퇴, `ftx_`는 FTX가 표준 용어가 아니라 `fts_`로 교체했습니다. 예약어는
+  인용부호로 감싸지 않고 이름을 바꿉니다 — `user` → `member`, `order` → `purchase_order`.
+- **식별자는 논리 UID와 물리 PK를 분리합니다.** PK는 `NOT NULL`·`UNIQUE`·불변이고, 바뀌거나
+  노출될 수 있는 업무 식별자는 `UNIQUE` 제약으로 갑니다. 원시 타임스탬프 단독 PK 금지, UUID를
+  `char(36)`으로 저장 금지, **UUID는 자격증명이 아닙니다**.
+
+  | 상황 | MySQL / InnoDB | PostgreSQL |
+  |---|---|---|
+  | 단일 DB, 일반 테이블 | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY` |
+  | 쓰기가 많음 | 순차 정수 우선 | `IDENTITY` 또는 UUIDv7 — v4 아님 |
+  | 다중 노드 생성 | `binary(16)` UUIDv7 | 네이티브 `uuid` + UUIDv7 |
+  | 외부 노출 | 내부 정수 PK + 공개 UID | UUID PK 또는 정수 PK + 공개 UID |
+
+  함정 둘: `UUID_TO_BIN(v, 1)`의 swap 플래그는 **UUIDv1 전용**이라 v7에 쓰면 v7을 택한 이유인
+  시간 정렬이 깨집니다. 그리고 `uuidv7()`은 **PostgreSQL 18**부터이고 `gen_random_uuid()`는 v4입니다.
 
 ### 검증
 

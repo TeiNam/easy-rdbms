@@ -40,7 +40,7 @@ CREATE TABLE `chat_history` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`chat_history_id`, `created_at`),   -- partition key required in the PK
   KEY `idx_chat_history_conversation_id` (`conversation_id`),
-  KEY `idx_chat_history_user_id` (`member_id`)
+  KEY `idx_chat_history_member_id` (`member_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 PARTITION BY RANGE COLUMNS (created_at) (
   PARTITION p202608    VALUES LESS THAN ('2026-09-01'),

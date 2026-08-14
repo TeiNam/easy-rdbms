@@ -27,7 +27,8 @@ Safe, reversible database schema changes for production systems.
 
 Before applying any migration:
 
-- [ ] Migration has both UP and DOWN (or is explicitly marked irreversible)
+- [ ] A rollback plan exists — a DOWN migration where the tool supports one (golang-migrate,
+      Kysely), or a documented forward-fix procedure where it does not (Prisma is forward-only)
 - [ ] No full table locks on large tables (use concurrent operations)
 - [ ] New columns have defaults or are nullable (never add NOT NULL without default)
 - [ ] Indexes created concurrently (not inline with CREATE TABLE for existing tables)
@@ -54,15 +55,25 @@ ALTER TABLE member ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
 -- ERROR: column "role" of relation "member" contains null values
 
--- GOOD: the NOT NULL-without-default path. Note step 4: a bare SET NOT NULL scans the whole
--- table while holding ACCESS EXCLUSIVE. A pre-validated CHECK lets PostgreSQL (12+) skip that scan.
-ALTER TABLE member ADD COLUMN role TEXT;                              -- 1. nullable add
+-- GOOD: the NOT NULL-without-default path. Order matters: a `NOT VALID` CHECK still enforces on
+-- NEW writes, so adding it before every writer populates the column breaks running inserts.
+-- And a bare SET NOT NULL scans the whole table under ACCESS EXCLUSIVE — a pre-validated CHECK
+-- lets PostgreSQL (12+) skip that scan.
+
+-- 1. nullable add (migration)
+ALTER TABLE member ADD COLUMN role TEXT;
+
+-- 2. DEPLOY application code that always writes `role`  ← before any constraint exists
+
+-- 3. backfill existing rows (separate migration, batched — see Large Data Migrations)
+UPDATE member SET role = 'member' WHERE role IS NULL;
+
+-- 4. now that no writer produces NULL and no row holds one:
 ALTER TABLE member ADD CONSTRAINT chk_member_role_not_null
-  CHECK (role IS NOT NULL) NOT VALID;                                 -- 2. instant, no scan
-UPDATE member SET role = 'member' WHERE role IS NULL;                 -- 3. backfill (batched, below)
-ALTER TABLE member VALIDATE CONSTRAINT chk_member_role_not_null;      -- 4. scans under a weak lock
-ALTER TABLE member ALTER COLUMN role SET NOT NULL;                    -- 5. no scan — CHECK proves it
-ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- 6. helper no longer needed
+  CHECK (role IS NOT NULL) NOT VALID;                                 -- instant, no scan
+ALTER TABLE member VALIDATE CONSTRAINT chk_member_role_not_null;      -- scans under a weak lock
+ALTER TABLE member ALTER COLUMN role SET NOT NULL;                    -- no scan — the CHECK proves it
+ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- helper no longer needed
 ```
 
 ### Adding an Index Without Downtime
@@ -72,10 +83,10 @@ ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- 6. help
 
 ```sql
 -- BAD: Blocks writes on large tables
-CREATE INDEX idx_users_email ON member (email);
+CREATE INDEX idx_member_last_login ON member (last_login_at);
 
 -- GOOD: Non-blocking, allows concurrent writes
-CREATE INDEX CONCURRENTLY idx_users_email ON member (email);
+CREATE INDEX CONCURRENTLY idx_member_last_login ON member (last_login_at);
 
 -- Note: CONCURRENTLY cannot run inside a transaction block
 -- Most migration tools need special handling for this
@@ -86,7 +97,7 @@ build each child's index `CONCURRENTLY`, then create the parent index (metadata-
 children have one). On **MySQL** the equivalent is InnoDB online DDL:
 
 ```sql
-ALTER TABLE member ADD INDEX idx_users_email (email), ALGORITHM=INPLACE, LOCK=NONE;
+ALTER TABLE member ADD INDEX idx_member_last_login (last_login_at), ALGORITHM=INPLACE, LOCK=NONE;
 -- If the ALTER cannot run in-place MySQL errors instead of silently locking — that error is the signal
 ```
 
@@ -95,16 +106,21 @@ ALTER TABLE member ADD INDEX idx_users_email (email), ALGORITHM=INPLACE, LOCK=NO
 Never rename directly in production. Use the expand-contract pattern:
 
 ```sql
--- Step 1: Add new column (migration 001)
+-- Step 1: Add the new column (migration 001)
 ALTER TABLE member ADD COLUMN display_name TEXT;
 
--- Step 2: Backfill data (migration 002, data migration)
+-- Step 2: DEPLOY dual writes — the app writes BOTH columns, still reads the old one.
+--         This must precede the backfill: otherwise writes landing between the backfill
+--         and the deploy leave display_name NULL.
+
+-- Step 3: Backfill the rows that predate the dual-write deploy (migration 002, batched)
 UPDATE member SET display_name = username WHERE display_name IS NULL;
 
--- Step 3: Update application code to read/write both columns
--- Deploy application changes
+-- Step 4: DEPLOY reads switched to the new column (still writing both)
 
--- Step 4: Stop writing to old column, drop it (migration 003)
+-- Step 5: DEPLOY writes to the old column removed
+
+-- Step 6: Drop the old column (migration 003)
 ALTER TABLE member DROP COLUMN username;
 ```
 
@@ -180,7 +196,7 @@ model User {
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  # `purchase_order Order[]` would need a matching Order model — omitted here
+  // a relation like `orders PurchaseOrder[]` needs a matching model — omitted here
 
   @@map("member")
 }
@@ -236,20 +252,23 @@ export const member = pgTable("member", {
 ### Workflow (kysely-ctl)
 
 ```bash
+# kysely-ctl's subcommand form has changed across versions (space vs colon, e.g.
+# `migrate latest` vs `migrate:latest`). Confirm with `kysely --help` for your version.
+
 # Initialize config file (kysely.config.ts)
 kysely init
 
 # Create a new migration file
-kysely migrate:make add_member_avatar
+kysely migrate make add_member_avatar
 
 # Apply all pending migrations
-kysely migrate:latest
+kysely migrate latest
 
 # Rollback last migration
-kysely migrate:down
+kysely migrate down
 
 # Show migration status
-kysely migrate:list
+kysely migrate list
 ```
 
 ### Migration File
@@ -345,6 +364,9 @@ python manage.py makemigrations --empty app_name -n description
 
 ### Data Migration
 
+`atomic = False` is what makes the batching real — without it Django wraps the whole `RunPython`
+in one transaction and the loop becomes a single giant transaction wearing a loop.
+
 ```python
 from django.db import migrations, transaction
 
@@ -352,22 +374,21 @@ def backfill_display_names(apps, schema_editor):
     Member = apps.get_model("accounts", "Member")
     batch_size = 5000
     while True:
-        with transaction.atomic():          # commit per batch
-            ids = list(
-                Member.objects.filter(display_name="")
-                .values_list("pk", flat=True)[:batch_size]
+        with transaction.atomic():          # one committed transaction per batch
+            batch = list(
+                Member.objects.filter(display_name="").only("pk", "username")[:batch_size]
             )
-            if not ids:
+            if not batch:
                 break
-            batch = list(Member.objects.filter(pk__in=ids))
             for member in batch:
                 member.display_name = member.username
-        User.objects.bulk_update(batch, ["display_name"], batch_size=batch_size)
+            Member.objects.bulk_update(batch, ["display_name"], batch_size=batch_size)
 
 def reverse_backfill(apps, schema_editor):
-    pass  # Data migration, no reverse needed
+    pass  # data migration — nothing to reverse
 
 class Migration(migrations.Migration):
+    atomic = False                          # required: lets each batch commit on its own
     dependencies = [("accounts", "0015_add_display_name")]
 
     operations = [
@@ -411,10 +432,9 @@ migrate -path migrations -database "$DATABASE_URL" force VERSION
 
 ### Migration Files
 
-golang-migrate sends each file as one implicit transaction, and
-`CREATE INDEX CONCURRENTLY` **cannot run inside a transaction block**. Put it in its own migration
-file (golang-migrate skips the transaction wrapper when the file holds only that statement — verify
-with your driver, or use `-x` / a no-transaction runner).
+golang-migrate sends the whole file to PostgreSQL as **one query**, which makes it an implicit
+transaction — and `CREATE INDEX CONCURRENTLY` **cannot run inside a transaction block**. Keep the
+concurrent index alone in its own migration file so nothing else shares that implicit transaction.
 
 ```sql
 -- migrations/000003_add_member_avatar.up.sql   (transactional: DDL only)

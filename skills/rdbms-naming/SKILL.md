@@ -60,7 +60,7 @@ change on another.
 ## 2. Table / Column
 
 - **Singular form**: Table names are singular (entity = 1 row, aligns with the `member_id` PK convention).
-  `member` → `user`.
+  `users` → `user` → and since `user` is reserved, `member` (see the reserved-word rule below).
 - **No postfix / limited prefix**: `tb_user`, `user_tbl` → `member`. Use a prefix only to group attribute
   tables subordinate to a master table: `member_auth` (child of `member`), `book_like` (child of `book`).
 - **Reserved-word collision**: when the singular name is reserved (e.g. `user` in PostgreSQL), **rename

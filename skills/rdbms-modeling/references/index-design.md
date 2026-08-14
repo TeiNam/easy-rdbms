@@ -149,7 +149,7 @@ ALTER TABLE article ADD COLUMN search_vector tsvector
 CREATE INDEX idx_article_search ON article USING gin (search_vector);
 
 SELECT id, title FROM article
-WHERE search_vector @@ to_tsquery('simple', ?);   -- same configuration as the index
+WHERE search_vector @@ to_tsquery('simple', %(q)s);  -- same configuration as the index
 ```
 
 Naming note: the full-text index prefix is **`fts_`** (see `rdbms-naming`). In prose use **FTS** or the

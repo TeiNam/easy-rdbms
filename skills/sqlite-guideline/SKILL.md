@@ -48,11 +48,13 @@ and stored but **not enforced** unless each connection turns them on. A schema f
 
 ## Type System — Affinity, Not Types
 
-SQLite columns have **type affinity**, not types: outside `INTEGER PRIMARY KEY` and explicit
-`CHECK`s, a column accepts values of any type (`INSERT INTO t (age) VALUES ('abc')` succeeds).
-This is the largest single divergence from MySQL/PostgreSQL.
+In a non-`STRICT` table, SQLite columns have **type affinity**, not types: outside
+`INTEGER PRIMARY KEY` and explicit `CHECK`s, a column accepts values of any type
+(`INSERT INTO t (age) VALUES ('abc')` succeeds). This is the largest single divergence from
+MySQL/PostgreSQL.
 
-**Declare every table `STRICT`** (3.37+) — it rejects wrong-type values at write time:
+**Declare every ordinary table `STRICT`** (3.37+) — it rejects wrong-type values at write time.
+(Virtual tables such as FTS5 cannot be `STRICT`; the keyword applies to ordinary tables only.)
 
 ```sql
 CREATE TABLE member (

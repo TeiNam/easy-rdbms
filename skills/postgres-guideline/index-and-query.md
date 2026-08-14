@@ -4,13 +4,13 @@
 
 | Query Pattern | Index Type | Example |
 |--------------|------------|---------|
-| `WHERE col = value` | B-tree | `CREATE INDEX idx ON t (col)` |
-| `WHERE col > value` | B-tree | `CREATE INDEX idx ON t (col)` |
-| `WHERE a = x AND b > y` | Composite | `CREATE INDEX idx ON t (a, b)` |
-| `WHERE jsonb @> '{}'` | GIN | `CREATE INDEX idx ON t USING gin (col)` |
-| `WHERE tsv @@ query` | GIN | `CREATE INDEX idx ON t USING gin (col)` |
-| Time-series ranges | BRIN | `CREATE INDEX idx ON t USING brin (col)` Note: Effective only when physical insertion order correlates with values (append-only logs). Can be slower than B-tree if insertion order is mixed |
-| Range/geo data | GiST | `CREATE INDEX idx ON t USING gist (col)` |
+| `WHERE col = value` | B-tree | `CREATE INDEX idx_t_col ON t (col)` |
+| `WHERE col > value` | B-tree | `CREATE INDEX idx_t_col ON t (col)` |
+| `WHERE a = x AND b > y` | Composite | `CREATE INDEX idx_t_a_b ON t (a, b)` |
+| `WHERE jsonb @> '{}'` | GIN | `CREATE INDEX idx_t_col ON t USING gin (col)` |
+| `WHERE tsv @@ query` | GIN | `CREATE INDEX idx_t_col ON t USING gin (col)` |
+| Time-series ranges | BRIN | `CREATE INDEX idx_t_col ON t USING brin (col)` Note: Effective only when physical insertion order correlates with values (append-only logs). Can be slower than B-tree if insertion order is mixed |
+| Range/geo data | GiST | `CREATE INDEX idx_t_col ON t USING gist (col)` |
 
 ## Key Index Patterns
 
@@ -40,18 +40,18 @@ CREATE UNIQUE INDEX uq_member_email ON app.member (email);
 
 ```sql
 -- Simple PK cursor (single id sort)
-SELECT product_id, name, created_at FROM products
+SELECT product_id, name, created_at FROM product
 WHERE product_id > %(last_id)s ORDER BY product_id LIMIT 20;
 
 -- Composite cursor (created_at + id tie-breaking)
 -- Guarantees order by id when created_at values are identical
-SELECT product_id, name, created_at FROM products
+SELECT product_id, name, created_at FROM product
 WHERE (created_at, product_id) > (%(last_created_at)s::timestamptz, %(last_id)s)
 ORDER BY created_at ASC, product_id ASC
 LIMIT 20;
 
 -- Reverse (previous page)
-SELECT product_id, name, created_at FROM products
+SELECT product_id, name, created_at FROM product
 WHERE (created_at, product_id) < (%(last_created_at)s::timestamptz, %(last_id)s)
 ORDER BY created_at DESC, product_id DESC
 LIMIT 20;
@@ -63,12 +63,12 @@ LIMIT 20;
 ### Queue Processing (SKIP LOCKED)
 
 ```sql
-UPDATE jobs SET status = 'processing'
+UPDATE job SET status = 'processing'
 WHERE id = (
-  SELECT id FROM jobs WHERE status = 'pending'
+  SELECT id FROM job WHERE status = 'pending'
   ORDER BY created_at LIMIT 1
   FOR UPDATE SKIP LOCKED
-) RETURNING *;
+) RETURNING job_id, status, started_at;
 ```
 
 ### UPSERT
@@ -76,12 +76,14 @@ WHERE id = (
 ```sql
 -- Requires the conflict target to be a real unique constraint:
 --   CREATE TABLE app.member_setting (
---     member_id bigint NOT NULL,          -- logical FK: app.member.member_id
+--     member_id bigint NOT NULL,          -- logical FK: app.member.member_id (type matches parent)
 --     setting_key text NOT NULL,
 --     setting_value text NOT NULL,
+--     created_at timestamptz NOT NULL DEFAULT now(),
 --     updated_at timestamptz NOT NULL DEFAULT now(),
 --     CONSTRAINT pk_member_setting PRIMARY KEY (member_id, setting_key)
 --   );
+--   CREATE INDEX idx_member_setting_member_id ON app.member_setting (member_id);
 INSERT INTO app.member_setting (member_id, setting_key, setting_value, updated_at)
 VALUES (%(member_id)s, %(key)s, %(value)s, now())
 ON CONFLICT (member_id, setting_key)

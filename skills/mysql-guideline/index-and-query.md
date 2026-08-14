@@ -4,11 +4,11 @@
 
 | Index Type | Use Case | Example |
 |-----------|----------|---------|
-| B-tree (default) | Equality, range | `CREATE INDEX idx ON t (col)` |
-| Composite | Multi-column WHERE | `CREATE INDEX idx ON t (a, b)` |
-| Unique | Duplicate prevention | `CREATE UNIQUE INDEX uidx ON t (col)` |
-| Fulltext (ngram) | Text search | `CREATE FULLTEXT INDEX ftx ON t (col) WITH PARSER ngram` |
-| Prefix | Long varchar columns | `CREATE INDEX idx ON t (col(20))` |
+| B-tree (default) | Equality, range | `CREATE INDEX idx_t_col ON t (col)` |
+| Composite | Multi-column WHERE | `CREATE INDEX idx_t_a_b ON t (a, b)` |
+| Unique | Duplicate prevention | `CREATE UNIQUE INDEX uq_t_col ON t (col)` |
+| Fulltext (ngram) | Text search | `CREATE FULLTEXT INDEX fts_t_col ON t (col) WITH PARSER ngram` |
+| Prefix | Long varchar columns | `CREATE INDEX idx_t_col ON t (col(20))` |
 
 ## Composite Index Column Order — "equality → sort → range"
 
@@ -39,7 +39,7 @@ CREATE INDEX idx_purchase_order_status_user_created ON purchase_order (status, m
 > range, `status` degrades to a per-row filter and the composite index barely helps.
 
 A column wrapped in a function is not seekable (`WHERE YEAR(created_at)=2026` → no index); work around with a
-**functional index** (8.0.13+, `CREATE INDEX idx ON t ((YEAR(created_at)))`) or a generated column. The
+**functional index** (8.0.13+, `CREATE INDEX idx_t_created_year ON t ((YEAR(created_at)))`) or a generated column. The
 constant side may use functions freely (`WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)` is fine).
 
 ## Key Index Patterns

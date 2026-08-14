@@ -81,19 +81,22 @@ code present, volume figures known — see the recommendation policy referenced 
 ## pg_partman (Recommended)
 
 ```sql
-CREATE EXTENSION pg_partman;
+-- pg_partman 5.x (the 4.x-era `p_type := 'native'` argument is gone)
+CREATE SCHEMA IF NOT EXISTS partman;
+CREATE EXTENSION pg_partman SCHEMA partman;
 
 SELECT partman.create_parent(
   p_parent_table := 'log.chat_history',
-  p_control := 'created_at',
-  p_type := 'native',
-  p_interval := 'monthly',
-  p_premake := 3
+  p_control      := 'created_at',
+  p_interval     := '1 month',
+  p_premake      := 3
 );
 
--- Run periodically via cron
+-- Run periodically (external cron, or pg_cron where available)
 SELECT partman.run_maintenance();
 ```
+
+Check the installed version — the `create_parent` signature changed between 4.x and 5.x.
 
 ## Partition Management
 
@@ -118,7 +121,7 @@ CREATE TABLE log.chat_history_2026_10 PARTITION OF log.chat_history
 WITH moved AS (
   DELETE FROM log.chat_history_default
   WHERE created_at >= '2026-10-01' AND created_at < '2026-11-01'
-  RETURNING *
+  RETURNING chat_history_id, conversation_id, member_id, user_message, bot_response, created_at
 )
 INSERT INTO log.chat_history
   (chat_history_id, conversation_id, member_id, user_message, bot_response, created_at)
@@ -134,14 +137,15 @@ ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;
 --   FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 -- ERROR: updated partition constraint for default partition "chat_history_default" would be violated
 
--- Detach old partition (preserves data, faster than DROP)
+-- Detach the old partition first (preserves data, and detaching is cheaper than DROP)
 ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_2026_08;
 
--- Drop detached partition
+-- Then EITHER discard it...
 DROP TABLE log.chat_history_2026_08;
 
--- Or move to archive schema
-ALTER TABLE log.chat_history_2026_08 SET SCHEMA archive;
+-- ...OR keep it by moving it to an archive schema. These two are mutually exclusive —
+-- once dropped there is nothing left to move.
+-- ALTER TABLE log.chat_history_2026_08 SET SCHEMA archive;
 ```
 
 > Note: This process is automated when using pg_partman — manual operations only when needed.

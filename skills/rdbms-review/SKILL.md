@@ -12,7 +12,8 @@ description: >
   rows, referential integrity, partition pruning, partitions not pruned, MAXVALUE partition,
   default partition filling up, partition key missing from WHERE, history table, audit table,
   audit trail, versioning, temporal table, valid_from valid_to, event sourcing, point-in-time
-  query, is this schema safe to deploy.
+  query, stored procedure, trigger audit, database event, denormalized column out of sync,
+  aggregate table stale, write amplification, is this schema safe to deploy.
 ---
 
 # RDBMS Review
@@ -220,8 +221,21 @@ What to read in the plan:
   cannot say who or why is not usable as business history
 - **PII in history snapshots with no retention limit** — history is where personal data quietly
   becomes permanent. Look for a purge path, not just a retention constant
-- **A trigger doing anything beyond writing an audit row** — the audit-trigger exception is narrow;
-  business logic in a trigger is a finding
+- **Database internal routines** — inventory them first; an undocumented trigger will contradict the
+  application eventually. A routine doing operational utility work (partition creation/rotation,
+  retention purge, statistics refresh, materialized view refresh) on a schedule is **fine** — check it
+  is version controlled, idempotent, and monitored. An audit trigger meeting all its conditions is
+  **fine** — check it writes only to the audit table. **Anything carrying business logic is a finding**:
+  a trigger maintaining a denormalized value or setting `updated_at`, a procedure holding a workflow, an
+  event running business processing. Report what it does and the migration path. Inventory queries in
+  `rdbms-modeling/references/db-internal-routines.md`
+- **A duplicated column updated on some write paths but not all** — the highest-value denormalization
+  finding, because it is already producing wrong data. Trace every writer of the source column
+- **Denormalized data with no consistency-check query and no rebuild path** — unverifiable duplicates
+  diverge silently. Run a check during the review and report the mismatch count
+- **Denormalization with no measurement behind it** — report it as unjustified write amplification, and
+  name the cheaper alternative (index, N+1 fix) that was likely skipped. On PostgreSQL also check the
+  bloat and `VACUUM` load from a frequently-updated duplicated column
 - Analytics queries running against the OLTP primary
 
 ## Output Format

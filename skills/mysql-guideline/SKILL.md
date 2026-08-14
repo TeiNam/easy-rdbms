@@ -65,9 +65,7 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 ## Prohibited Items
 - Stored Procedures: discouraged (stored-program cache is **per-session**, not a global shared cache like
   Oracle/PostgreSQL — connection-pool churn re-pays parse/compile cost; plus maintenance/portability/security)
-- Triggers: prohibited — **one exception**: an audit trigger that writes only to an audit table, used
-  when a real write path bypasses the application (admin SQL, batch, migrations). No business logic in
-  it. See `rdbms-modeling/references/history-entities.md`
+- Triggers: prohibited for business logic
 - Events: prohibited
 - Complex Views: discouraged, simple read-only only
 

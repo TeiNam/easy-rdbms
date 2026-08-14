@@ -125,6 +125,14 @@ and escalates to valid-period, bi-temporal, or event sourcing only where the req
 rules hold regardless: the current row and its history are written in one transaction, and no FK or
 `CASCADE` links an entity to its history — history must outlive the row it describes.
 
+**Database internal routines default to off, with a shaped exception.** Procedures, triggers, and
+events are not where business logic belongs — it should be version controlled, testable, and visible in a
+stack trace. But the rule splits by what the routine *does*: infrequent operational utilities (partition
+creation and rotation, retention purge, statistics refresh, consistency checks) are **sanctioned**; an
+audit trigger is a **narrow exception** because nothing else can capture writes that bypass the
+application; and anything carrying business logic — a trigger maintaining a denormalized value, a
+procedure holding a workflow — stays **prohibited**.
+
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
 
@@ -221,6 +229,12 @@ codex plugin add easy-rdbms@easy-rdbms
   일반 엔터티는 현재+이력 스냅샷을 기본으로, 유효기간·이중시간·이벤트 소싱은 요구가 실재할 때만 올립니다.
   방식과 무관하게 두 규칙은 고정입니다: 현재 행과 이력은 한 트랜잭션에서 쓰고, 엔터티와 이력 사이에 FK나
   `CASCADE`를 두지 않습니다 — 이력은 그것이 기술하는 행보다 오래 살아야 합니다.
+- **DB 내부 루틴은 기본 미사용, 단 예외에 형태가 있습니다.** 프로시저·트리거·이벤트는 비즈니스 로직의
+  자리가 아닙니다 — 로직은 버전 관리되고 테스트 가능하고 스택 트레이스에 보여야 합니다. 다만 규칙은
+  루틴이 **무엇을 하는지**로 갈립니다: 자주 실행되지 않는 운영 유틸리티(파티션 생성·순환, 보관기간 정리,
+  통계 갱신, 정합성 검사)는 **허용**, 감사 트리거는 애플리케이션을 우회하는 쓰기를 잡을 다른 수단이
+  없으므로 **좁은 예외**, 비정규화 값을 유지하는 트리거나 워크플로를 담은 프로시저처럼 비즈니스 로직을
+  지닌 것은 **금지**입니다.
 - **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

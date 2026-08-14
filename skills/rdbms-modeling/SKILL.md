@@ -273,6 +273,22 @@ weigh that before choosing this strategy for a classification you expect to exte
 Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
 uniqueness, check constraints, and any subtype rules behave as intended.
 
+### Database Internal Routines
+
+Procedures, triggers, and events **default to unused** — business logic belongs in the application,
+where it is version controlled, testable, and visible in a stack trace. Three categories, split by what
+the routine *does*, not what kind of object it is:
+
+| Category | Verdict |
+|---|---|
+| **Infrequent operational utilities** — partition creation/rotation, retention purge, statistics refresh, consistency-check queries, materialized view refresh | **Allowed.** No business semantics, scheduled and low duty cycle, idempotent, version controlled, monitored. Prefer an external scheduler where one exists |
+| **Audit trigger** | **Narrow exception.** Only to capture writes that bypass the application; audit table only, no business logic. See `references/history-entities.md` |
+| **Business logic** — maintaining a denormalized value, setting `updated_at`, enforcing a state transition, workflow in a procedure | **Prohibited.** It belongs in the application transaction |
+
+The tempting case is a trigger maintaining a denormalized column. It does not qualify: it runs on every
+write, and keeping a derived business value correct *is* business logic. Full policy and the inventory
+queries for reviewing an existing schema: `references/db-internal-routines.md`.
+
 ### Identifier Decision: UID vs Primary Key
 
 Separate the **logical identifier** from the **physical primary key**, and choose each against the
@@ -395,8 +411,15 @@ A fully normalized schema on a non-transactional store still corrupts under conc
 a transactional store with a denormalized schema still drifts out of sync. Assume an
 ACID-capable engine (both MySQL/InnoDB and PostgreSQL are) and normalize on top of it.
 
-Do not denormalize while designing something new. Denormalization answers a measured problem
-in a running system — with no measurement, the deliverable is the normalized design.
+Do not denormalize while designing something new. Denormalization answers a measured problem in a
+running system — with no measurement, the deliverable is the normalized design. When there *is* a
+measurement, `references/denormalization.md` has the seven apply-conditions, the cheaper alternatives
+to rule out first, and the consistency-check and rebuild requirements every duplicate must ship with.
+
+One distinction that trips people up: **a snapshot of a business fact is not denormalization.** The
+price on an order line at purchase time is the transaction's own data, not a cached copy of the product
+price. Ask whether the value should follow the source when the source changes — no means it is business
+source data and needs no synchronization.
 
 ## Deliverable Format
 
@@ -535,6 +558,10 @@ STAGE 3 — Physical model
   MySQL RANGE-only scope decision, safety-partition operating rules
 - `references/history-entities.md` — audit vs business vs valid-time history, the eight methods and
   when each applies, standard history entity, transaction flows, the trigger-audit exception
+- `references/denormalization.md` — the measured-problem bar, eight methods, cheaper alternatives to
+  try first, synchronization mechanisms, the seven apply-conditions, consistency check and rebuild
+- `references/db-internal-routines.md` — procedures/triggers/events: sanctioned operational
+  utilities, the narrow audit-trigger exception, and business logic that stays in the application
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

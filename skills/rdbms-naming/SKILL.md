@@ -7,7 +7,6 @@ description: >
   identifier case-folding, 63-char limit, data type selection. Triggers: table/column/index design,
   DDL authoring, schema review, naming conventions, snake_case, abbreviations, PK/FK naming,
   boolean columns, DECIMAL, settlement amount columns.
-origin: custom
 ---
 
 # RDBMS Naming Conventions
@@ -102,7 +101,7 @@ change on another.
 | Type | Rule | Example |
 |------|------|---------|
 | Primary Key | `pk_<table>` | `pk_member` |
-| Foreign Key | `fk_<child>_<parent>` | `fk_order_member` |
+| Foreign Key | `fk_<child>_<parent>` | `fk_order_member` — PostgreSQL only; MySQL creates no physical FK |
 | Unique | `uq_<table>_<col…>` | `uq_member_email` |
 | Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
 | General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |

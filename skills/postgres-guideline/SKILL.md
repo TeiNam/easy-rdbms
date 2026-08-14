@@ -5,7 +5,6 @@ description: >
   and psycopg3 connection management. Triggers: CREATE TABLE, GENERATED ALWAYS AS IDENTITY,
   EXPLAIN ANALYZE, GIN/BRIN/GiST indexes, RLS, PARTITION BY RANGE, pg_partman,
   LISTEN/NOTIFY, Advisory Lock, UPSERT ON CONFLICT, CTE, timestamptz operations.
-origin: custom
 ---
 
 # PostgreSQL Database Guideline
@@ -72,17 +71,14 @@ Summary + PostgreSQL-specific:
 ## Foreign Keys — Differs from MySQL
 
 Physical `FOREIGN KEY` constraints **are allowed here**, unlike in `mysql-guideline` (InnoDB cannot
-put an FK on a partitioned table, and this plugin partitions log/history tables by default).
+put an FK on a partitioned table, and log/history tables are the usual partitioning candidates).
 Allowed by default is not always create — `schema-design.md` has the six conditions, the costs that
 remain, and the compensating controls for relationships left as logical FKs. PostgreSQL never
 auto-creates the referencing-column index, so condition 2 is the one most often missed.
 
 ## Prohibited Items
 - Stored Procedures: prohibited
-- Triggers: prohibited (handle `updated_at` in application) — **one exception**: an audit trigger that
-  writes only to an audit table, used when a real write path bypasses the application (admin SQL,
-  batch, migrations). No business logic in it. See
-  `rdbms-modeling/references/history-entities.md`
+- Triggers: prohibited for business logic (handle `updated_at` in the application)
 - Events/Schedulers: use external (cron, Airflow)
 - Complex Views: discouraged, simple read-only only
 - RULE: prohibited (unpredictable behavior)

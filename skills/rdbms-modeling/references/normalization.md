@@ -63,35 +63,16 @@ BCNF check: <table>
 Do not silently skip the check. "BCNF: no violations found" is a valid and expected result for
 most tables with a single surrogate PK.
 
-### Denormalization — Only With a Measurement
+### Denormalization
 
-Denormalization is not a design choice made up front. It is a response to a problem you have
-observed.
+Denormalization is a **physical-model** technique and has its own policy — the measured-problem bar,
+the eight methods, synchronization mechanisms, the seven apply-conditions, and the
+consistency-check/rebuild requirements are in `denormalization.md`.
 
-Required before denormalizing:
+Two things to carry back into normalization work:
 
-1. **Evidence.** A measured slow path — an `EXPLAIN` plan, a query duration, a p95 latency
-   figure. "Joins are probably slow" is not evidence.
-2. **The alternatives were tried.** Indexing, query rewriting, and caching come first; they are
-   cheaper and reversible.
-3. **A synchronization mechanism.** State exactly how the duplicated data stays correct —
-   application write path, scheduled reconciliation job, or a `MATERIALIZED VIEW` refresh.
-   Denormalized data with no stated sync mechanism is a future data-integrity bug.
-
-Then record it on the column:
-
-```sql
--- MySQL
-order_item_count int unsigned NOT NULL DEFAULT 0
-  COMMENT 'denormalized from order_item; synced in app on item insert/delete; p95 was 840ms with COUNT(*)'
-```
-
-```sql
--- PostgreSQL: COMMENT is a separate statement
-COMMENT ON COLUMN app.orders.order_item_count IS
-  'denormalized from app.order_item; synced in app on item insert/delete; p95 was 840ms with COUNT(*)';
-```
-
-Acceptable shapes, in order of preference: a `MATERIALIZED VIEW` or a separate reporting table
-(the original stays normalized), then a CQRS read model, and only last an aggregate column on
-the source table (hardest to keep correct).
+- **Do not denormalize while normalizing.** The logical model stays at 3NF; denormalization answers a
+  measured problem in a running system.
+- **A snapshot of a business fact is not denormalization.** The price on an order line at purchase time
+  is the transaction's own data, not a cached copy of the product price. If the source changes and this
+  value should *not* follow, it is business source data and needs no synchronization.

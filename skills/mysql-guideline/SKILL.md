@@ -12,7 +12,8 @@ description: >
   STATUS, MariaDB divergence, FULLTEXT MATCH AGAINST, connection pool sizing, integer type
   ranges, IN subquery slow, DEPENDENT SUBQUERY, semi-join optimization,
   eq_range_index_dive_limit, Index Merge, OR condition slow, deep pagination, OFFSET slow,
-  deferred join related tasks.
+  deferred join, PK type choice, int vs bigint PK, AUTO_INCREMENT exhaustion, UNSIGNED,
+  IoT/log table design related tasks.
 ---
 
 # MySQL Database Guideline
@@ -59,22 +60,87 @@ and less network traffic. `TINYINT` vs `INT` is 1B vs 4B — at 100 million rows
 | `int` | 4B | ≈ −2.1B ~ 2.1B | 0 ~ ≈ 4.2B |
 | `bigint` | 8B | ≈ −9.2×10¹⁸ ~ 9.2×10¹⁸ | 0 ~ ≈ 1.8×10¹⁹ |
 
-**Widening a column later is comparatively easy (online DDL); narrowing it risks data loss and in
-practice means a rebuild.** So do not pad "just in case" — size to the observed value range and
-monitor growth. The surrogate PK is the exception: default it to `bigint unsigned` because
-exhausting an `int` PK on a large table is a migration nobody wants.
+For an **ordinary column**, widening later is usually manageable and narrowing risks data loss — so
+size to the observed value range and monitor growth rather than padding "just in case".
+
+**The PK is not an ordinary column. Get it right at `CREATE TABLE` time.**
+
+> `ALTER TABLE … MODIFY member_id bigint unsigned` on the primary key requires **`ALGORITHM=COPY`** —
+> MySQL has no in-place path for changing an integer's type. That means a full table rebuild, and
+> because InnoDB appends the PK to **every secondary index**, all of them are rebuilt too. Add the
+> disk for a second copy, the replication lag while it runs, and the fact that every referencing
+> column (logical FK children included — this policy makes them plain columns) has to change in
+> lockstep across separate migrations.
+>
+> On a table small enough to rebuild in a maintenance window this is annoying. On a table with a
+> billion rows it is a `pt-online-schema-change` / `gh-ost` project with a cutover plan — which is
+> exactly the table where `int` runs out.
+
+So decide from **what makes the row count grow**, not from today's row count:
+
+| Growth class | Bounded by | PK |
+|---|---|---|
+| **Entity** — one row per real thing | The real world: people, products, branches. `member` cannot exceed the human population; `int unsigned` reaches **4.2 billion** | `int unsigned` is genuinely enough |
+| **Event / log** — one row per occurrence | Nothing. Row count = **insert rate × elapsed time**, and time does not stop | **`bigint unsigned`, no exceptions** |
+
+Event tables are where `int` actually breaks, and the arithmetic is unforgiving:
+
+| Insert rate | `int unsigned` (4.2B) lasts | `bigint unsigned` lasts |
+|---|---|---|
+| 100/s | ~1.3 years | effectively forever |
+| 1,000/s | ~49 days | effectively forever |
+| 10,000/s (IoT telemetry) | **~5 days** | effectively forever |
+
+**Retention and partition pruning do not help.** `AUTO_INCREMENT` never reuses a value, so deleting
+or dropping old partitions frees storage but **not ID space** — a 30-day-retention log table burns
+through the range at the full insert rate as if nothing were ever deleted. Hitting the ceiling means
+`Duplicate entry '4294967295' for key 'PRIMARY'` on every insert, on the busiest table you own,
+with the hardest possible migration ahead of you.
+
+So: IoT telemetry, audit trails, chat/message history, access and event logs, metering records,
+outbox tables — `bigint unsigned` from the start. If a table is called `*_log`, `*_history`,
+`*_event`, or contains a reading from a device, that decision is already made.
+
+For entity tables, `int unsigned` is a reasonable choice — but write down **what bounds it**, and
+re-check if the entity turns out to be machine-generated rather than human (per-device rows, ad
+impressions, generated variants: those are event tables wearing an entity name).
 
 `decimal` follows the same principle: money that needs no fractional part is cheaper and simpler as
 an integer in the minor unit than as a `decimal`.
+
+### `UNSIGNED` — use it whenever negatives are impossible
+
+`UNSIGNED` is not merely a constraint. It **doubles the positive range for the same bytes**, so on
+the columns most likely to run out it is free runway:
+
+| Column | Signed ceiling | Unsigned ceiling |
+|---|---|---|
+| `int` PK | ≈ 2.1 billion | ≈ 4.2 billion |
+| `bigint` PK | ≈ 9.2×10¹⁸ | ≈ 1.8×10¹⁹ |
+
+Apply it to any integer column whose domain excludes negatives — surrogate PKs, counts, quantities,
+ages, byte sizes. Skipping it throws away half the range for nothing.
+
+Two things to keep straight:
+
+- **Mixing signed and unsigned is where it bites.** `UNSIGNED` subtraction that would go below zero
+  **wraps to a huge positive number** rather than erroring (unless `NO_UNSIGNED_SUBTRACTION` is in
+  `sql_mode`), so compute differences by casting to signed. And a join between a signed column and an
+  unsigned one is a type mismatch — keep both sides of a join key identical, `UNSIGNED` included.
+- **Portability**: PostgreSQL has no `UNSIGNED`; there the equivalent is `CHECK (col >= 0)`. Add the
+  `CHECK` on MySQL as well **only when porting the schema is a stated requirement** — not for a
+  portability need nobody has.
+
+`DECIMAL`/`FLOAT`/`DOUBLE UNSIGNED` is deprecated (8.0.17) — this rule is for integer types.
 
 ### Type Selection
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| Tiny PK/flag | `tinyint unsigned` | 0~255 |
-| Small PK | `smallint unsigned` | 0~65535 |
-| Standard PK | `int unsigned` | 0~4.2 billion |
-| Large PK / default surrogate | `bigint unsigned` | Default choice; `int` risks exhaustion (~4.2B) on large tables |
+| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint unsigned`** | **No exceptions.** Rows = rate × time, with no upper bound. `int` at 10k/s dies in ~5 days, and retention does not reclaim `AUTO_INCREMENT` values |
+| Entity table PK (`member`, `product`) | `int unsigned` | Fine — 4.2B, and the real world caps the entity count. Record what bounds it |
+| Bounded lookup/code table PK | `tinyint`/`smallint unsigned` | Fixed code domain |
+| Flag / small enumerated value | `tinyint unsigned` | 0~255 |
 | Boolean | `tinyint(1)` 0/1 | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`. Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched — new designs use `tinyint(1)`) |
 | Variable string | `varchar(n)` | `n` = **character count** (MySQL 4.1+), sized to real max length. Row-wide 65,535B cap limits max `n` (utf8mb4 ≈ 16,383 chars single-column) |
 | Long text | `text` | 4 tiers: `tinytext`(255B)/`text`(64KB)/`mediumtext`(16MB)/`longtext`(4GB). Prefix index only |
@@ -107,7 +173,7 @@ an integer in the minor unit than as a `decimal`.
 - `partitioning.md` — Partitioning strategy, management
 - `connection-and-features.md` — Connection management, transactions
 - `dev-practices.md` — Development principles and anti-patterns: normalization + denormalization criteria,
-  minimal types, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
+  minimal types, `UNSIGNED` range benefit and the signed/unsigned mixing traps, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
   session-local SP cache, index anti-patterns, COUNT(*) MVCC reason, random PK (UUID v7), composite PK,
   no physical FK (extra write I/O, parent-row lock contention, blocks partitioning and online DDL —
   with the four compensating controls required instead), JSON (multi-valued index)

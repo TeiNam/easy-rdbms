@@ -69,7 +69,7 @@ scan widens as data grows:
 ```sql
 -- WRONG: start_date range has no lower bound → scans all past rows
 SELECT promotion_id, name, start_date, end_date
-FROM promotions WHERE start_date <= '2026-07-17' AND end_date >= '2026-07-17';
+FROM promotion WHERE start_date <= '2026-07-17' AND end_date >= '2026-07-17';
 ```
 
 If the **maximum validity span N is guaranteed** by business rules (e.g. coupons ≤ 90 days), then
@@ -80,10 +80,10 @@ If the **maximum validity span N is guaranteed** by business rules (e.g. coupons
 SET @target := '2026-07-17';
 SET @max_days := 90;                     -- business-guaranteed max validity span
 SELECT promotion_id, name, start_date, end_date
-FROM promotions
+FROM promotion
 WHERE start_date BETWEEN DATE_SUB(@target, INTERVAL @max_days DAY) AND @target
   AND end_date >= @target;               -- now just an ICP filter on the narrowed set
--- backing index: KEY idx_promotions_start (start_date)  [or (start_date, end_date) for covering]
+-- backing index: KEY idx_promotion_start_date (start_date)  [or (start_date, end_date) for covering]
 ```
 
 Scan volume becomes fixed at "last N days" instead of growing forever.

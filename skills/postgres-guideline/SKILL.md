@@ -2,7 +2,8 @@
 name: postgres-guideline
 description: >
   PostgreSQL 16+ schema design, table/index creation, query optimization, partitioning,
-  and psycopg3 connection management. Triggers: CREATE TABLE, GENERATED ALWAYS AS IDENTITY,
+  and psycopg3 connection management. Triggers: CREATE TABLE, GENERATED ALWAYS AS IDENTITY, PK type choice, int vs bigint PK,
+  sequence exhaustion,
   EXPLAIN ANALYZE, GIN/BRIN/GiST indexes, RLS, PARTITION BY RANGE, pg_partman,
   LISTEN/NOTIFY, Advisory Lock, UPSERT ON CONFLICT, CTE, timestamptz operations.
 ---
@@ -54,8 +55,9 @@ Summary + PostgreSQL-specific:
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| Small PK | `int` | ~2.1 billion |
-| Large PK | `bigint` | Required for log tables |
+| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint`** | **No exceptions.** Rows = rate × time with no bound; `int` at 10k/s dies in ~5 days, and a sequence never reuses values so retention does not reclaim range. `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` — see `schema-design.md` |
+| Entity table PK (`member`, `product`) | `int` | Fine — 2.1B, and the real world caps the entity count. Record what bounds it |
+| Bounded lookup/code table PK | `smallint` | Fixed code domain |
 | Small integer | `smallint` | -32768 ~ 32767 |
 | Boolean | `boolean` | Never use 'Y'/'N' strings |
 | Variable string | `varchar(n)` or `text` | Use `text` if no length limit |

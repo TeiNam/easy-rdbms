@@ -144,7 +144,8 @@ apply to it unchanged.
 ### Common Principles (DB-agnostic)
 
 - **PK is integer-based by default**: **default the surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion
-  on large tables). Reach for UUID when distributed generation across DBs/shards is required (no central
+  on large tables, and **widening a PK later is a full table rebuild** — see
+  `rdbms-modeling/references/identifier-selection.md`). Reach for UUID when distributed generation across DBs/shards is required (no central
   sequence) **or** an externally visible identifier is needed — and prefer **UUID v7** (time-sortable) over
   random v4. Join keys should be **narrow and type-matched to the parent**, which usually means integer —
   but a UUID PK propagating into children is a supported design, not a violation.
@@ -169,8 +170,13 @@ apply to it unchanged.
 - **Strings**: bounded → `VARCHAR(n)` (`n` sized to real max length); unbounded long text → engine-specific
   large type. `CHAR(n)` only for truly fixed widths (e.g. country code `CHAR(2)`); PostgreSQL gives `CHAR` no
   performance benefit, so do not overuse it.
-- **Positive-only columns**: enforce with **`CHECK (col >= 0)`** (portable). MySQL `UNSIGNED` is not portable
-  → prefer `CHECK` for cross-engine columns (see the Data Type Guide in `mysql-guideline`).
+- **Positive-only columns**: on **MySQL, use `UNSIGNED`** whenever the column cannot hold a negative
+  value (PK, counts, quantities, ages). It is not just a constraint — it **doubles the positive range
+  for the same bytes** (`int unsigned` reaches 4.2B where `int` stops at 2.1B), which is free runway on
+  exactly the columns most likely to run out. PostgreSQL has no `UNSIGNED`, so there the equivalent is
+  **`CHECK (col >= 0)`**. Use `CHECK` on MySQL too when cross-engine portability is a stated
+  requirement — but do not give up `UNSIGNED` for a portability need nobody has. See
+  `mysql-guideline/dev-practices.md` for the signed/unsigned mixing caveats.
 - **Avoid NULL**: for indexed columns prefer `NOT NULL` and normalize optional attributes into a joined table.
   Allow NULL only when the data is small or rarely used.
 - **Charset**: standardize on UTF-8 — MySQL `utf8mb4`, PostgreSQL `UTF8`.
@@ -186,7 +192,7 @@ apply to it unchanged.
 | Date | `date` | `date` |
 | Long text | `TINYTEXT`(255B)/`TEXT`(64KB)/`MEDIUMTEXT`(16MB)/`LONGTEXT`(4GB) 4 tiers | Variable `text` **single** (no length distinction) |
 | JSON | `json` (8.0+ native) | `jsonb` (indexing support, not `json`) |
-| Positive-only | `UNSIGNED` (MySQL-only) or `CHECK (col >= 0)` (portable) | `CHECK (col >= 0)` (no UNSIGNED) |
+| Positive-only | **`UNSIGNED`** (doubles the positive range) — add `CHECK (col >= 0)` only if the schema must port | `CHECK (col >= 0)` (no UNSIGNED in PostgreSQL) |
 | Fixed display width | (avoid) `ZEROFILL` deprecated 8.0.17 → pad in app/`LPAD` | No display width → app or `LPAD` |
 | External ID (not PK) | `binary(16)`, app-generated UUIDv7, `UUID_TO_BIN(v)` **no swap** (swap=1 is v1-only) | `uuid` — `uuidv7()` on PG 18+, else app-generated v7; `gen_random_uuid()` is v4 |
 | IPv4 / IPv6 | `int unsigned` via `INET_ATON` / `varbinary(16)` via `INET6_ATON` | `inet` (native) |

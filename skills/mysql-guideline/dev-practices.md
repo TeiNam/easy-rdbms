@@ -23,6 +23,23 @@ The essence of relational DB is "split, store, join to output".
 
 ## 2. Data Type Selection
 
+### 2.0 `UNSIGNED` Whenever Negatives Are Impossible
+
+`UNSIGNED` doubles the positive range for the same storage (`int unsigned` 4.2B vs `int` 2.1B), so
+apply it to every integer column whose domain excludes negatives — surrogate PKs, counts, quantities,
+ages. Declining it discards half the range for nothing.
+
+Caveats that matter in practice:
+
+- **Underflow wraps, it does not error.** `UNSIGNED` subtraction dropping below zero produces a huge
+  positive value unless `NO_UNSIGNED_SUBTRACTION` is set in `sql_mode`. Cast to signed when computing
+  differences: `CAST(a AS SIGNED) - CAST(b AS SIGNED)`.
+- **Never mix across a join key.** A signed column joined to an unsigned one is a type mismatch;
+  keep both sides identical, `UNSIGNED` included (see the join-key rule in `rdbms-naming`).
+- **PostgreSQL has none.** There the equivalent is `CHECK (col >= 0)`. Add that on MySQL too only when
+  the schema must actually port.
+- `DECIMAL`/`FLOAT`/`DOUBLE UNSIGNED` is deprecated (8.0.17) — integer types only.
+
 ### 2.1 Use the Smallest Type
 
 Smaller types bring four benefits: storage space (`TINYINT` 1B vs `INT` 4B → 100 million

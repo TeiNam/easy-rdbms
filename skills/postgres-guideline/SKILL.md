@@ -54,8 +54,8 @@ Summary + PostgreSQL-specific:
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| Small PK | `int` | ~2.1 billion |
-| Large PK | `bigint` | Required for log tables |
+| **Surrogate PK (default)** | **`bigint`** | **Always the default.** `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` and rebuilds every index on it — see `schema-design.md` |
+| Bounded lookup/code table PK | `int` / `smallint` | Only when the row count is bounded by something real; record what bounds it |
 | Small integer | `smallint` | -32768 ~ 32767 |
 | Boolean | `boolean` | Never use 'Y'/'N' strings |
 | Variable string | `varchar(n)` or `text` | Use `text` if no length limit |

@@ -9,6 +9,14 @@ table ordered by it (`CLUSTER` reorders once and is not maintained). So a UUID P
 here than on InnoDB, but **not nothing**: index locality still applies to the PK's own B-tree, so
 write-heavy tables should still prefer an ordered key.
 
+**Default the surrogate PK to `bigint`, and treat that as a decision you cannot cheaply revisit.**
+`ALTER TABLE … ALTER COLUMN id TYPE bigint` **rewrites the entire table** while holding
+`ACCESS EXCLUSIVE` — no reads, no writes — and rebuilds every index on the column. Any referencing
+column has to change in lockstep, and under a logical-FK policy those are plain columns needing their
+own migrations. The workaround (add a new `bigint` column, backfill in batches, dual-write, then swap
+in one transaction) is a multi-week project with an application change in the middle. 4 extra bytes
+per row is the cheaper option by a wide margin.
+
 | Situation | Use |
 |---|---|
 | Single-system table | `bigint GENERATED ALWAYS AS IDENTITY` |

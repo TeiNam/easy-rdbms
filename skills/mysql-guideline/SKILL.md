@@ -59,22 +59,61 @@ and less network traffic. `TINYINT` vs `INT` is 1B vs 4B — at 100 million rows
 | `int` | 4B | ≈ −2.1B ~ 2.1B | 0 ~ ≈ 4.2B |
 | `bigint` | 8B | ≈ −9.2×10¹⁸ ~ 9.2×10¹⁸ | 0 ~ ≈ 1.8×10¹⁹ |
 
-**Widening a column later is comparatively easy (online DDL); narrowing it risks data loss and in
-practice means a rebuild.** So do not pad "just in case" — size to the observed value range and
-monitor growth. The surrogate PK is the exception: default it to `bigint unsigned` because
-exhausting an `int` PK on a large table is a migration nobody wants.
+For an **ordinary column**, widening later is usually manageable and narrowing risks data loss — so
+size to the observed value range and monitor growth rather than padding "just in case".
+
+**The PK is not an ordinary column. Get it right at `CREATE TABLE` time.**
+
+> `ALTER TABLE … MODIFY member_id bigint unsigned` on the primary key requires **`ALGORITHM=COPY`** —
+> MySQL has no in-place path for changing an integer's type. That means a full table rebuild, and
+> because InnoDB appends the PK to **every secondary index**, all of them are rebuilt too. Add the
+> disk for a second copy, the replication lag while it runs, and the fact that every referencing
+> column (logical FK children included — this policy makes them plain columns) has to change in
+> lockstep across separate migrations.
+>
+> On a table small enough to rebuild in a maintenance window this is annoying. On a table with a
+> billion rows it is a `pt-online-schema-change` / `gh-ost` project with a cutover plan — which is
+> exactly the table where `int` runs out.
+
+So: **default the surrogate PK to `bigint unsigned`.** 4 extra bytes per row is the cheapest
+insurance in the schema. Reach for a narrower PK only on a table whose row count is bounded by
+something real — a code or lookup table with a fixed domain — and write down what bounds it.
 
 `decimal` follows the same principle: money that needs no fractional part is cheaper and simpler as
 an integer in the minor unit than as a `decimal`.
+
+### `UNSIGNED` — use it whenever negatives are impossible
+
+`UNSIGNED` is not merely a constraint. It **doubles the positive range for the same bytes**, so on
+the columns most likely to run out it is free runway:
+
+| Column | Signed ceiling | Unsigned ceiling |
+|---|---|---|
+| `int` PK | ≈ 2.1 billion | ≈ 4.2 billion |
+| `bigint` PK | ≈ 9.2×10¹⁸ | ≈ 1.8×10¹⁹ |
+
+Apply it to any integer column whose domain excludes negatives — surrogate PKs, counts, quantities,
+ages, byte sizes. Skipping it throws away half the range for nothing.
+
+Two things to keep straight:
+
+- **Mixing signed and unsigned is where it bites.** `UNSIGNED` subtraction that would go below zero
+  **wraps to a huge positive number** rather than erroring (unless `NO_UNSIGNED_SUBTRACTION` is in
+  `sql_mode`), so compute differences by casting to signed. And a join between a signed column and an
+  unsigned one is a type mismatch — keep both sides of a join key identical, `UNSIGNED` included.
+- **Portability**: PostgreSQL has no `UNSIGNED`; there the equivalent is `CHECK (col >= 0)`. Add the
+  `CHECK` on MySQL as well **only when porting the schema is a stated requirement** — not for a
+  portability need nobody has.
+
+`DECIMAL`/`FLOAT`/`DOUBLE UNSIGNED` is deprecated (8.0.17) — this rule is for integer types.
 
 ### Type Selection
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| Tiny PK/flag | `tinyint unsigned` | 0~255 |
-| Small PK | `smallint unsigned` | 0~65535 |
-| Standard PK | `int unsigned` | 0~4.2 billion |
-| Large PK / default surrogate | `bigint unsigned` | Default choice; `int` risks exhaustion (~4.2B) on large tables |
+| **Surrogate PK (default)** | **`bigint unsigned`** | **Always the default.** Changing a PK's type later needs `ALGORITHM=COPY` — a full rebuild plus every secondary index. See above |
+| Bounded lookup/code table PK | `tinyint`/`smallint`/`int unsigned` | Only when the row count is bounded by something real (fixed code domain). Record what bounds it |
+| Flag / small enumerated value | `tinyint unsigned` | 0~255 |
 | Boolean | `tinyint(1)` 0/1 | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`. Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched — new designs use `tinyint(1)`) |
 | Variable string | `varchar(n)` | `n` = **character count** (MySQL 4.1+), sized to real max length. Row-wide 65,535B cap limits max `n` (utf8mb4 ≈ 16,383 chars single-column) |
 | Long text | `text` | 4 tiers: `tinytext`(255B)/`text`(64KB)/`mediumtext`(16MB)/`longtext`(4GB). Prefix index only |
@@ -107,7 +146,7 @@ an integer in the minor unit than as a `decimal`.
 - `partitioning.md` — Partitioning strategy, management
 - `connection-and-features.md` — Connection management, transactions
 - `dev-practices.md` — Development principles and anti-patterns: normalization + denormalization criteria,
-  minimal types, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
+  minimal types, `UNSIGNED` range benefit and the signed/unsigned mixing traps, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
   session-local SP cache, index anti-patterns, COUNT(*) MVCC reason, random PK (UUID v7), composite PK,
   no physical FK (extra write I/O, parent-row lock contention, blocks partitioning and online DDL —
   with the four compensating controls required instead), JSON (multi-valued index)

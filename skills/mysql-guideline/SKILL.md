@@ -59,7 +59,7 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 | JSON data | `json` | MySQL 8.0+ native (binary format). Index via generated column or multi-valued index (8.0.17+) |
 | IPv4 | `int unsigned` via `INET_ATON` | 4B. IPv4-only |
 | IPv4/IPv6 | `varbinary(16)` via `INET6_ATON` | Dual-stack safe (INET_ATON returns NULL for IPv6) |
-| UUID (external, not PK) | `binary(16)` via `UUID_TO_BIN(v, 1)` | swap_flag=1 for time-ordered; prefer app-generated UUID v7 (MySQL `UUID()` is v1-only) |
+| UUID (external, not PK) | `binary(16)` via `UUID_TO_BIN(v)` | **swap_flag=1 is for UUIDv1 only** (MySQL `UUID()` is v1). Prefer app-generated **UUIDv7** and store it with **no swap** — v7 is already time-ordered, and swapping destroys that. Never `char(36)` |
 | Money | `decimal(p,s)` | Never float. **Per-currency:** KRW `(15,0)` (no minor unit), multinational `(19,4)`, rate `(19,6)`, ratio `(5,4)`. No blanket `(10,2)` |
 
 ## Prohibited Items
@@ -77,7 +77,8 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 - `dev-practices.md` — Development principles and anti-patterns: normalization + denormalization criteria,
   minimal types, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
   session-local SP cache, index anti-patterns, COUNT(*) MVCC reason, random PK (UUID v7), composite PK,
-  physical FK (balanced view), JSON (multi-valued index)
+  no physical FK (extra write I/O, parent-row lock contention, blocks partitioning and online DDL —
+  with the four compensating controls required instead), JSON (multi-valued index)
 - `jdbc-driver.md` — Java driver selection (2026-07): AWS Advanced JDBC Wrapper (top choice) vs Connector/J
   9.x; MariaDB Connector/J Aurora EOL, Aurora JDBC Driver EOL; failover tuning
 - `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 Innovation; production = LTS

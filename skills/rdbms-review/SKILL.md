@@ -3,13 +3,13 @@ name: rdbms-review
 description: >
   Review existing SQL, schemas, and migrations for performance, correctness, security, and
   concurrency problems on MySQL and PostgreSQL. Triggers: review this schema, review this
-  query, review this migration, why is this query slow, is this index right, missing index,
-  seq scan, full table scan, N+1 query, EXPLAIN output, EXPLAIN ANALYZE, deadlock, lock
-  wait timeout, table bloat, vacuum, slow query log, connection pool exhausted, too many
+  query, review this migration, why is this query slow, is this index right, missing index, seq
+  scan, full table scan, N+1 query, EXPLAIN output, EXPLAIN ANALYZE, deadlock, lock wait
+  timeout, table bloat, vacuum, slow query log, connection pool exhausted, too many
   connections, RLS policy review, GRANT audit, database security review, duplicate tables,
-  over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status,
-  type column holding a state, missing role table, is this schema
-  safe to deploy.
+  over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status, type
+  column holding a state, missing role table, foreign key constraint, ON DELETE CASCADE, orphan
+  rows, referential integrity, is this schema safe to deploy.
 ---
 
 # RDBMS Review
@@ -99,7 +99,9 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
 ### 2. Query Performance (CRITICAL)
 
 - WHERE / JOIN / ORDER BY columns unindexed
-- **Foreign key columns unindexed** — always a finding, both engines
+- **Referencing (logical FK) columns unindexed** — always a finding, both engines. Dropping the
+  physical constraint does not remove the need for the index; joins and parent-side lookups still
+  depend on it. PostgreSQL never auto-indexes the referencing side even when an FK exists
 - Sequential/full scan on a large table in an interactive path
 - N+1 query patterns
 - Composite index column order wrong — equality → sort → range
@@ -119,6 +121,16 @@ What to read in the plan:
 
 ### 3. Schema Design (HIGH)
 
+- **Physical `FOREIGN KEY` constraint present** — a policy violation and an operational finding.
+  It adds parent-index I/O to every child write that the statement does not show, takes locks on
+  the parent row that serialize unrelated child writes, and blocks routine maintenance (InnoDB
+  cannot put an FK on a partitioned table at all). Report the constraint, the drop statement, and
+  the four compensating controls that must land with it: `COMMENT`, index on the referencing
+  column, named integrity owner, scheduled orphan check. Flag `ON DELETE CASCADE` as CRITICAL —
+  one statement becoming an unbounded transaction
+- **Logical FK with no compensating controls** — the mirror finding. A documented reference with
+  no orphan check and no named integrity owner means violations are accumulating unobserved. Run
+  the orphan query during the review and report the count
 - **Normalization**: 3NF is the baseline. Flag transitive dependencies and partial dependencies
   on composite PKs. Then check for a **determinant that is not a superkey** (BCNF violation) —
   usually a table with overlapping candidate keys — and flag it only when it can produce a real

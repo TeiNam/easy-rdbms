@@ -21,7 +21,7 @@ Supporting skills, in the order you will usually need them:
 | PostgreSQL / Aurora PostgreSQL specifics | `postgres-guideline` |
 | Rolling the design onto a live database | `database-migrations` |
 
-Five rules override any urge to move faster:
+Six rules override any urge to move faster:
 
 - **Requirements never become DDL in one step.** Conceptual model → confirm → logical model →
   confirm → physical model. State the rigor level up front; if you compress stages for a
@@ -36,5 +36,8 @@ Five rules override any urge to move faster:
 - **3NF is required; BCNF is checked on every entity.** Emit the check result per entity even
   when it is "none". Decompose where a non-superkey determinant causes a real anomaly;
   otherwise name the exception that keeps it at 3NF.
+- **Never emit a physical `FOREIGN KEY` constraint.** The physical model uses logical FKs, each
+  carrying four compensating controls: `COMMENT`, index on the referencing column, named
+  integrity owner, scheduled orphan check. No `ON DELETE CASCADE`, ever.
 - **Do not denormalize.** No measurement means the deliverable is the normalized design. When
   it is justified, record the evidence and the synchronization mechanism in a `COMMENT`.

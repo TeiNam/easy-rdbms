@@ -119,9 +119,9 @@ over-modeling this check exists to prevent.
 A subtype shares the supertype's primary key. The same `customer_id` identifies the customer
 and its individual-customer detail — do not mint a separate surrogate key for the subtype row.
 
-That shared PK is conceptually also a foreign key to the supertype. **This plugin's policy is
-logical FKs only** (see the guideline skills), so express it as a documented reference rather
-than a physical constraint:
+That shared PK is conceptually also a foreign key to the supertype. **Physical `FOREIGN KEY`
+constraints are not created** (see the Hard Rule in `SKILL.md`), so express it as a documented
+reference:
 
 ```sql
 -- MySQL
@@ -138,8 +138,22 @@ Two integrity rules the application must then carry, because no constraint enfor
 2. For an exclusive classification, a supertype row has a detail row in **at most one** subtype
    table — and for a total classification, in **exactly one**.
 
-State both explicitly in the deliverable. Choosing logical FKs means these become application
-responsibilities, not database guarantees.
+State both explicitly in the deliverable, with the named integrity owner and an orphan check for
+each — the same four compensating controls every logical FK carries. Rule 2 needs its own
+detection query, since it is the one no single-table check can catch:
+
+```sql
+-- Exclusivity violation: a customer with detail rows in more than one subtype table
+SELECT customer_id FROM (
+  SELECT customer_id FROM individual_customer
+  UNION ALL
+  SELECT customer_id FROM corporate_customer
+) s
+GROUP BY customer_id HAVING count(*) > 1;
+```
+
+For a **total** classification, also check the other direction — supertype rows with no detail row
+in any subtype table.
 
 ## Physical Mapping
 

@@ -160,21 +160,45 @@ complicates FK references (multiple columns required), and introduces performanc
 column order dependencies. **Use single surrogate key (`AUTO_INCREMENT`) as PK**, express
 composite uniqueness via UNIQUE constraint/index.
 
-### 5.4 Physical FK Constraints
+### 5.4 Physical FK Constraints — Do Not Create Them
 
-Physical FK adds integrity check overhead on every write, lock contention on referenced
-tables (reduced concurrency), migration and distributed environment constraints, DBMS-specific
-implementation differences (reduced portability). **Manage referential integrity at application
-layer**, document FK relationships logically via `COMMENT` (see Application-Level Referential
-Integrity in schema-design).
+**Physical `FOREIGN KEY` constraints do not go into the physical model.** Referential integrity
+is managed at the application layer, with the relationship documented via `COMMENT` (see
+Application-Level Referential Integrity in `schema-design.md`).
 
-> **Balanced view — don't blanket-ban FKs.** The above is the trade-off under **high write traffic /
-> distributed / frequently-changing schemas**. Physical FKs are a net win when: single-instance / small-to-mid
-> scale where write load isn't the bottleneck; integrity is business-critical and multiple apps
-> (batch/admin/external) write, so app-level checks can't all be trusted (DB = last line of defense); or early
-> development where you want the model documented and enforced. The rule is **"move to app-level once
-> load/scale demands are clear"**, not "FKs forbidden". Whenever you drop an FK, **name where/how the integrity
-> is now guaranteed** (app / batch / constraint) — unmanaged, orphan rows accumulate silently.
+Why this is a hard rule rather than a preference:
+
+| Cost | What actually happens |
+|---|---|
+| **Extra internal I/O on every write** | Each `INSERT`/`UPDATE` on the child does a parent index lookup the query never asked for. Each parent `UPDATE`/`DELETE` scans children. The I/O is invisible in the SQL and unattributable in slow-query analysis |
+| **Lock contention and deadlocks** | FK checks take shared locks on the parent row. A hot parent row (a tenant, a category, a config row) serializes unrelated child writes. These locks do not appear where engineers look for them, so the incidents are hard to diagnose |
+| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction — long undo, replication lag, lock escalation |
+| **Blocks partitioning outright** | InnoDB **cannot** have foreign keys on a partitioned table, in either direction. Since log and history tables are partitioning candidates by default here, an FK today is a blocked partition tomorrow |
+| **Breaks online schema change** | `pt-online-schema-change` and `gh-ost` need special handling for FKs, and some paths are unsupported. Routine maintenance turns into a downtime negotiation |
+| **Bulk and recovery operations need FK checks disabled** | Loads, backfills, and data repairs run with checks off — which means the guarantee was not there during exactly the operations most likely to corrupt data |
+
+The trade-off is real and must be paid for, not ignored: **without a physical FK, orphan rows
+are possible.** Every logical FK therefore requires all four:
+
+1. The reference documented in a `COMMENT` (`logical FK: parent_table.parent_column`)
+2. An index on the referencing column — still needed for joins and for parent-side lookups
+3. Application-level validation on the write path, with the **owner named** (which service or
+   module guarantees it)
+4. A periodic orphan check, so violations surface instead of accumulating silently
+
+```sql
+-- Orphan detection — schedule this per logical FK
+SELECT c.chat_history_id
+FROM chat_history c
+LEFT JOIN user u ON u.user_id = c.user_id
+WHERE u.user_id IS NULL
+LIMIT 100;
+```
+
+If multiple writers exist (batch, admin tools, external integrations) the integrity owner must
+be a shared layer — a service or stored routine all of them go through — not one application's
+validation logic. If that layer cannot exist, say so explicitly in the design rather than
+quietly relying on a constraint this policy forbids.
 
 ### 5.5 JSON Column Overuse
 
@@ -194,10 +218,12 @@ If you must use JSON (mitigations):
 
 - [ ] Prioritize normalization; denormalize only with a defined sync owner; no monolithic JSON/HTML columns
 - [ ] Select smallest type within representable range (grow later is easy, shrink is not)
-- [ ] IPv4 → `INET_ATON`; IPv4/IPv6 → `INET6_ATON`+`VARBINARY(16)`; UUID → `UUID_TO_BIN(v,1)` / app v7
+- [ ] IPv4 → `INET_ATON`; IPv4/IPv6 → `INET6_ATON`+`VARBINARY(16)`; UUID → `BINARY(16)`, app-generated
+      v7 with **no swap flag** (`UUID_TO_BIN(v,1)` is v1-only — swapping a v7 destroys its ordering)
 - [ ] Choose DATETIME (5B, >2038 safe) vs TIMESTAMP (4B, auto-UTC, ≤2038) by range + timezone need
 - [ ] No SP/Trigger/Event (session-local cache, no global share), logic in app layer
 - [ ] Don't invalidate indexes with function conditions or `LIKE '%x'`
 - [ ] Existence check with `EXISTS`/`LIMIT 1` instead of `COUNT(*)` (InnoDB MVCC → COUNT scans)
 - [ ] PK is `INT`/`BIGINT`+`AUTO_INCREMENT` (avoid random v4; distributed → app UUID v7 BINARY(16); avoid composite PK)
-- [ ] FK: logical + app integrity under high scale; physical FK acceptable single-instance/integrity-critical — name the integrity owner either way
+- [ ] FK: **no physical `FOREIGN KEY` constraints.** Logical FK documented in `COMMENT`, referencing
+      column indexed, integrity owner named, orphan check scheduled

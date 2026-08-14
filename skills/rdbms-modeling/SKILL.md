@@ -4,20 +4,21 @@ description: >
   Turn business requirements into a data model through three staged steps — conceptual,
   logical, then physical — with a confirmation gate between each. Never converts requirements
   straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
-  BCNF violations, applies the IS-A test before generalizing entities into supertypes, and
-  permits denormalization only against a measurement. Triggers: design tables from
-  requirements, data model, conceptual model, logical model, physical model, ERD, entity
-  relationship diagram, domain model, business entities, normalization, 1NF 2NF 3NF, BCNF,
-  Boyce-Codd normal form, functional dependency, determinant, candidate key, overlapping
-  candidate keys, update anomaly, generalization, specialization, supertype, subtype, entity
-  inheritance, single table inheritance, discriminator column, IS-A, is-a relationship,
-  substitutability, exclusive subtypes, overlapping subtypes, total partial classification,
-  role table, type column vs subtype, status vs type, state machine or subtype, EAV,
-  entity attribute value,
-  similar tables, duplicate entities, denormalization, denormalize, table design, schema
-  design from scratch, N:M relationship, junction table, surrogate key vs natural key,
-  composite primary key, cardinality, soft delete design, which PK type, do I need a history
-  table, design a schema for, migration SQL for a new feature.
+  BCNF violations, applies the IS-A test before generalizing entities into supertypes, never
+  emits physical FOREIGN KEY constraints, and permits denormalization only against a
+  measurement. Triggers: design tables from requirements, data model, conceptual model, logical
+  model, physical model, ERD, entity relationship diagram, domain model, business entities,
+  normalization, 1NF 2NF 3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant,
+  candidate key, overlapping candidate keys, update anomaly, generalization, specialization,
+  supertype, subtype, entity inheritance, single table inheritance, discriminator column, IS-A,
+  is-a relationship, substitutability, exclusive subtypes, overlapping subtypes, total partial
+  classification, role table, type column vs subtype, status vs type, state machine or subtype,
+  EAV, entity attribute value, similar tables, duplicate entities, denormalization,
+  denormalize, table design, schema design from scratch, N:M relationship, junction table,
+  surrogate key vs natural key, composite primary key, cardinality, logical FK, physical FK,
+  foreign key constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete
+  design, which PK type, do I need a history table, design a schema for, migration SQL for a
+  new feature.
 ---
 
 # RDBMS Data Modeling
@@ -206,9 +207,9 @@ Then produce:
 - Table and column names per `rdbms-naming` — `snake_case`, singular tables, lowercase-prefix
   constraints and indexes (`pk_` / `fk_` / `uq_` / `chk_` / `idx_` / `ftx_`). The uppercase
   `_IDX` suffix is retired; it breaks under PostgreSQL case-folding
-- Engine-specific data types, with PK type sized to the expected row count
-- Constraints: PK, UNIQUE, CHECK, and NOT NULL. Logical FKs only — document the reference
-  target in a `COMMENT`
+- Engine-specific data types, and the **identifier decision** — see below
+- Constraints: PK, UNIQUE, CHECK, and NOT NULL. **No `FOREIGN KEY` constraints** — see the
+  rule below
 - `created_at` on every table; `updated_at` on every mutable table (skip for append-only logs)
 - Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
 - Indexes driven by actual WHERE / JOIN / ORDER BY columns. Composite order is
@@ -240,6 +241,72 @@ weigh that before choosing this strategy for a classification you expect to exte
 
 Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
 uniqueness, check constraints, and any subtype rules behave as intended.
+
+### Identifier Decision: UID vs Primary Key
+
+Separate the **logical identifier** from the **physical primary key**, and choose each against the
+engine's storage model. Full criteria in `references/identifier-selection.md`.
+
+Universal, both engines: a PK is `NOT NULL`, `UNIQUE`, and **immutable**. Business identifiers that
+can change or be exposed (email, national ID, business registration number) go in a `UNIQUE`
+constraint, never the PK. Never a raw timestamp alone as a PK — concurrent creation collides and
+clocks run backwards. Never `char(36)` for a UUID. **A UUID is not a credential** — possession is
+never authorization.
+
+| Situation | MySQL / InnoDB | PostgreSQL |
+|---|---|---|
+| Single DB, ordinary table | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY`, or UUIDv7 |
+| Write-heavy | Sequential integer first | `IDENTITY` or UUIDv7 — not v4 |
+| Generated on multiple nodes | UUIDv7 as `binary(16)`, or a distributed integer ID | native `uuid` with UUIDv7 |
+| Exposed externally | Internal integer PK + public UID column | UUID PK, or integer PK + public UID |
+| Wide natural or composite key | Split out as `UNIQUE` | Split out as `UNIQUE` |
+
+**Why the engines differ.** InnoDB uses the PK as its clustering index *and* copies the PK value
+into every secondary index — so PK width and ordering are storage decisions, and a random UUIDv4 PK
+fragments the table and inflates every index. PostgreSQL stores rows in a heap, so a UUID PK costs
+much less — but **not nothing**, because index locality still applies to the PK's own B-tree.
+
+Two engine specifics that are easy to get wrong:
+
+- MySQL: `UUID_TO_BIN(v, 1)`'s swap flag exists for **UUIDv1** (what MySQL's `UUID()` returns).
+  **Do not apply it to a UUIDv7** — v7 is already time-ordered and swapping destroys that.
+- PostgreSQL: `uuidv7()` is built in from **PG 18**. On 16/17 generate v7 in the application;
+  `gen_random_uuid()` is **v4**.
+
+### Hard Rule: No Physical FK Constraints
+
+**`FOREIGN KEY` constraints do not go into the physical model.** This is not a preference to
+weigh per table — the logical model carries the relationships, and the physical model implements
+them as documented references plus application-enforced integrity.
+
+The reasons are operational, not stylistic: an FK adds parent-index I/O to every child write that
+never appears in the statement, takes locks on the parent row that serialize unrelated writes and
+surface as hard-to-diagnose incidents, gives cascades unbounded transaction scope, and blocks
+routine maintenance — on MySQL, InnoDB cannot put a foreign key on a partitioned table at all, so
+an FK today is a blocked partition tomorrow. Engine-specific detail in
+`mysql-guideline/dev-practices.md` §5.4 and `postgres-guideline/schema-design.md`.
+
+**The trade-off is real and must be paid for.** Without the constraint, orphan rows are possible.
+Every logical FK in the deliverable therefore carries all four:
+
+1. The reference in a `COMMENT` — `logical FK: parent_table.parent_column`
+2. **An index on the referencing column — mandatory on both engines.** On MySQL this is easy to
+   miss: InnoDB's automatic child index came *from* the FK constraint, so removing the constraint
+   removes the index and nothing warns you. PostgreSQL never created it automatically. Skip only if
+   an existing composite index already **leads** with that column
+3. A named **integrity owner** — which service or module guarantees it on the write path
+4. A scheduled orphan-detection query
+
+The reference must target a **PK or UNIQUE** column. This holds for a logical FK too: a documented
+reference to a non-unique column is ambiguous by construction, and the orphan query cannot be
+written correctly against it.
+
+Engine differences, the index consequence, and the exception path for schemas where a physical FK
+already exists or is mandated: `references/foreign-keys.md`.
+
+If multiple writers exist (batch, admin, external integrations), the integrity owner must be a
+shared layer all of them pass through. If no such layer can exist, say so in the design — do not
+resolve it by adding the constraint back.
 
 ### DB-to-Guideline Mapping
 
@@ -309,6 +376,7 @@ STAGE 3 — Physical model
   DDL:            <CREATE TABLE + constraints in the correct dialect>
   Indexes:        <with the query each one serves>
   Partitioning:   <decision for log/history tables>
+  Logical FKs:    <per reference — COMMENT, index, integrity owner, orphan check query>
   Migration:      <ordered SQL + rollout notes>
   Sample data:    <smallest inserts that exercise the constraints>
   Checklist:      <verified below>
@@ -342,7 +410,9 @@ STAGE 3 — Physical model
       synchronization mechanism
 - [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
 - [ ] PK type matches expected row count (tinyint / smallint / int / bigint)
-- [ ] No physical FK constraints; logical FKs documented in `COMMENT`
+- [ ] **No `FOREIGN KEY` constraints anywhere in the DDL**
+- [ ] Every logical FK has all four: `COMMENT`, index on the referencing column, named integrity
+      owner, scheduled orphan check
 - [ ] `created_at` on every table; `updated_at` on every mutable table
 - [ ] Soft-delete tables use `is_active` with the right index strategy per engine
 - [ ] Naming follows `rdbms-naming`: snake_case, singular tables, lowercase-prefix
@@ -371,7 +441,9 @@ STAGE 3 — Physical model
 | `timestamp` without timezone (PostgreSQL) | `timestamptz` |
 | Habitual `varchar(255)` (PostgreSQL) | `text` |
 | Natural key as PK when the key changes | Surrogate PK + `UNIQUE` constraint |
-| Physical FK constraints | Logical FKs + application-level validation |
+| `FOREIGN KEY` constraint in the DDL | Logical FK: `COMMENT` + index + named integrity owner + orphan check |
+| `ON DELETE CASCADE` | Explicit application-side deletion, or a bounded batch job |
+| Logical FK with no orphan check | Violations accumulate silently — schedule the detection query |
 | Standalone `is_active` index | Composite index (MySQL) / partial index (PostgreSQL) |
 | `OFFSET` pagination on large log tables | Cursor / keyset pagination |
 | An index on every column | Minimal indexes driven by real query patterns |
@@ -383,6 +455,10 @@ STAGE 3 — Physical model
 - `references/normalization.md` — per-normal-form rules, BCNF procedure, denormalization bar
 - `references/generalization.md` — IS-A and substitutability, the seven questions in full,
   type column vs role model vs supertype, identifier inheritance, physical mapping
+- `references/identifier-selection.md` — UID vs PK, per-engine storage model, UUIDv4/v7,
+  the `UUID_TO_BIN` swap-flag trap, PG 18 `uuidv7()`
+- `references/foreign-keys.md` — engine differences, why the referencing index is mandatory once
+  the constraint is gone, reference-target rule, exception path for mandated FKs
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

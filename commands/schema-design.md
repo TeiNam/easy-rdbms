@@ -20,7 +20,9 @@ stopping at each confirmation gate:
    structure match the business rules and wait.
 3. **Physical** — only after the target RDBMS is confirmed. If it is undecided, use
    `db-select` at this point. Then produce DDL in the correct dialect, constraints, indexes,
-   partitioning, ordered migration SQL, and a sample-data constraint test.
+   partitioning, ordered migration SQL, and a sample-data constraint test. **Emit no physical
+   `FOREIGN KEY` constraints** — every logical FK instead carries a `COMMENT`, an index on the
+   referencing column, a named integrity owner, and an orphan-detection query.
 
 First state the rigor level: payments, inventory, permissions, and contracts get all three
 stages in full; a personal tool may compress stages 1 and 2 into one short pass — but say so

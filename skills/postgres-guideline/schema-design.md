@@ -4,6 +4,26 @@
 - Use `GENERATED ALWAYS AS IDENTITY` (not SERIAL)
 - UUID allowed for distributed or external-facing IDs
 
+PostgreSQL stores rows in a **heap** — a PK creates a unique B-tree index but does not keep the
+table ordered by it (`CLUSTER` reorders once and is not maintained). So a UUID PK costs far less
+here than on InnoDB, but **not nothing**: index locality still applies to the PK's own B-tree, so
+write-heavy tables should still prefer an ordered key.
+
+| Situation | Use |
+|---|---|
+| Single-system table | `bigint GENERATED ALWAYS AS IDENTITY` |
+| Distributed generation | native `uuid` with **UUIDv7** |
+| Write-heavy | `IDENTITY`, or UUIDv7 — not UUIDv4 |
+| Externally visible ID | UUID PK, or an integer PK plus a separate public UID |
+
+**`uuidv7()` is built in from PostgreSQL 18.** This guideline's baseline is 16.7+, so on 16 and 17
+generate v7 in the application or use a vetted extension. `gen_random_uuid()` returns **v4** — do
+not reach for it when ordering is what you wanted.
+
+Never use a raw timestamp as the sole PK (concurrent collisions, clock regression), and never
+treat a UUID as an authentication or authorization token. Full criteria in
+`rdbms-modeling/references/identifier-selection.md`.
+
 ```sql
 CREATE TABLE app.user (
   user_id int GENERATED ALWAYS AS IDENTITY,
@@ -27,10 +47,43 @@ CREATE TABLE app.user (
 );
 ```
 
-## Foreign Key Policy
-- Logical FK only (no physical FK constraints)
-- Referential integrity managed at application level
-- Avoids lock contention and performance degradation
+## Foreign Key Policy — No Physical FK Constraints
+
+**Do not create `FOREIGN KEY` constraints in the physical model.** Referential integrity is
+managed at the application layer with the relationship documented via `COMMENT`.
+
+Why, on PostgreSQL specifically:
+
+| Cost | What actually happens |
+|---|---|
+| **Extra I/O on every write** | Each child `INSERT`/`UPDATE` does a parent lookup the query never asked for; the cost is invisible in the statement and hard to attribute in `pg_stat_statements` |
+| **Parent-row lock contention** | FK validation takes a `FOR KEY SHARE` lock on the parent row. It does not block ordinary parent reads, but it **does** conflict with parent-key updates and deletes — a hot parent row serializes unrelated child writes |
+| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction: long-running locks, replication lag, and bloat from the mass delete |
+| **No auto-index on the referencing side** | PostgreSQL indexes the *referenced* column (it must be unique) but **not** the referencing one. An unindexed child column makes every parent delete a sequential scan of the child — a common production surprise |
+| **Partitioning and attach complexity** | FKs referencing a partitioned table are supported only from PG 12+, and `ATTACH PARTITION` must validate constraints, which takes stronger locks and lengthens the maintenance window |
+| **Restore and bulk-load ordering** | `pg_restore` and backfills must order operations to satisfy constraints, or run with them disabled — meaning the guarantee is absent during the operations most likely to corrupt data |
+
+The trade-off must be paid for, not ignored: **without a physical FK, orphan rows are possible.**
+Every logical FK requires all four:
+
+1. The reference documented in a `COMMENT` (`logical FK: schema.parent_table.parent_column`)
+2. An index on the referencing column — needed for joins and parent-side lookups regardless
+3. Application-level validation on the write path, with the **integrity owner named**
+4. A scheduled orphan check, so violations surface instead of accumulating silently
+
+```sql
+-- Orphan detection — schedule one per logical FK
+SELECT c.chat_history_id
+FROM log.chat_history c
+LEFT JOIN app.user u ON u.user_id = c.user_id
+WHERE u.user_id IS NULL
+LIMIT 100;
+```
+
+If several writers exist (batch jobs, admin tooling, external integrations), the integrity owner
+must be a layer they all pass through — not one application's validation code. If no such layer
+can exist, state that in the design rather than quietly relying on a constraint this policy
+forbids.
 
 ```sql
 CREATE TABLE app.chat_history (

@@ -137,10 +137,13 @@ concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tab
 
 ### Common Principles (DB-agnostic)
 
-- **PK is integer-based (avoid UUID)**: the first-column PK should be an auto-increment integer. **Default the
-  surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion on large tables). Ordering, index locality, and
-  storage favor integers over UUIDs. Use UUID **only when distributed generation across DBs/shards** is
-  required (no central sequence) — and prefer **UUID v7** (time-sortable) stored as `BINARY(16)` over random v4.
+- **PK is integer-based by default**: **default the surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion
+  on large tables). Use UUID **only when distributed generation across DBs/shards** is required (no central
+  sequence) — and prefer **UUID v7** (time-sortable) over random v4.
+  The reasoning differs by engine: on **InnoDB** the PK *is* the clustering index and is copied into every
+  secondary index, so PK width and ordering are storage decisions; on **PostgreSQL** rows live in a heap, so a
+  UUID PK costs less — but not nothing, since index locality still applies to write-heavy tables.
+  Full criteria in `rdbms-modeling/references/identifier-selection.md`.
   - **MySQL**: `BIGINT ... AUTO_INCREMENT`
   - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`)
 - **Amounts / settlement**: Floating-point (`float`/`double`/`real`) is **absolutely prohibited** → use
@@ -177,7 +180,7 @@ concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tab
 | JSON | `json` (8.0+ native) | `jsonb` (indexing support, not `json`) |
 | Positive-only | `UNSIGNED` (MySQL-only) or `CHECK (col >= 0)` (portable) | `CHECK (col >= 0)` (no UNSIGNED) |
 | Fixed display width | (avoid) `ZEROFILL` deprecated 8.0.17 → pad in app/`LPAD` | No display width → app or `LPAD` |
-| External ID (not PK) | `binary(16)` (UUID v7 via `UUID_TO_BIN`) | `uuid` (`gen_random_uuid()`) |
+| External ID (not PK) | `binary(16)`, app-generated UUIDv7, `UUID_TO_BIN(v)` **no swap** (swap=1 is v1-only) | `uuid` — `uuidv7()` on PG 18+, else app-generated v7; `gen_random_uuid()` is v4 |
 | IPv4 / IPv6 | `int unsigned` via `INET_ATON` / `varbinary(16)` via `INET6_ATON` | `inet` (native) |
 | Array | (none → normalize or JSON) | `type[]` (e.g., `text[]`) |
 

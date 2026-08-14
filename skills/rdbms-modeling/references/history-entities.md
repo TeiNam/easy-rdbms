@@ -80,11 +80,18 @@ snapshot          full post-change data, or the significant attributes
 except by retention policy.
 
 **No physical FK from history to the source entity, on either engine.** This is not just the MySQL FK
-policy: history must *survive* the deletion of its parent, which is exactly what a foreign key
-prevents. Record `entity_id` as a logical reference with a `COMMENT`, and index it.
+policy — an FK here forces a choice among three outcomes, and none of them is what history needs:
 
-For the same reason, **never apply `ON DELETE CASCADE` from the entity to its history.** Deleting the
-row must not delete the record that it existed.
+| Referential action | What happens to the parent delete | What happens to history |
+|---|---|---|
+| `CASCADE` | Succeeds | **Deleted** — the record that the row existed is gone |
+| `RESTRICT` / `NO ACTION` | **Blocked** — the row can never be deleted while history exists | Preserved, at the cost of making deletion impossible |
+| `SET NULL` | Succeeds | Preserved but **orphaned** — it no longer says whose history it is |
+
+History needs the parent to be deletable *and* the record to survive intact, which no action
+provides. Record `entity_id` as a logical reference with a `COMMENT`, index it, and enforce the
+"parent existed at write time" rule in the application. **`ON DELETE CASCADE` from an entity to its
+history is the worst of the three** — it deletes the evidence.
 
 ## Current + History Flow
 
@@ -159,7 +166,9 @@ deletion are actually present in the code.
   database-enforced global `(entity_id, version)` uniqueness and do **not** partition, or partition
   and move that uniqueness to an application-enforced invariant with a detection query. Decide it
   explicitly — do not fold the column in and call the constraint intact.
-- **PostgreSQL**: RANGE on `recorded_at` with a trailing `DEFAULT` partition (see `partitioning.md`
+- **PostgreSQL**: same either/or applies — a partitioned table's `UNIQUE` constraints must also
+  include the partition key, so global `(entity_id, version)` uniqueness and partitioning are
+  mutually exclusive here too. RANGE on `recorded_at` with a trailing `DEFAULT` partition (see `partitioning.md`
   for why `DEFAULT` beats a `MAXVALUE` bound).
 - **Decide partitioning for the current entity and its history independently.** They have different
   access patterns and different retention.

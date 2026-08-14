@@ -2,27 +2,27 @@
 name: rdbms-review
 description: >
   Review existing SQL, schemas, and migrations for performance, correctness, security, and
-  concurrency problems on MySQL and PostgreSQL. Triggers: review this schema, review this
-  query, review this migration, why is this query slow, is this index right, missing index, seq
-  scan, full table scan, N+1 query, EXPLAIN output, EXPLAIN ANALYZE, deadlock, lock wait
-  timeout, table bloat, vacuum, slow query log, connection pool exhausted, too many
-  connections, RLS policy review, GRANT audit, database security review, duplicate tables,
-  over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status, type
-  column holding a state, missing role table, foreign key constraint, ON DELETE CASCADE, orphan
-  rows, referential integrity, partition pruning, partitions not pruned, MAXVALUE partition,
-  default partition filling up, partition key missing from WHERE, history table, audit table,
-  audit trail, versioning, temporal table, valid_from valid_to, event sourcing, point-in-time
-  query, stored procedure, trigger audit, database event, denormalized column out of sync,
-  aggregate table stale, write amplification, unused index, redundant index, invisible index,
-  covering index, heap fetches, index only scan, filesort, LIKE wildcard slow, full text
-  search, FULLTEXT ngram, pg_trgm, tsvector, search engine migration, view performance, nested
-  views, materialized view, REFRESH MATERIALIZED VIEW, CONCURRENTLY, summary table stale, is
-  this schema safe to deploy.
+  concurrency problems on MySQL, PostgreSQL, and SQLite. Triggers: review this schema, review
+  this query, SQLite PRAGMA, STRICT table, review this migration, why is this query slow, is
+  this index right, missing index, seq scan, full table scan, N+1 query, EXPLAIN output,
+  EXPLAIN ANALYZE, deadlock, lock wait timeout, table bloat, vacuum, slow query log, connection
+  pool exhausted, too many connections, RLS policy review, GRANT audit, database security
+  review, duplicate tables, over-generalized schema, EAV anti-pattern, nullable everything,
+  subtype vs status, type column holding a state, missing role table, foreign key constraint,
+  ON DELETE CASCADE, orphan rows, referential integrity, partition pruning, partitions not
+  pruned, MAXVALUE partition, default partition filling up, partition key missing from WHERE,
+  history table, audit table, audit trail, versioning, temporal table, valid_from valid_to,
+  event sourcing, point-in-time query, stored procedure, trigger audit, database event,
+  denormalized column out of sync, aggregate table stale, write amplification, unused index,
+  redundant index, invisible index, covering index, heap fetches, index only scan, filesort,
+  LIKE wildcard slow, full text search, FULLTEXT ngram, pg_trgm, tsvector, search engine
+  migration, view performance, nested views, materialized view, REFRESH MATERIALIZED VIEW,
+  CONCURRENTLY, summary table stale, is this schema safe to deploy.
 ---
 
 # RDBMS Review
 
-Review database code that already exists. For designing something new, use `rdbms-modeling`
+Review database code that already exists — MySQL, PostgreSQL, or SQLite. For designing something new, use `rdbms-modeling`
 instead; for choosing the engine, `db-select`.
 
 ## When to Activate
@@ -244,9 +244,11 @@ What to read in the plan:
 - Migration/admin credentials shared with the runtime application user
 - Credentials in code, config files, or examples instead of a secret manager
 - TLS not required for connections crossing hosts or networks
-- PostgreSQL: RLS enabled on multi-tenant tables; policy functions wrapped as
-  `(SELECT fn())` so they evaluate once per query rather than once per row; policy columns
-  indexed; `REVOKE ALL ON SCHEMA public FROM public`
+- PostgreSQL: RLS enabled on multi-tenant tables — **and the runtime role actually subject to it**:
+  not a superuser, no `BYPASSRLS`, not the table owner (or `FORCE ROW LEVEL SECURITY` is set).
+  Policies on a table the app owns are decoration; check the role, not just the policy. Policy
+  functions wrapped as `(SELECT fn())` so they evaluate once per query rather than once per row;
+  policy columns indexed; `REVOKE ALL ON SCHEMA public FROM public`
 - MySQL: anonymous accounts removed; no direct DML against `mysql.user`
 
 ### 5. Operations (MEDIUM)
@@ -270,8 +272,9 @@ What to read in the plan:
 - **History written outside the transaction that changed the current row** — CRITICAL. A failure
   between the two leaves history that contradicts the data. Check that both writes share one
   transaction boundary
-- **`CASCADE` or a physical FK from an entity to its history table** — history must outlive the row
-  it describes; the constraint deletes the evidence along with the record
+- **A physical FK from an entity to its history table** — every referential action is wrong here:
+  `CASCADE` deletes the evidence, `RESTRICT`/`NO ACTION` makes the parent undeletable, `SET NULL`
+  orphans the history. `CASCADE` is the worst and is CRITICAL. History needs a logical reference
 - **`updated_at` presented as history** — it says something changed, not what or why. If the code has
   audit screens, restore features, or point-in-time queries, the structure does not support them
 - **State changes recorded without an actor and a reason** — an approval or cancellation row that

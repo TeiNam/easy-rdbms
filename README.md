@@ -173,7 +173,7 @@ MIT
 
 **Claude Code**와 **Codex**용 RDBMS 설계 플러그인입니다. 규모와 예산에 맞는 DB를 고르고,
 네이밍을 일관되게 잡고, 테이블을 3NF로 정규화한 뒤 BCNF 위반을 검사하고, 배포 전에 스키마와
-쿼리를 리뷰합니다. MySQL과 PostgreSQL(Aurora 포함)을 다룹니다.
+쿼리를 리뷰합니다. MySQL·PostgreSQL(Aurora 포함)과 SQLite를 다룹니다.
 
 ### 설치
 

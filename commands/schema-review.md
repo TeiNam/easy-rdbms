@@ -10,8 +10,10 @@ $ARGUMENTS
 If nothing is specified above, review the uncommitted database changes in this repo
 (migrations, DDL, and SQL in the working tree).
 
-Establish the engine and version first — every dialect finding depends on it. If it cannot
-be determined, say so and limit the review to engine-neutral findings.
+Establish the engine and version first (MySQL / PostgreSQL / SQLite) — every dialect finding
+depends on it. On SQLite also check the PRAGMA baseline: `foreign_keys` off and missing `STRICT`
+are the two highest-yield findings there. If it cannot be determined, say so and limit the review
+to engine-neutral findings.
 
 Report in the skill's format: findings ordered CRITICAL → HIGH → MEDIUM, each with impact
 and an exact fix, then the verification steps, then the engine you assumed and how you

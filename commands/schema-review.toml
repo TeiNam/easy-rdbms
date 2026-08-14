@@ -2,7 +2,7 @@ description = "Review a schema, query, or migration for performance, security, a
 prompt = """
 Use the `rdbms-review` skill to review what the user specifies. If they specify nothing, review the uncommitted database changes in this repo (migrations, DDL, and SQL in the working tree).
 
-Establish the engine and version first - every dialect finding depends on it. If it cannot be determined, say so and limit the review to engine-neutral findings.
+Establish the engine and version first (MySQL / PostgreSQL / SQLite) - every dialect finding depends on it. On SQLite also check the PRAGMA baseline: foreign_keys off and missing STRICT are the two highest-yield findings there. If it cannot be determined, say so and limit the review to engine-neutral findings.
 
 Report in the skill's format: findings ordered CRITICAL then HIGH then MEDIUM, each with impact and an exact fix, then the verification steps, then the engine you assumed and how you determined it.
 

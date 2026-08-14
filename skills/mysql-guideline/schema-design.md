@@ -36,11 +36,16 @@ CREATE TABLE `chat_history` (
 
 ```python
 async def create_chat_history(user_id: int, conversation_id: str, message: str, response: str):
-    user = db.select("user", where={"user_id": user_id, "is_active": 1})
+    # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
+    # and the insert. Lock each parent row FOR UPDATE inside the same transaction as the insert.
+    # (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)
+    user = db.select_for_update("user", where={"user_id": user_id, "is_active": 1})
     if not user:
         raise ValueError("User does not exist")
 
-    conversation = db.select("conversation_session", where={"conversation_id": conversation_id})
+    conversation = db.select_for_update(
+        "conversation_session", where={"conversation_id": conversation_id}
+    )
     if not conversation:
         raise ValueError("Conversation session does not exist")
 
@@ -60,7 +65,9 @@ Standardize tables requiring soft delete with the `is_active` column.
 `is_active` tinyint(1) NOT NULL DEFAULT 1  -- 1: active, 0: deleted
 ```
 
-- Physical DELETE prohibited (audit trail, recovery capability)
+- Physical DELETE prohibited (recoverable logical deletion). **This is not an audit trail** — it
+  records only the current flag, not who deleted it, when, or why. An audit requirement needs a
+  history mechanism (`rdbms-modeling/references/history-entities.md`)
 - Always include `WHERE is_active = 1` in queries
 - Place at front of composite index if queried frequently
 
@@ -80,7 +87,8 @@ CREATE INDEX idx_user_active_email ON user (is_active, email);  -- lowercase idx
 - [ ] Log tables evaluated as partitioning candidates against the evidence rules (see `partitioning.md`)
 - [ ] Appropriate indexes created
 - [ ] Engine: InnoDB, Charset: utf8mb4
-- [ ] No procedures/triggers/events
+- [ ] No procedures/triggers/events carrying **business logic** (the operational-utility and
+      audit-trigger exceptions are in `rdbms-modeling/references/db-internal-routines.md`)
 - [ ] `created_at` included (mandatory for all tables)
 - [ ] `updated_at` included (except immutable log/history tables)
       Note: append-only tables like `chat_history`, `audit_log`, `access_log` may omit, recommend documenting in COMMENT

@@ -79,7 +79,7 @@ invent specific prices or instance costs.
 | **Serverless RDBMS** | Low | Varies with usage | Low or irregular traffic; per-branch dev databases |
 | **Distributed SQL** (CockroachDB, TiDB, Citus, Aurora Limitless) | High | High | Global writes, strong consistency at scale, or horizontal scale that is a present requirement |
 
-Scope note: this plugin's design guidance covers MySQL and PostgreSQL. Other relational
+Scope note: this plugin's design guidance covers MySQL, PostgreSQL, and SQLite. Other relational
 engines are out of scope — if a project is already committed to one, say the follow-up
 guidance does not apply rather than arguing about the platform.
 

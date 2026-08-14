@@ -147,8 +147,10 @@ A backfill or a corrected timestamp predating the first partition is exactly wha
 should absorb, and `MAXVALUE` bounds reject it. Both carry the same operational constraint, so
 `DEFAULT` costs nothing extra.
 
-**The safety partition covers the range you want to add next**, and RANGE bounds may not overlap — so
-you cannot simply create the next regular partition. The portable procedure:
+**The safety partition covers the range you want to add next.** Creating the new partition directly
+makes PostgreSQL scan the catch-all and succeeds **only if** it holds no rows in that range (a
+matching `CHECK` on the default partition can prove emptiness and skip the scan). On a
+fallen-behind default it fails, so the reliable procedure is:
 
 1. `DETACH` the default partition
 2. Create the new regular partition for the next period

@@ -83,9 +83,9 @@ lowercase index prefixes).
 **`INTEGER PRIMARY KEY` is the rowid** — the table's actual storage key, fast and auto-assigned.
 This is the default surrogate PK.
 
-- **`AUTOINCREMENT` is almost always unnecessary** — its guarantee is that generated rowids are
-  strictly greater than any rowid that ever existed (never reused), at the cost of a
-  bookkeeping table. Use plain `INTEGER PRIMARY KEY` unless ID reuse is a genuine correctness
+- **`AUTOINCREMENT` is almost always unnecessary** — its guarantee is that a generated rowid is
+  strictly greater than every previously **committed** generated rowid (values from rolled-back
+  transactions can reappear), at the cost of a bookkeeping table. Use plain `INTEGER PRIMARY KEY` unless ID reuse is a genuine correctness
   problem (e.g., IDs leaked to an external system that must never see a recycled one).
 - `WITHOUT ROWID` tables suit small lookup tables with a natural non-integer PK; measure before
   using them elsewhere.

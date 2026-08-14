@@ -148,12 +148,23 @@ COMMENT ON COLUMN app.chat_history.user_id IS 'logical FK: app.user.user_id';
 
 ```python
 async def create_chat_history(user_id: int, conversation_id: str, message: str, response: str):
+    # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check and
+    # the insert. Lock every parent row FOR UPDATE in the same transaction as the insert, and
+    # validate EVERY logical reference — conversation_id needs the same treatment as user_id.
     user = await db.execute_query(
-        "SELECT user_id FROM app.user WHERE user_id = %(user_id)s AND is_active = true",
+        "SELECT user_id FROM app.user WHERE user_id = %(user_id)s AND is_active = true FOR UPDATE",
         {"user_id": user_id}
     )
     if not user:
         raise ValueError("User does not exist")
+
+    conversation = await db.execute_query(
+        "SELECT conversation_id FROM app.conversation_session"
+        " WHERE conversation_id = %(cid)s FOR UPDATE",
+        {"cid": conversation_id}
+    )
+    if not conversation:
+        raise ValueError("Conversation session does not exist")
 
     result = await db.execute_command(
         """INSERT INTO log.chat_history (user_id, conversation_id, user_message, bot_response)
@@ -172,7 +183,9 @@ Tables requiring logical deletion standardize on the `is_active` column.
 `is_active` boolean NOT NULL DEFAULT true
 ```
 
-- Physical DELETE prohibited (ensures audit trail and recovery capability)
+- Physical DELETE prohibited (recoverable logical deletion). **This is not an audit trail** — it
+  records only the current flag, not who deleted it, when, or why. An audit requirement needs a
+  history mechanism (`rdbms-modeling/references/history-entities.md`)
 - Always include `WHERE is_active = true` in queries
 - Use Partial Index to index only active records → reduces index size
 
@@ -181,13 +194,25 @@ Tables requiring logical deletion standardize on the `is_active` column.
 CREATE INDEX idx_user_active_email ON app.user (email) WHERE is_active = true;
 ```
 
-> WARNING: Standalone B-tree index on `is_active` is ineffective due to low cardinality.
-> Use PostgreSQL's Partial Index or composite indexes.
+> WARNING: a standalone B-tree index on `is_active` is *usually* poor value — but low cardinality
+> alone does not decide it. If the queried value is rare (0.5% inactive, and you query those), the
+> index is selective for that value. Judge by skew and the plan; the partial index above serves the
+> common case either way.
 
 ## Row Level Security (RLS)
 
+**RLS only enforces anything if the runtime role is subject to it.** Superusers and roles with
+`BYPASSRLS` bypass policies unconditionally, and the **table owner** bypasses them unless
+`FORCE ROW LEVEL SECURITY` is set. Run the application as a non-owner
+`NOSUPERUSER NOBYPASSRLS` role, or the policies below are decoration.
+
 ```sql
+-- The runtime role must not own the table and must not bypass RLS
+CREATE ROLE app_runtime LOGIN NOSUPERUSER NOBYPASSRLS;
+
 ALTER TABLE app.orders ENABLE ROW LEVEL SECURITY;
+-- Needed only if the owner itself must obey the policies
+ALTER TABLE app.orders FORCE ROW LEVEL SECURITY;
 
 -- Optimized RLS policy (wrap auth call in SELECT to avoid per-row evaluation)
 -- Note: auth.uid() is project-specific — replace with platform-appropriate function (Supabase, etc.)
@@ -238,5 +263,7 @@ SELECT * FROM app.user_setting WHERE setting_data ? 'theme';
 - [ ] `created_at` included (required for all tables)
 - [ ] `updated_at` included (except append-only log tables) — updated by application, not triggers
 - [ ] Soft Delete tables use `is_active boolean DEFAULT true` + Partial Index
-- [ ] No procedures/triggers/rules
+- [ ] No procedures/triggers/rules carrying **business logic** (the operational-utility and
+      audit-trigger exceptions are in `rdbms-modeling/references/db-internal-routines.md`; `RULE`
+      stays fully prohibited)
 - [ ] Schema separated by purpose (`app`, `log`, `ref`)

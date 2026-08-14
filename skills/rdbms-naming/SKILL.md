@@ -144,8 +144,10 @@ apply to it unchanged.
 ### Common Principles (DB-agnostic)
 
 - **PK is integer-based by default**: **default the surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion
-  on large tables). Use UUID **only when distributed generation across DBs/shards** is required (no central
-  sequence) — and prefer **UUID v7** (time-sortable) over random v4.
+  on large tables). Reach for UUID when distributed generation across DBs/shards is required (no central
+  sequence) **or** an externally visible identifier is needed — and prefer **UUID v7** (time-sortable) over
+  random v4. Join keys should be **narrow and type-matched to the parent**, which usually means integer —
+  but a UUID PK propagating into children is a supported design, not a violation.
   The reasoning differs by engine: on **InnoDB** the PK *is* the clustering index and is copied into every
   secondary index, so PK width and ordering are storage decisions; on **PostgreSQL** rows live in a heap, so a
   UUID PK costs less — but not nothing, since index locality still applies to write-heavy tables.
@@ -168,7 +170,7 @@ apply to it unchanged.
   large type. `CHAR(n)` only for truly fixed widths (e.g. country code `CHAR(2)`); PostgreSQL gives `CHAR` no
   performance benefit, so do not overuse it.
 - **Positive-only columns**: enforce with **`CHECK (col >= 0)`** (portable). MySQL `UNSIGNED` is not portable
-  → prefer `CHECK` for cross-engine columns (see appendix in `mysql-guideline`).
+  → prefer `CHECK` for cross-engine columns (see the Data Type Guide in `mysql-guideline`).
 - **Avoid NULL**: for indexed columns prefer `NOT NULL` and normalize optional attributes into a joined table.
   Allow NULL only when the data is small or rarely used.
 - **Charset**: standardize on UTF-8 — MySQL `utf8mb4`, PostgreSQL `UTF8`.

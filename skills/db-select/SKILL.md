@@ -87,7 +87,7 @@ Leave the RDBMS only when a row below matches the workload **as stated** — not
 
 | Claim | Reality |
 |---|---|
-| "Our schema will change a lot" | Postgres `jsonb` with a generated column + index handles variable fields. `ALTER TABLE ADD COLUMN` with a default is metadata-only on modern MySQL and PostgreSQL |
+| "Our schema will change a lot" | Postgres `jsonb` with a generated column + index handles variable fields. `ALTER TABLE ADD COLUMN` with a **non-volatile** default is metadata-only on PostgreSQL 11+, and MySQL `ALGORITHM=INSTANT` covers many (not all) cases — verify per change rather than assuming |
 | "We need to scale to millions of users" | A single well-indexed Postgres or MySQL instance serves thousands of QPS. Reach the ceiling before designing for beyond it |
 | "SQL doesn't scale" | Reads scale with replicas, writes with partitioning then sharding. Both are well-trodden |
 | "We need a queue" | `SELECT ... FOR UPDATE SKIP LOCKED` is a correct queue up to meaningful throughput. Add a broker when it actually binds |
@@ -99,15 +99,16 @@ considered and why it did not apply.
 
 ## Step 2 — Scale Tier
 
-Find the row your **12-month** projection lands in. Where volume and traffic disagree, take
-the higher tier. Ops headcount can pull you down a tier but never up.
+Find the row your **12-month** projection lands in. Where volume and traffic disagree, take the
+higher tier. The tier describes the *workload* — ops headcount does not change it, but it does
+constrain the **deployment form** (Step 4): a team with no operator picks managed at every tier.
 
 | Tier | Data | Peak QPS | Recommended | Explicitly do NOT yet |
 |---|---|---|---|---|
 | **0 — Prototype** | < 10 GB | < 50 | SQLite (single writer — see `sqlite-guideline`) or one Postgres container | No replicas, no pooler, no partitioning, no separate analytics DB |
 | **1 — Early production** | < 100 GB | < 500 | One managed instance (RDS / Cloud SQL / Neon / Supabase). Automated backups + PITR. Pooling in the app | No read replicas, no sharding. Add a replica only when a measured read path needs it |
-| **2 — Growth** | < 1 TB | < 5,000 | Managed primary + 1–2 read replicas. External pooler (PgBouncer / ProxySQL / RDS Proxy) once connection count exceeds the server's comfort. Time-based partitioning on the largest append-only tables. Analytics moved off the primary | No application-level sharding |
-| **3 — Large** | 1–10 TB | 5,000–50,000 | Aurora (or equivalent) for storage/failover decoupling. Partitioning as standing practice. Dedicated analytical store. Cross-region replica if the RTO requires it | Sharding only after partitioning, replicas, and query work are exhausted |
+| **2 — Growth** | < 1 TB | < 5,000 | Managed primary + 1–2 read replicas. External pooler (PgBouncer / ProxySQL / RDS Proxy) once connection count exceeds the server's comfort. Evaluate partitioning on the largest append-only tables **when query and retention evidence supports it**. Analytics moved off the primary | No application-level sharding |
+| **3 — Large** | 1–10 TB | 5,000–50,000 | Aurora (or equivalent) for storage/failover decoupling. Partitioning becomes routine — still per the evidence rules. Dedicated analytical store. Cross-region replica if the RTO requires it | Sharding only after partitioning, replicas, and query work are exhausted |
 | **4 — Very large** | > 10 TB | > 50,000 | Shard by tenant or entity, or adopt distributed SQL (Vitess, Citus, CockroachDB, TiDB, Aurora Limitless). Requires dedicated data engineering staffing | — |
 
 **Rule of thumb.** Each tier costs roughly an order of magnitude more in operational

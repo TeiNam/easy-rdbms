@@ -21,6 +21,7 @@ Supporting skills, in the order you will usually need them:
 | Target DB not decided at the stage 3 gate | `db-select` |
 | MySQL / Aurora MySQL specifics | `mysql-guideline` |
 | PostgreSQL / Aurora PostgreSQL specifics | `postgres-guideline` |
+| SQLite specifics | `sqlite-guideline` |
 | Rolling the design onto a live database | `database-migrations` |
 
 Six rules override any urge to move faster:

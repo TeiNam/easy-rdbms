@@ -13,7 +13,10 @@ description: >
   default partition filling up, partition key missing from WHERE, history table, audit table,
   audit trail, versioning, temporal table, valid_from valid_to, event sourcing, point-in-time
   query, stored procedure, trigger audit, database event, denormalized column out of sync,
-  aggregate table stale, write amplification, is this schema safe to deploy.
+  aggregate table stale, write amplification, unused index, redundant index, invisible index,
+  covering index, heap fetches, index only scan, filesort, LIKE wildcard slow, full text
+  search, FULLTEXT ngram, pg_trgm, tsvector, search engine migration, is this schema safe to
+  deploy.
 ---
 
 # RDBMS Review
@@ -176,8 +179,24 @@ What to read in the plan:
   timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
 - `NOT NULL` and `CHECK` constraints present where the domain requires them
 - Identifiers are unquoted lowercase `snake_case` — see `rdbms-naming`
-- Indexes justified by a real query. Each one costs write throughput, migration time, backup
-  size, and buffer-pool space
+- Indexes justified by a real query. Each one costs write throughput, migration time, backup size, and
+  buffer-pool space. Report the **unused and redundant** inventory, not just missing indexes —
+  MySQL `sys.schema_unused_indexes` / `sys.schema_redundant_indexes`, PostgreSQL
+  `pg_stat_user_indexes` where `idx_scan = 0`
+- **Indexes on frequently-updated columns of a write-heavy table** — on InnoDB a wide PK propagates
+  into every secondary index; on PostgreSQL indexing a churning column disables HOT updates for those
+  writes, which costs more than the index itself. Check `fillfactor` and consider BRIN for large
+  naturally-ordered append tables
+- **`INCLUDE` columns assumed to give an index-only scan (PostgreSQL)** — verify **Heap Fetches** is
+  actually low. On a churning table the visibility map keeps heap access alive regardless
+- **Leading-wildcard `LIKE '%x%'` on a large table** — no plain B-tree can serve it. MySQL needs
+  `FULLTEXT`; PostgreSQL needs `pg_trgm` or full-text search. Also check non-C-locale prefix search for
+  a missing `text_pattern_ops`
+- **A full-text index whose search configuration differs between index and query (PostgreSQL)** — the
+  index is silently unused. On MySQL, check that CJK content uses `WITH PARSER ngram`
+- **Search workload outgrowing in-database FTS** — signal a dedicated search engine when tuned FTS
+  misses the latency target, the index pressures memory or replication, or the product needs typo
+  tolerance, synonyms, autocomplete, or complex ranking. Do not use a fixed row-count threshold
 - Soft deletes backed by a partial index (PostgreSQL) or composite index (MySQL), not a
   standalone flag index
 

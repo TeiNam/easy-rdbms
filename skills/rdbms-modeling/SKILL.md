@@ -238,8 +238,12 @@ Then produce:
   rule below
 - `created_at` on every table; `updated_at` on every mutable table (skip for append-only logs)
 - Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
-- Indexes driven by actual WHERE / JOIN / ORDER BY columns. Composite order is
-  equality → sort → range (see `<engine>-guideline/index-and-query.md`)
+- **Indexes from evidence, not from guesses.** Composite draft order is equality → first range → sort
+  → covering, confirmed against the real plan. Every index costs write throughput, storage, backup
+  size, and buffer-pool space forever — emit the justifying query, the column-order reason, and the
+  rollback with each one. With no plan or metrics available, say `needs measurement` rather than
+  estimating an improvement. See `references/index-design.md` and
+  `<engine>-guideline/index-and-query.md`
 - **Partitioning: recommend, do not create by default.** Analyse the queries and the retention /
   deletion code first. No time-range query and no retention policy in the code means no
   partitioning — emit it as a candidate needing volume figures instead. MySQL generates only
@@ -501,7 +505,9 @@ STAGE 3 — Physical model
 - [ ] If partitioned: partition key `NOT NULL` and present in the main `WHERE` predicates;
       every PK/UNIQUE contains it (MySQL); trailing safety partition created with its
       alert-and-move rules stated
-- [ ] Composite index order: equality → sort → range
+- [ ] Composite index order: equality → first range → sort → covering, confirmed against a real plan
+- [ ] Every index ships with its justifying query, column-order reason, write cost, and rollback
+- [ ] No expected-improvement figure stated without a plan or metrics behind it
 - [ ] History purpose identified (audit / business / valid-time) before any history structure, or
       stated that none is needed
 - [ ] If history exists: `(entity_id, version)` unique, append-only, written in the same
@@ -562,6 +568,9 @@ STAGE 3 — Physical model
   try first, synchronization mechanisms, the seven apply-conditions, consistency check and rebuild
 - `references/db-internal-routines.md` — procedures/triggers/events: sanctioned operational
   utilities, the narrow audit-trigger exception, and business logic that stays in the application
+- `references/index-design.md` — evidence required before recommending, write-heavy tables (InnoDB
+  index extensions and invisible indexes; PostgreSQL HOT updates, fillfactor, BRIN), covering indexes
+  and Heap Fetches, ORDER BY/GROUP BY, pattern matching, FTS per engine, search-engine migration signals
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

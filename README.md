@@ -133,6 +133,15 @@ audit trigger is a **narrow exception** because nothing else can capture writes 
 application; and anything carrying business logic — a trigger maintaining a denormalized value, a
 procedure holding a workflow — stays **prohibited**.
 
+**Indexes are recommended from evidence, never emitted alone.** Each index costs write throughput,
+storage, backup size, and buffer-pool space permanently, so a recommendation ships with the query that
+justifies it, the reason for the column order, the write cost, the plan before and after, and the
+rollback. With no plan or metrics available the plugin says `needs measurement` instead of estimating an
+improvement. Engine differences get real weight: InnoDB appends the PK to every secondary index (so a
+wide PK inflates all of them) and an invisible index still costs writes; PostgreSQL loses HOT updates
+when a churning column is indexed, and an `INCLUDE` column does not guarantee an index-only scan — Heap
+Fetches has to be checked.
+
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
 
@@ -235,6 +244,12 @@ codex plugin add easy-rdbms@easy-rdbms
   통계 갱신, 정합성 검사)는 **허용**, 감사 트리거는 애플리케이션을 우회하는 쓰기를 잡을 다른 수단이
   없으므로 **좁은 예외**, 비정규화 값을 유지하는 트리거나 워크플로를 담은 프로시저처럼 비즈니스 로직을
   지닌 것은 **금지**입니다.
+- **인덱스는 근거 기반 권고이며 SQL만 던지지 않습니다.** 인덱스 하나는 쓰기 처리량·저장공간·백업 크기·
+  버퍼풀을 영구히 소비하므로, 권고에는 근거 쿼리, 컬럼 순서의 이유, 쓰기 비용, 적용 전후 실행계획,
+  롤백 방법이 함께 갑니다. 실행계획이나 지표가 없으면 개선율을 추정하지 않고 `needs measurement`로
+  냅니다. 엔진 차이를 실제로 반영합니다 — InnoDB는 모든 보조 인덱스에 PK를 덧붙이므로 넓은 PK가 전부를
+  부풀리고, invisible index도 쓰기 비용은 그대로입니다. PostgreSQL은 자주 바뀌는 컬럼에 인덱스를 걸면
+  HOT update를 잃고, `INCLUDE`가 index-only scan을 보장하지 않아 Heap Fetches를 확인해야 합니다.
 - **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

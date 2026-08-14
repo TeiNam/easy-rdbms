@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/detect-db.sh\" 2>/dev/null || exit 0",
+            "timeout": 5,
+            "statusMessage": "Detecting database stack..."
+          }
+        ]
+      }
+    ]
+  }
+}

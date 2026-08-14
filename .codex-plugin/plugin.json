@@ -1,0 +1,43 @@
+{
+  "name": "easy-rdbms",
+  "version": "0.2.0",
+  "description": "RDBMS design companion. Use when a project needs a relational database: choosing the engine and topology for the current scale, naming tables and columns consistently, modeling to Third Normal Form, and reviewing schemas, queries, and migrations for MySQL, PostgreSQL, and SQLite.",
+  "author": {
+    "name": "TeiNam",
+    "url": "https://github.com/TeiNam"
+  },
+  "homepage": "https://github.com/TeiNam/easy-rdbms",
+  "repository": "https://github.com/TeiNam/easy-rdbms",
+  "license": "MIT",
+  "keywords": [
+    "rdbms",
+    "database",
+    "mysql",
+    "postgresql",
+    "sqlite",
+    "schema-design",
+    "naming-conventions",
+    "normalization",
+    "migrations",
+    "database-selection"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Easy RDBMS",
+    "shortDescription": "Choose, design, and review your relational database",
+    "longDescription": "Guides relational database work end to end: which engine and topology the current scale justifies, consistent naming and data types, table design normalized to 3NF, and review of existing schemas, queries, and migrations. Covers MySQL and PostgreSQL, including Aurora variants.",
+    "developerName": "TeiNam",
+    "category": "Engineering",
+    "capabilities": [
+      "Instructions",
+      "Lifecycle hooks"
+    ],
+    "websiteURL": "https://github.com/TeiNam/easy-rdbms",
+    "defaultPrompt": [
+      "Which database should I use for this project?",
+      "Design the tables for this feature",
+      "Review this schema before I ship it"
+    ],
+    "brandColor": "#336791"
+  }
+}

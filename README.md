@@ -7,9 +7,12 @@
 ## Overview
 
 **18 years of production DBRE practice, packaged as a plugin.** Not textbook normal forms — the
-judgment calls you only get from operating databases: why a foreign key becomes a blocked
-partition, why a hot parent row stalls unrelated writes, why the safety partition needs an alert,
-and which "obvious" optimization costs more than it saves.
+things you only learn by running databases:
+
+- The foreign key you add today, which quietly makes that table impossible to partition next year.
+- One popular parent row that slows down writes to a completely unrelated table.
+- A partition-creation job that stops without raising an error, so nobody notices for months.
+- An index that costs more on every write than it ever gives back on reads.
 
 Works in both **Claude Code** and **Codex** from one shared `skills/` directory. It picks the
 database for your scale and budget, keeps naming consistent, takes requirements through
@@ -409,9 +412,13 @@ MIT
 
 ## 한국어
 
-**18년 현업 DBRE 경험을 플러그인으로 옮겼습니다.** 교과서적 정규형이 아니라, 데이터베이스를
-운영해봐야 생기는 판단들입니다 — FK가 왜 막힌 파티션이 되는지, 뜨거운 부모 행이 왜 무관한 쓰기를
-멈추는지, 안전 파티션에 왜 경고가 필요한지, "당연해 보이는" 최적화가 왜 얻는 것보다 비싼지.
+**18년 현업 DBRE 경험을 플러그인으로 옮겼습니다.** 교과서에 나오는 정규형이 아니라, 데이터베이스를
+직접 운영해봐야 알게 되는 것들입니다.
+
+- 지금 편하게 걸어둔 외래키 하나 때문에, 내년에 그 테이블을 파티셔닝할 수 없게 되는 일
+- 많이 조회되는 부모 행 하나가, 전혀 상관없는 테이블의 쓰기까지 느리게 만드는 일
+- 파티션을 미리 만들어주는 작업이 에러도 없이 멈춰서, 몇 달 뒤에야 발견하는 일
+- 인덱스를 하나 추가했는데, 읽기에서 얻는 것보다 매번 쓰기에서 잃는 게 더 큰 일
 
 **Claude Code**와 **Codex** 양쪽에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로

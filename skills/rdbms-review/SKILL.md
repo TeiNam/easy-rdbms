@@ -213,8 +213,13 @@ What to read in the plan:
   it gave up, and that a separate surrogate key was not minted on subtype rows
 - Types: `bigint` for growing IDs, `numeric`/`decimal` for money (never float), timezone-aware
   timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
-- **An `int` surrogate PK on a table that grows** — flag it early, because the fix gets harder with
-  every row. Changing a PK's integer type needs `ALGORITHM=COPY` on MySQL (full rebuild plus every
+- **An `int` surrogate PK on an event/log table** (`*_log`, `*_history`, IoT readings, audit trails,
+  message history, metering, outbox) — this is the failure case, not entity tables. Rows grow as
+  insert rate × time with no bound: 10k/s exhausts `int unsigned` in ~5 days, and because sequences
+  and `AUTO_INCREMENT` never reuse values, retention policies and partition drops reclaim storage but
+  **not** ID range. `int` on an *entity* table (`member`, `product`) is fine — ask what bounds the
+  entity count and confirm it is not machine-generated rows wearing an entity name.
+  The fix gets harder with every row. Changing a PK's integer type needs `ALGORITHM=COPY` on MySQL (full rebuild plus every
   secondary index, since InnoDB appends the PK to all of them) or a table rewrite under
   `ACCESS EXCLUSIVE` on PostgreSQL, and every referencing column must move in lockstep. Estimate the
   runway from the current row count and insert rate

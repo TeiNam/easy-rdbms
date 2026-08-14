@@ -32,9 +32,9 @@ DDL readable, and avoid an expression that every query has to mirror.
 
 ```sql
 CREATE TABLE `chat_history` (
-  `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'event table: rows = rate x time, unbounded',
   `conversation_id` char(18) NOT NULL,
-  `member_id` bigint unsigned NOT NULL COMMENT 'logical FK: member.member_id',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,

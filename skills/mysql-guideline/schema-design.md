@@ -6,7 +6,7 @@
 
 ```sql
 CREATE TABLE `member` (
-  `member_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `member_id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'entity table: bounded by real user count',
   `email` varchar(255) NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -22,8 +22,8 @@ CREATE TABLE `member` (
 
 ```sql
 CREATE TABLE `chat_history` (
-  `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `member_id` bigint unsigned NOT NULL COMMENT 'logical FK: member.member_id — same type as the parent PK, always',
+  `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'event table: rows = rate x time, unbounded',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id — same type as the parent PK, always',
   `conversation_id` char(18) NOT NULL COMMENT 'logical FK: conversation_session.conversation_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,

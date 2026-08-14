@@ -209,7 +209,7 @@ apply to it unchanged.
 |-----|------|--------|
 | `authUser` | `auth_user` | snake_case |
 | `Book_IDX` | `idx_book` | lowercase (PG folds uppercase) |
-| `member` | `member` | singular + reserved-word rename |
+| `users` | `member` | singular form, and `user` is reserved on PostgreSQL |
 | `tb_user` | `member` | unnecessary prefix |
 | `create_date` (as create time) | `created_at` | past-participle time-column standard |
 | `create_dt` | `created_date` | abbreviation overuse |

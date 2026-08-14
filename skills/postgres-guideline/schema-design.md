@@ -17,9 +17,18 @@ own migrations. The workaround (add a new `bigint` column, backfill in batches, 
 in one transaction) is a multi-week project with an application change in the middle. 4 extra bytes
 per row is the cheaper option by a wide margin.
 
+Decide from **what makes the row count grow.** An **entity** table (one row per real thing) is
+bounded by the real world — `member` cannot exceed the human population, and `int` reaches 2.1
+billion — so `int` is a defensible choice there if you record what bounds it. An **event/log** table
+is bounded by nothing: rows = insert rate × elapsed time. At 10,000 inserts/s an `int` is exhausted
+in about **5 days**, and because a sequence never reuses values, deleting old rows or dropping old
+partitions reclaims storage but **not** ID range. IoT telemetry, audit trails, message history,
+access logs, metering, outbox — `bigint` from the start.
+
 | Situation | Use |
 |---|---|
-| Single-system table | `bigint GENERATED ALWAYS AS IDENTITY` |
+| Event/log/IoT table | **`bigint GENERATED ALWAYS AS IDENTITY`** — no exceptions |
+| Single-system entity table | `bigint`, or `int` if the entity count is bounded by something real |
 | Distributed generation | native `uuid` with **UUIDv7** |
 | Write-heavy | `IDENTITY`, or UUIDv7 — not UUIDv4 |
 | Externally visible ID | UUID PK, or an integer PK plus a separate public UID |
@@ -36,7 +45,7 @@ treat a UUID as an authentication or authorization token. Full criteria in
 -- `user` is reserved in PostgreSQL — the table is named `member` per rdbms-naming.
 -- public_id is the externally visible UID; omit it when nothing outside sees the row.
 CREATE TABLE app.member (
-  member_id  bigint GENERATED ALWAYS AS IDENTITY,
+  member_id  int GENERATED ALWAYS AS IDENTITY,  -- entity table: bounded by real user count
   public_id  uuid NOT NULL,          -- UUIDv7 from the app (uuidv7() on PG 18+)
   email      text NOT NULL,          -- text, not varchar(n); length rules belong in CHECK
   is_active  boolean NOT NULL DEFAULT true,
@@ -135,8 +144,8 @@ be a layer they all pass through — not one application's validation code.
 
 ```sql
 CREATE TABLE log.chat_history (
-  chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
-  member_id bigint NOT NULL,         -- logical FK: app.member.member_id
+  chat_history_id bigint GENERATED ALWAYS AS IDENTITY,  -- event table: rows = rate x time, unbounded
+  member_id int NOT NULL,            -- logical FK: app.member.member_id
   conversation_id char(18) NOT NULL, -- logical FK: app.conversation_session.conversation_id
   user_message text NOT NULL,
   bot_response text NOT NULL,
@@ -245,7 +254,7 @@ ALTER TABLE app.purchase_order FORCE ROW LEVEL SECURITY;
 -- auth.uid() — and make sure the types match the key you compare against.
 CREATE POLICY member_orders ON app.purchase_order
   USING (
-    member_id = (SELECT current_setting('app.current_member_id', true))::bigint
+    member_id = (SELECT current_setting('app.current_member_id', true))::int
   );
 
 -- Always index RLS policy columns
@@ -259,7 +268,7 @@ REVOKE ALL ON SCHEMA public FROM public;
 
 ```sql
 CREATE TABLE app.member_setting (
-  member_id bigint NOT NULL,   -- logical FK: app.member.member_id (type matches parent)
+  member_id int NOT NULL,      -- logical FK: app.member.member_id (type matches parent)
   setting_data jsonb NOT NULL DEFAULT '{}',
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_member_setting PRIMARY KEY (member_id)

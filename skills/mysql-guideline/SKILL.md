@@ -12,7 +12,8 @@ description: >
   STATUS, MariaDB divergence, FULLTEXT MATCH AGAINST, connection pool sizing, integer type
   ranges, IN subquery slow, DEPENDENT SUBQUERY, semi-join optimization,
   eq_range_index_dive_limit, Index Merge, OR condition slow, deep pagination, OFFSET slow,
-  deferred join related tasks.
+  deferred join, PK type choice, int vs bigint PK, AUTO_INCREMENT exhaustion, UNSIGNED,
+  IoT/log table design related tasks.
 ---
 
 # MySQL Database Guideline
@@ -75,9 +76,34 @@ size to the observed value range and monitor growth rather than padding "just in
 > billion rows it is a `pt-online-schema-change` / `gh-ost` project with a cutover plan — which is
 > exactly the table where `int` runs out.
 
-So: **default the surrogate PK to `bigint unsigned`.** 4 extra bytes per row is the cheapest
-insurance in the schema. Reach for a narrower PK only on a table whose row count is bounded by
-something real — a code or lookup table with a fixed domain — and write down what bounds it.
+So decide from **what makes the row count grow**, not from today's row count:
+
+| Growth class | Bounded by | PK |
+|---|---|---|
+| **Entity** — one row per real thing | The real world: people, products, branches. `member` cannot exceed the human population; `int unsigned` reaches **4.2 billion** | `int unsigned` is genuinely enough |
+| **Event / log** — one row per occurrence | Nothing. Row count = **insert rate × elapsed time**, and time does not stop | **`bigint unsigned`, no exceptions** |
+
+Event tables are where `int` actually breaks, and the arithmetic is unforgiving:
+
+| Insert rate | `int unsigned` (4.2B) lasts | `bigint unsigned` lasts |
+|---|---|---|
+| 100/s | ~1.3 years | effectively forever |
+| 1,000/s | ~49 days | effectively forever |
+| 10,000/s (IoT telemetry) | **~5 days** | effectively forever |
+
+**Retention and partition pruning do not help.** `AUTO_INCREMENT` never reuses a value, so deleting
+or dropping old partitions frees storage but **not ID space** — a 30-day-retention log table burns
+through the range at the full insert rate as if nothing were ever deleted. Hitting the ceiling means
+`Duplicate entry '4294967295' for key 'PRIMARY'` on every insert, on the busiest table you own,
+with the hardest possible migration ahead of you.
+
+So: IoT telemetry, audit trails, chat/message history, access and event logs, metering records,
+outbox tables — `bigint unsigned` from the start. If a table is called `*_log`, `*_history`,
+`*_event`, or contains a reading from a device, that decision is already made.
+
+For entity tables, `int unsigned` is a reasonable choice — but write down **what bounds it**, and
+re-check if the entity turns out to be machine-generated rather than human (per-device rows, ad
+impressions, generated variants: those are event tables wearing an entity name).
 
 `decimal` follows the same principle: money that needs no fractional part is cheaper and simpler as
 an integer in the minor unit than as a `decimal`.
@@ -111,8 +137,9 @@ Two things to keep straight:
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| **Surrogate PK (default)** | **`bigint unsigned`** | **Always the default.** Changing a PK's type later needs `ALGORITHM=COPY` — a full rebuild plus every secondary index. See above |
-| Bounded lookup/code table PK | `tinyint`/`smallint`/`int unsigned` | Only when the row count is bounded by something real (fixed code domain). Record what bounds it |
+| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint unsigned`** | **No exceptions.** Rows = rate × time, with no upper bound. `int` at 10k/s dies in ~5 days, and retention does not reclaim `AUTO_INCREMENT` values |
+| Entity table PK (`member`, `product`) | `int unsigned` | Fine — 4.2B, and the real world caps the entity count. Record what bounds it |
+| Bounded lookup/code table PK | `tinyint`/`smallint unsigned` | Fixed code domain |
 | Flag / small enumerated value | `tinyint unsigned` | 0~255 |
 | Boolean | `tinyint(1)` 0/1 | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`. Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched — new designs use `tinyint(1)`) |
 | Variable string | `varchar(n)` | `n` = **character count** (MySQL 4.1+), sized to real max length. Row-wide 65,535B cap limits max `n` (utf8mb4 ≈ 16,383 chars single-column) |

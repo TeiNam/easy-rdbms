@@ -51,9 +51,9 @@ exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 
 ```sql
 CREATE TABLE log.chat_history (
-  chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
+  chat_history_id bigint GENERATED ALWAYS AS IDENTITY,  -- event table: rows = rate x time, unbounded
   conversation_id char(18) NOT NULL,
-  member_id bigint NOT NULL,      -- logical FK: app.member.member_id (type matches parent)
+  member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent)
   user_message text NOT NULL,
   bot_response text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()

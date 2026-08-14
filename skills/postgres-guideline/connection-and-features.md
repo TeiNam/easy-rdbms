@@ -48,13 +48,14 @@ async def get_user(user_id: int):
 ## Transaction Isolation — PostgreSQL Defaults to READ COMMITTED
 
 The default is **`READ COMMITTED`** — the opposite default from MySQL InnoDB, which matters when
-porting code or reasoning shared across both engines. PostgreSQL has **no gap locks**; phantom
-prevention at higher levels uses Serializable Snapshot Isolation (SSI), not blocking.
+porting code or reasoning shared across both engines. PostgreSQL has **no gap locks**: `REPEATABLE
+READ` already prevents phantoms through its transaction-wide MVCC snapshot, and `SERIALIZABLE`
+adds SSI on top to catch write-skew — neither blocks the way InnoDB's next-key locks do.
 
 | Level | Behaviour | Use |
 |---|---|---|
 | `READ COMMITTED` (default) | Each statement sees the latest committed snapshot | Correct for most OLTP; SELECT-then-act races handled with explicit locking |
-| `REPEATABLE READ` | Transaction-wide snapshot; **serialization failures possible** on write conflicts | Multi-statement reads needing one consistent view (reports, exports) |
+| `REPEATABLE READ` | Transaction-wide snapshot (phantoms prevented); **`40001` possible** on write conflicts | Multi-statement reads needing one consistent view (reports, exports) |
 | `SERIALIZABLE` | SSI — detects dangerous patterns, aborts with `40001` | Invariants spanning several rows/tables that no constraint can express |
 
 Practical rules:
@@ -62,8 +63,10 @@ Practical rules:
 - At `READ COMMITTED`, two transactions can both pass a `SELECT`-based check and both act on it.
   Guard invariants with `FOR UPDATE`, a `UNIQUE` constraint, or advisory locks — not with a
   bare read.
-- `REPEATABLE READ` and `SERIALIZABLE` **fail with SQLSTATE `40001`/`40P01` instead of blocking**
-  — the application must retry the whole transaction. No retry loop → do not raise the level.
+- `REPEATABLE READ` and `SERIALIZABLE` can abort with **`40001` serialization failures** on write
+  conflicts — row-lock waits still block as usual, and deadlocks (`40P01`) can happen at any
+  level. The application must retry the whole transaction on either code. No retry loop → do
+  not raise the level.
 - `SERIALIZABLE` costs predicate tracking; keep such transactions short and touch few rows.
 
 ```sql

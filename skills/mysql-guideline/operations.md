@@ -77,14 +77,15 @@ surprises teams coming from other databases.
 Practical rules:
 
 - **High-concurrency OLTP often runs better at `READ COMMITTED`** — gap locks largely disappear.
-  Requirement: row-based binlog (`binlog_format = ROW`, the 8.x default). Set per session or
-  globally, and record the choice in the design.
+  Requirement: effective row-based logging — `binlog_format = ROW` (the 8.x default; `MIXED`
+  auto-switches to row for RC statements, `STATEMENT` is unsafe). Set per session or globally,
+  and record the choice in the design.
 - A locking read (`FOR UPDATE` / `FOR SHARE`) at RC reads the **latest committed** row, not the
   transaction snapshot — SELECT-then-act logic must tolerate that.
 - Do not mix isolation levels across services touching the same tables without documenting it —
   the deadlock behaviour differs per level and debugging assumes one.
-- `SERIALIZABLE` on InnoDB converts plain reads into locking reads; it is rarely the right tool —
-  prefer explicit `FOR UPDATE` on the rows that matter.
+- `SERIALIZABLE` on InnoDB converts plain reads into locking reads (when autocommit is disabled);
+  it is rarely the right tool — prefer explicit `FOR UPDATE` on the rows that matter.
 
 ```sql
 SELECT @@transaction_isolation;

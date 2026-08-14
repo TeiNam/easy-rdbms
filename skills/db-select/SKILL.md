@@ -166,18 +166,21 @@ retrofitting it is a full migration.
 
 | Shape | Fits | Cost |
 |---|---|---|
-| **Shared tables + `tenant_id`** | The default. Hundreds-to-millions of tenants, uniform schema | Every table carries `tenant_id`, every query filters on it, every unique constraint includes it. On PostgreSQL, RLS enforces it at the database; on MySQL it is application-carried |
-| **Schema per tenant** (PostgreSQL) | Tens-to-hundreds of tenants needing hard separation or per-tenant customization | Migrations run N times; connection pooling fragments per schema; cross-tenant reporting needs UNION machinery |
+| **Shared tables + `tenant_id`** | The default. Hundreds-to-millions of tenants, uniform schema | Every **tenant-owned** table carries `tenant_id` and tenant-scoped uniqueness includes it (global/reference tables legitimately do not). On PostgreSQL, RLS enforces the scoping; on MySQL it is application-carried |
+| **Schema per tenant** (PostgreSQL) | Tens-to-hundreds of tenants needing namespace/privilege separation or per-tenant customization — **not** resource or failure isolation; schemas share the instance | Migrations run N times; `search_path` hygiene on shared pools is easy to get wrong; cross-tenant reporting needs UNION machinery |
 | **Database per tenant** | Few, large, contractually isolated tenants (compliance, residency) | Full operational cost multiplies per tenant — backups, monitoring, upgrades |
 
 Rules that follow from the choice:
 
-- Shared tables: `tenant_id` **leads** the composite indexes and is part of every `UNIQUE` — a
-  uniqueness rule that ignores the tenant is almost always a bug
+- Shared tables: `tenant_id` **leads** the indexes that serve tenant-scoped queries (global and
+  administrative paths keep their own), and tenant-scoped uniqueness includes it — a per-tenant
+  uniqueness rule that ignores the tenant is a bug
 - Never mix shapes for the same entity; a hybrid ("big tenants get a database") is two systems
   with two operational stories — accept that explicitly or do not do it
-- A missing `tenant_id` predicate is a data-leak bug, not a performance bug. On PostgreSQL,
-  RLS turns that class of bug into an empty result; price that in when choosing the engine
+- A missing `tenant_id` predicate is a data-leak bug, not a performance bug. PostgreSQL RLS
+  scopes the query to the session's tenant even when the predicate is forgotten — **provided**
+  the runtime role does not own the table and lacks `BYPASSRLS` (owners bypass policies unless
+  `FORCE ROW LEVEL SECURITY` is set). Price that enforcement in when choosing the engine
 
 Connection limits bite earlier than people expect — serverless application runtimes multiply
 connections. Budget a pooler at Tier 2 regardless of engine.

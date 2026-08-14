@@ -27,14 +27,19 @@ server engine.
 ## Version and Baseline
 
 - SQLite **3.37+** (for `STRICT` tables; 2021). Prefer the newest bundled with the driver.
-- Every connection runs this baseline — SQLite configuration is **per-connection PRAGMAs**,
-  not a server config file:
+- Configuration is PRAGMAs, not a server config file — and scope matters: some persist in the
+  database, most are per-connection:
 
 ```sql
-PRAGMA journal_mode = WAL;      -- readers proceed during a write; set once per database
-PRAGMA foreign_keys = ON;       -- FK enforcement is OFF by default — every connection, every time
+-- Persistent database properties (set once; journal_mode survives reconnects)
+PRAGMA journal_mode = WAL;      -- readers proceed during a write
+
+-- Connection-local — every connection, every time
+PRAGMA foreign_keys = ON;       -- FK enforcement is OFF by default
 PRAGMA busy_timeout = 5000;     -- wait instead of failing immediately with SQLITE_BUSY
-PRAGMA synchronous = NORMAL;    -- safe with WAL; FULL only for the most critical data
+PRAGMA synchronous = NORMAL;    -- no corruption with WAL, but the most recent commits can be
+                                -- lost on power failure. Data that cannot lose a committed
+                                -- transaction uses FULL and pays the fsync
 ```
 
 **`PRAGMA foreign_keys = ON` is the one everyone forgets.** FK constraints in the DDL are parsed
@@ -43,9 +48,9 @@ and stored but **not enforced** unless each connection turns them on. A schema f
 
 ## Type System — Affinity, Not Types
 
-SQLite columns have **type affinity**, not types: by default any value fits in any column
-(`INSERT INTO t (age) VALUES ('abc')` succeeds). This is the largest single divergence from
-MySQL/PostgreSQL.
+SQLite columns have **type affinity**, not types: outside `INTEGER PRIMARY KEY` and explicit
+`CHECK`s, a column accepts values of any type (`INSERT INTO t (age) VALUES ('abc')` succeeds).
+This is the largest single divergence from MySQL/PostgreSQL.
 
 **Declare every table `STRICT`** (3.37+) — it rejects wrong-type values at write time:
 
@@ -78,9 +83,10 @@ lowercase index prefixes).
 **`INTEGER PRIMARY KEY` is the rowid** — the table's actual storage key, fast and auto-assigned.
 This is the default surrogate PK.
 
-- **`AUTOINCREMENT` is almost always unnecessary** — it only prevents rowid *reuse* after the
-  maximum is deleted, at the cost of a bookkeeping table. Use plain `INTEGER PRIMARY KEY`
-  unless rowid reuse is a genuine correctness problem (e.g., IDs leaked to an external system).
+- **`AUTOINCREMENT` is almost always unnecessary** — its guarantee is that generated rowids are
+  strictly greater than any rowid that ever existed (never reused), at the cost of a
+  bookkeeping table. Use plain `INTEGER PRIMARY KEY` unless ID reuse is a genuine correctness
+  problem (e.g., IDs leaked to an external system that must never see a recycled one).
 - `WITHOUT ROWID` tables suit small lookup tables with a natural non-integer PK; measure before
   using them elsewhere.
 - Distributed generation is not SQLite's problem — if multiple nodes generate IDs, you have
@@ -97,9 +103,10 @@ write, but writers still serialize. Design for it:
   instead of failing at upgrade time.
 - One writing connection per process is a sane pattern; serialize writes in the application
   (a queue or a mutex) rather than relying on `busy_timeout` retries under contention.
-- **Multiple processes on one machine: fine. Multiple machines on network storage (NFS, SMB):
-  no.** File locking on network filesystems is unreliable — this is corruption territory, not a
-  performance tradeoff.
+- **Multiple processes on one machine: fine. Network storage (NFS, SMB): no.** WAL requires
+  same-host shared memory outright, and rollback-journal mode depends on the filesystem's
+  locking being honest — historically the unsafe assumption. Multiple machines needing one
+  database is a server engine's job.
 
 ## Foreign Keys — Physical FKs Are Fine Here
 
@@ -120,8 +127,9 @@ engine-independent (`rdbms-modeling/references/history-entities.md`).
 
 B-tree only — no GIN/BRIN/hash. What carries over and what replaces them:
 
-- Composite order is the same: equality → range → sort (see
-  `rdbms-modeling/references/index-design.md` for the method; evidence rules apply unchanged).
+- Composite order follows the same conditional rule as the server engines — equality first,
+  then sort-or-range by what the query needs (see `rdbms-modeling/references/index-design.md`;
+  evidence rules apply unchanged).
 - **Partial indexes** (`WHERE deleted_at IS NULL`) work and are the soft-delete strategy here.
 - **Expression indexes** work: `CREATE INDEX idx_member_email_lower ON member (lower(email))`.
 - Covering: put the extra columns at the end of the composite index (no `INCLUDE`).
@@ -131,14 +139,18 @@ B-tree only — no GIN/BRIN/hash. What carries over and what replaces them:
 
 ## Full-Text Search and JSON
 
-- **FTS5** virtual tables provide FTS; keep the FTS table in sync with triggers *on the FTS
-  table's content options* or the external-content pattern — this is the documented FTS5
-  mechanism, not a business-logic trigger, so it does not violate the routine policy.
+- **FTS5** virtual tables provide FTS. With the external-content pattern, synchronization
+  triggers go **on the content table** (insert/update/delete mirroring into the FTS index) —
+  this is the documented FTS5 mechanism, not a business-logic trigger, so it does not violate
+  the routine policy. A contentless or content-bearing FTS table changes the maintenance story;
+  pick the pattern deliberately.
 - JSON: `json_extract` / `->>` plus a **generated column + index** for any queried path:
 
 ```sql
+-- ALTER TABLE cannot add a STORED generated column in SQLite — use VIRTUAL
+-- (STORED is possible only in the original CREATE TABLE, or via a table rebuild)
 ALTER TABLE event ADD COLUMN event_type TEXT
-  GENERATED ALWAYS AS (json_extract(payload, '$.type')) STORED;
+  GENERATED ALWAYS AS (json_extract(payload, '$.type')) VIRTUAL;
 CREATE INDEX idx_event_type ON event (event_type);
 ```
 
@@ -147,10 +159,12 @@ CREATE INDEX idx_event_type ON event (event_type);
 - **Backup**: `VACUUM INTO 'backup.db'` (online, consistent) or the `.backup` API. Copying the
   file while a writer is active is not a backup — it is a race.
 - **Retention**: no partitioning exists. Bounded `DELETE` batches + periodic `PRAGMA
-  incremental_vacuum` (with `auto_vacuum = INCREMENTAL` set **before** the tables grow), or one
+  incremental_vacuum` — note `auto_vacuum = INCREMENTAL` only takes effect if set **before any
+  table is created**, or after a full `VACUUM` on an existing database. Alternatively one
   database file per period with `ATTACH` for cross-period reads.
-- **Size watch**: `PRAGMA page_count * page_size`. WAL file growth is bounded by checkpointing —
-  a WAL that grows without bound means a long-lived reader is pinning it.
+- **Size watch**: `SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size();`
+  WAL growth is bounded by checkpointing — unbounded growth means checkpoints are starved
+  (a long-lived reader pinning the WAL), disabled, or repeatedly failing.
 
 ## The Growth Path
 

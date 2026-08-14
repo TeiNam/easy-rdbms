@@ -28,8 +28,9 @@ Both give you a trailing catch-all, but they are not equivalent:
 
 **Use `DEFAULT` on PostgreSQL.** A backfill or a corrected timestamp that predates the first
 partition is exactly the kind of row a safety partition should absorb, and `MAXVALUE` bounds reject
-it. Both share the same operational constraint — you must detach before creating a partition whose
-range it already covers — so `DEFAULT` costs nothing extra.
+it. Both share the same operational constraint — creating a partition whose range the catch-all
+already covers makes PostgreSQL scan it (see Partition Management below) — so `DEFAULT` costs
+nothing extra.
 
 ### Operating Rules
 
@@ -112,12 +113,18 @@ CREATE TABLE log.chat_history_2024_05 PARTITION OF log.chat_history
 
 -- 3. Move rows for the new range OUT of the detached default — without this,
 --    re-attach fails validation if any 2024-05 rows are present
+--    Note: chat_history_id is GENERATED ALWAYS, so re-inserting its value needs
+--    OVERRIDING SYSTEM VALUE and an explicit column list
 WITH moved AS (
   DELETE FROM log.chat_history_default
   WHERE created_at >= '2024-05-01' AND created_at < '2024-06-01'
   RETURNING *
 )
-INSERT INTO log.chat_history SELECT * FROM moved;
+INSERT INTO log.chat_history
+  (chat_history_id, conversation_id, user_id, user_message, bot_response, created_at)
+OVERRIDING SYSTEM VALUE
+SELECT chat_history_id, conversation_id, user_id, user_message, bot_response, created_at
+FROM moved;
 
 -- 4. Re-attach default partition
 ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;

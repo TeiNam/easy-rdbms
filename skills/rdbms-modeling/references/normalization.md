@@ -1,7 +1,7 @@
 # Normalization Detail
 
 Full rules for each normal form, the BCNF check procedure, and the denormalization bar.
-The policy summary lives in `SKILL.md`; read this file when actually normalizing a model.
+The policy summary lives in `../SKILL.md`; read this file when actually normalizing a model.
 
 ### 1NF — Atomic Values
 

@@ -1,7 +1,7 @@
 # Generalization and Specialization
 
 Deciding whether two or more entities are really *kinds of* one thing — and what to build if
-they are. The compact decision path is in `SKILL.md` Stage 2; this file has the full criteria.
+they are. The compact decision path is in `../SKILL.md` Stage 2; this file has the full criteria.
 
 ## The Test Is IS-A, Not Attribute Overlap
 

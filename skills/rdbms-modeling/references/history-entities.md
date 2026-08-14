@@ -153,9 +153,12 @@ History tables are strong partitioning candidates, but the same evidence rule ap
 `partitioning.md`): recommend RANGE only where accumulation, time-range reads, and retention-based
 deletion are actually present in the code.
 
-- **MySQL**: `RANGE COLUMNS (recorded_at)` with a trailing `p_maxvalue` partition. Remember that
-  every PK and UNIQUE index must contain the partition key — so `(entity_id, version)` uniqueness
-  needs `recorded_at` folded in, or it blocks the partitioning plan. Check this before recommending.
+- **MySQL**: `RANGE COLUMNS (recorded_at)` with a trailing `p_maxvalue` partition — but every PK and
+  UNIQUE index must contain the partition key, and folding `recorded_at` into `(entity_id, version)`
+  **weakens the guarantee** to per-period uniqueness. It is a genuine either/or: keep
+  database-enforced global `(entity_id, version)` uniqueness and do **not** partition, or partition
+  and move that uniqueness to an application-enforced invariant with a detection query. Decide it
+  explicitly — do not fold the column in and call the constraint intact.
 - **PostgreSQL**: RANGE on `recorded_at` with a trailing `DEFAULT` partition (see `partitioning.md`
   for why `DEFAULT` beats a `MAXVALUE` bound).
 - **Decide partitioning for the current entity and its history independently.** They have different

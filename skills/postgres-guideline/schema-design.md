@@ -97,9 +97,9 @@ Permitting FKs does not make them free. Each of these is a reason to choose a lo
 
 - **Extra write I/O** — every child write does a parent lookup the statement never shows, hard to
   attribute in `pg_stat_statements`
-- **Parent-row lock contention** — validation takes a `FOR KEY SHARE` lock. It does not block
-  ordinary parent reads but **does** conflict with parent-key updates and deletes, so a hot parent
-  row serializes unrelated child writes
+- **Parent-row lock contention** — validation takes a `FOR KEY SHARE` lock. Child writes are
+  mutually compatible, but a parent-key update or delete conflicts with all of them — on a hot
+  parent row the two sides stall each other
 - **Cascade scope** — `ON DELETE CASCADE` on a high-fan-out parent turns one statement into a long
   transaction, with lock and bloat consequences
 - **Restore and bulk-load ordering** — `pg_restore` and backfills must order operations or run with

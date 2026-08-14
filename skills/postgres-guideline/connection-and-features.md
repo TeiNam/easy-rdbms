@@ -79,7 +79,9 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 ```python
 # Session-level (pg_advisory_lock): held until unlocked or the connection CLOSES —
 #   returning a pooled connection does NOT close it, so the next borrower inherits the lock
-# Transaction-level (pg_advisory_xact_lock): released at transaction end → the only safe kind with a pool
+# Transaction-level (pg_advisory_xact_lock): released at transaction end → the default choice,
+#   because it cannot be leaked into a pooled connection. Session-level is usable only if the
+#   unlock is guaranteed on every path (or the connection is reset before return)
 
 # PASS: Transaction-level: lock auto-released when with conn.transaction() ends, no finally needed
 async with async_pool.connection() as conn:
@@ -107,8 +109,11 @@ async with async_pool.connection() as conn:
                 {"id": job_id}
             )
 
-# FAIL: Incorrect pattern: session-level lock + manual finally unlock
-# Risk of lock leak if crash occurs after commit but before finally executes unlock
+# RISKY: session-level lock + manual unlock.
+# A crash is actually safe — the backend terminates and session locks release with it.
+# The real leak is the pooled path: if the unlock is skipped (early return, exception
+# before finally, a code path added later), the connection goes back to the pool still
+# holding the lock and the next borrower inherits it.
 # async with conn.cursor() as cur:
 # await cur.execute("SELECT pg_try_advisory_lock(...)")
 # try:

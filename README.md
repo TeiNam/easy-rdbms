@@ -150,8 +150,8 @@ Neither ever becomes the source of truth for balances, inventory, or permissions
 special attention in review, because each layer looks reasonable while the composed query does something
 nobody intended.
 
-**MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
-rather than pretending to advise on them.
+**MySQL, PostgreSQL, and SQLite only.** Other relational engines are out of scope; the plugin says
+so rather than pretending to advise on them.
 
 ## Development
 
@@ -265,6 +265,6 @@ codex plugin add easy-rdbms@easy-rdbms
   테이블이며(MySQL 8.4에는 네이티브 MView가 없습니다), 플러그인은 이를 비정규화로 취급해 원본·동기화·
   재구축 경로를 요구합니다. 둘 중 무엇도 잔액·재고·권한의 원본이 되지 않습니다. 중첩 View는 리뷰에서
   따로 봅니다 — 각 층은 그럴듯한데 합성된 쿼리가 아무도 의도하지 않은 일을 합니다.
-- **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
+- **MySQL·PostgreSQL·SQLite만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

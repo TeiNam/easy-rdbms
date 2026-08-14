@@ -16,7 +16,7 @@ Follow the skill exactly:
 4. Present up to three candidates with **one clearly named default** — never three options
    without a recommendation, never one option with no alternatives shown.
 5. Give every deferred item a measurable trigger.
-6. Route to `mysql-guideline` or `postgres-guideline` for the follow-up design work.
+6. Route to `mysql-guideline`, `postgres-guideline`, or `sqlite-guideline` for the follow-up work.
 
 If the project already has a database (the session may say so), do not re-litigate the
 choice unless asked. Review whether the current tier still fits instead.

@@ -104,7 +104,7 @@ the higher tier. Ops headcount can pull you down a tier but never up.
 
 | Tier | Data | Peak QPS | Recommended | Explicitly do NOT yet |
 |---|---|---|---|---|
-| **0 — Prototype** | < 10 GB | < 50 | SQLite (single writer) or one Postgres container. One file or one `docker compose` service | No replicas, no pooler, no partitioning, no separate analytics DB |
+| **0 — Prototype** | < 10 GB | < 50 | SQLite (single writer — see `sqlite-guideline`) or one Postgres container | No replicas, no pooler, no partitioning, no separate analytics DB |
 | **1 — Early production** | < 100 GB | < 500 | One managed instance (RDS / Cloud SQL / Neon / Supabase). Automated backups + PITR. Pooling in the app | No read replicas, no sharding. Add a replica only when a measured read path needs it |
 | **2 — Growth** | < 1 TB | < 5,000 | Managed primary + 1–2 read replicas. External pooler (PgBouncer / ProxySQL / RDS Proxy) once connection count exceeds the server's comfort. Time-based partitioning on the largest append-only tables. Analytics moved off the primary | No application-level sharding |
 | **3 — Large** | 1–10 TB | 5,000–50,000 | Aurora (or equivalent) for storage/failover decoupling. Partitioning as standing practice. Dedicated analytical store. Cross-region replica if the RTO requires it | Sharding only after partitioning, replicas, and query work are exhausted |
@@ -144,8 +144,8 @@ less likely to regret.
 Not a tiebreaker: raw single-row read benchmarks. At Tier 0–2 both engines are far faster
 than the application around them.
 
-This plugin covers MySQL and PostgreSQL only. If the project is committed to a different
-relational engine, say that the follow-up design guidance here does not apply rather than
+This plugin's design guidance covers **MySQL, PostgreSQL, and SQLite**. If the project is committed
+to a different relational engine, say that the follow-up guidance here does not apply rather than
 recommending against their platform.
 
 ## Step 4 — Deployment Form
@@ -179,8 +179,9 @@ Rules that follow from the choice:
   with two operational stories — accept that explicitly or do not do it
 - A missing `tenant_id` predicate is a data-leak bug, not a performance bug. PostgreSQL RLS
   scopes the query to the session's tenant even when the predicate is forgotten — **provided**
-  the runtime role does not own the table and lacks `BYPASSRLS` (owners bypass policies unless
-  `FORCE ROW LEVEL SECURITY` is set). Price that enforcement in when choosing the engine
+  the runtime role is **not a superuser**, does not hold `BYPASSRLS`, and does not own the table
+  (owners bypass policies unless `FORCE ROW LEVEL SECURITY` is set; superusers and `BYPASSRLS`
+  bypass regardless). Price that enforcement in when choosing the engine
 
 Connection limits bite earlier than people expect — serverless application runtimes multiply
 connections. Budget a pooler at Tier 2 regardless of engine.

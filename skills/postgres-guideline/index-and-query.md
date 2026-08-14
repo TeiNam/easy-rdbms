@@ -19,7 +19,8 @@
 CREATE INDEX idx_chat_history_user_created
   ON log.chat_history (user_id, created_at DESC);
 
--- Covering index (avoids table lookup)
+-- Covering index: enables an index-only scan (does NOT guarantee it — the visibility map
+-- decides; check Heap Fetches in EXPLAIN ANALYZE)
 CREATE INDEX idx ON users (email) INCLUDE (name, created_at);
 
 -- Partial index (smaller, targeted)
@@ -112,7 +113,10 @@ JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
 WHERE c.contype = 'f'
   AND NOT EXISTS (
     SELECT 1 FROM pg_index i
-    WHERE i.indrelid = c.conrelid AND i.indkey[0] = a.attnum
+    WHERE i.indrelid = c.conrelid
+      AND i.indkey[0] = a.attnum
+      AND i.indisvalid                -- a failed CONCURRENTLY build is not coverage
+      AND i.indpred IS NULL           -- a partial index covers only its predicate
   );
 -- Multi-column FKs: compare the full conkey vector against the index prefix by hand
 

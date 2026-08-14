@@ -1,7 +1,7 @@
 # Identifier Selection — UID and Primary Key
 
 Separating the **logical identifier (UID)** from the **physical primary key**, and choosing each
-against the storage model of the target engine. The compact decision table is in `SKILL.md`
+against the storage model of the target engine. The compact decision table is in `../SKILL.md`
 Stage 3; the reasoning is here.
 
 ## Universal Rules

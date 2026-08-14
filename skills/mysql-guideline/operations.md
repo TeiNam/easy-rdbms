@@ -64,9 +64,10 @@ cross-table facets, or language analysis beyond the built-in parsers.
 
 ## Transaction Isolation — InnoDB Defaults to REPEATABLE READ
 
-InnoDB's default is **`REPEATABLE READ`**, and unlike most engines it prevents phantoms at RR by
-using **gap locks and next-key locks** — which are also the most common deadlock source that
-surprises teams coming from other databases.
+InnoDB's default is **`REPEATABLE READ`**. Plain reads get their consistency from an MVCC
+snapshot; **locking** reads and writes additionally take **gap and next-key locks**, which is how
+RR blocks phantoms for them — and the most common deadlock source that surprises teams arriving
+from other databases.
 
 | Symptom | Cause at RR |
 |---|---|

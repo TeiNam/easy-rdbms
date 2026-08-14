@@ -28,23 +28,56 @@ ON DUPLICATE KEY UPDATE
   updated_at = NOW();
 ```
 
-## Keyset Pagination
+## Pagination — the `OFFSET` Trap
 
-Deep `OFFSET` makes the server scan and discard rows before returning the page. Use a
-cursor whose columns match a backing index.
+`LIMIT n OFFSET m` makes the server **read the first `m` rows and throw them away** before
+returning the next `n`. The cost grows with the page number, which is why the tail of an infinite
+scroll or a deep page link is slow even when an index covers the sort.
+
+| Cause | What happens |
+|---|---|
+| Read-and-discard | The server walks `offset + limit` rows in order and discards the front. An index on the sort columns removes the sort, **not the scan** |
+| No covering index → extra random I/O | The sort index yields PKs; each row then needs a lookup into the clustered index. That random I/O accumulates page by page |
+| `LIMIT` with no `ORDER BY` | With no deterministic order, the returned rows can shift between executions and pagination silently breaks |
+
+### Fix 1 — keyset (seek) pagination
+
+The real fix: carry the last row seen instead of an offset. Cost per page stays flat.
 
 ```sql
-SELECT id, name, created_at
+SELECT product_id, name, created_at
 FROM product
-WHERE (created_at, id) < (?, ?)
-ORDER BY created_at DESC, id DESC
+WHERE (created_at, product_id) < (?, ?)
+ORDER BY created_at DESC, product_id DESC
 LIMIT 50;
 
-CREATE INDEX idx_product_created_id ON product (created_at, id);
+CREATE INDEX idx_product_created_id ON product (created_at, product_id);
 ```
 
-The tie-breaker column (`id`) is required — without it, rows sharing a `created_at`
-value can be skipped or repeated across pages.
+The tie-breaker column (`product_id`) is required — without it, rows sharing a `created_at` value
+can be skipped or repeated across pages.
+
+### Fix 2 — deferred join, when a cursor is impossible
+
+Some UIs need clickable page numbers, so there is no cursor to carry. Then fetch only the PKs
+through a covering index and join the wide columns onto the narrowed set — the random I/O drops
+from `offset + limit` rows to `limit` rows.
+
+```sql
+SELECT p.product_id, p.name, p.description, p.created_at
+FROM product p
+JOIN (
+  SELECT product_id
+  FROM product
+  ORDER BY created_at DESC, product_id DESC
+  LIMIT 50 OFFSET 100000
+) AS page USING (product_id);
+```
+
+The subquery touches only indexed columns, so it stays index-only. **The offset scan itself is
+still there** — this reduces the per-row cost, not the row count. Prefer keyset pagination whenever
+the UI allows it, and for exports or batch work drop pagination entirely in favour of cursor-based
+streaming or chunked processing.
 
 ## Full-Text Search Query
 

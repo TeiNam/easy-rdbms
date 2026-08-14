@@ -120,7 +120,8 @@ making updates costlier than single-column.
 
 - Create only needed indexes (DML cost <-> query benefit tradeoff).
 - Write-heavy LOG tables → single-column index on high-cardinality columns.
-- Read speed critical → composite index (ESR/order see `index-and-query.md`).
+- Read speed critical → composite index (ESR/order see `index-and-query.md`, which also has the
+  helps-vs-hurts tables and the two ways `IN` loses the index).
 - **Function in WHERE clause → index invalidated** (`WHERE DATE(col)=...` → index not used).
   Work around with generated column or functional index.
 - **`LIKE '%word'` (leading wildcard) → Full Table Scan** → load, failures. If text search

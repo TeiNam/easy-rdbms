@@ -98,12 +98,15 @@ Scan volume becomes fixed at "last N days" instead of growing forever.
 ### Parameterized Queries (Required)
 
 ```python
-db.execute_raw_query(
-    "SELECT member_id, email, is_active, created_at FROM member WHERE member_id = %(member_id)s",
-    {"member_id": member_id}
-)
+def get_member(db, member_id: int):
+    return db.execute_raw_query(
+        "SELECT member_id, email, is_active, created_at"
+        " FROM member WHERE member_id = %(member_id)s",
+        {"member_id": member_id},
+    )
 
-db.select("member", columns=["member_id", "email"], where={"is_active": 1})
+def list_active_members(db):
+    return db.select("member", columns=["member_id", "email"], where={"is_active": 1})
 ```
 
 ### UPSERT (INSERT ... ON DUPLICATE KEY)

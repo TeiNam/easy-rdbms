@@ -8,7 +8,7 @@
 | `WHERE col > value` | B-tree | `CREATE INDEX idx_t_col ON t (col)` |
 | `WHERE a = x AND b > y` | Composite | `CREATE INDEX idx_t_a_b ON t (a, b)` |
 | `WHERE jsonb @> '{}'` | GIN | `CREATE INDEX idx_t_col ON t USING gin (col)` |
-| `WHERE tsv @@ query` | GIN | `CREATE INDEX idx_t_col ON t USING gin (col)` |
+| `WHERE tsv @@ query` | GIN | `CREATE INDEX fts_t_col ON t USING gin (col)` |
 | Time-series ranges | BRIN | `CREATE INDEX idx_t_col ON t USING brin (col)` Note: Effective only when physical insertion order correlates with values (append-only logs). Can be slower than B-tree if insertion order is mixed |
 | Range/geo data | GiST | `CREATE INDEX idx_t_col ON t USING gist (col)` |
 
@@ -40,18 +40,18 @@ CREATE UNIQUE INDEX uq_member_email ON app.member (email);
 
 ```sql
 -- Simple PK cursor (single id sort)
-SELECT product_id, name, created_at FROM product
+SELECT product_id, name, created_at FROM app.product
 WHERE product_id > %(last_id)s ORDER BY product_id LIMIT 20;
 
 -- Composite cursor (created_at + id tie-breaking)
 -- Guarantees order by id when created_at values are identical
-SELECT product_id, name, created_at FROM product
+SELECT product_id, name, created_at FROM app.product
 WHERE (created_at, product_id) > (%(last_created_at)s::timestamptz, %(last_id)s)
 ORDER BY created_at ASC, product_id ASC
 LIMIT 20;
 
 -- Reverse (previous page)
-SELECT product_id, name, created_at FROM product
+SELECT product_id, name, created_at FROM app.product
 WHERE (created_at, product_id) < (%(last_created_at)s::timestamptz, %(last_id)s)
 ORDER BY created_at DESC, product_id DESC
 LIMIT 20;
@@ -63,9 +63,9 @@ LIMIT 20;
 ### Queue Processing (SKIP LOCKED)
 
 ```sql
-UPDATE job SET status = 'processing'
-WHERE id = (
-  SELECT id FROM job WHERE status = 'pending'
+UPDATE app.job SET status = 'processing', started_at = now()
+WHERE job_id = (
+  SELECT job_id FROM app.job WHERE status = 'pending'
   ORDER BY created_at LIMIT 1
   FOR UPDATE SKIP LOCKED
 ) RETURNING job_id, status, started_at;
@@ -83,7 +83,7 @@ WHERE id = (
 --     updated_at timestamptz NOT NULL DEFAULT now(),
 --     CONSTRAINT pk_member_setting PRIMARY KEY (member_id, setting_key)
 --   );
---   CREATE INDEX idx_member_setting_member_id ON app.member_setting (member_id);
+--   -- no separate (member_id) index: the PK already leads with it
 INSERT INTO app.member_setting (member_id, setting_key, setting_value, updated_at)
 VALUES (%(member_id)s, %(key)s, %(value)s, now())
 ON CONFLICT (member_id, setting_key)

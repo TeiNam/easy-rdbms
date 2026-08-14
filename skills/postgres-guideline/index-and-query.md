@@ -25,7 +25,7 @@ CREATE INDEX idx_chat_history_user_created
 
 -- Covering index: enables an index-only scan (does NOT guarantee it — the visibility map
 -- decides; check Heap Fetches in EXPLAIN ANALYZE)
-CREATE INDEX idx ON member (email) INCLUDE (name, created_at);
+CREATE INDEX idx_member_email_covering ON app.member (email) INCLUDE (public_id, created_at);
 
 -- Partial index (smaller, targeted)
 CREATE INDEX idx_member_active_email ON app.member (email) WHERE is_active = true;

@@ -62,10 +62,18 @@ elif printf '%s' "$HAYSTACK" | grep -qiE 'supabase|neon\.tech|planetscale'; then
   EXTRA=" A managed database platform is referenced."
 fi
 
+# One engine → the dialect is settled, so suppress the confirmation question.
+# Several engines (or MariaDB, which diverges from MySQL) → the agent MUST confirm which
+# one the current task targets; guessing the dialect produces DDL that does not run.
+case "$FOUND" in
+  *" and "*|*MariaDB*) CLOSING="More than one engine (or a MySQL-compatible variant) is present — ask which one the current task targets before writing any dialect-specific SQL." ;;
+  *)                   CLOSING="The dialect is settled; do not re-ask which database this project uses." ;;
+esac
+
 cat <<CTX
 This project already uses $FOUND.$EXTRA
 For any table, index, migration, or query work here, use the easy-rdbms skills:
-$FOUND rules live in the matching guideline skill; naming and data types in
+engine rules live in the matching guideline skill; naming and data types in
 rdbms-naming; new table design in rdbms-modeling; schema/query review in
-rdbms-review. Do not re-ask which database this project uses.
+rdbms-review. $CLOSING
 CTX

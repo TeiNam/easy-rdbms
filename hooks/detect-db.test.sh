@@ -96,6 +96,23 @@ check "sqlite via python driver" "SQLite" \
 check "sqlite via node driver" "SQLite" \
   "package.json:{\"dependencies\":{\"better-sqlite3\":\"11.0.0\"}}"
 
+check "single engine suppresses the question" "dialect is settled" \
+  "docker-compose.yml:services:
+  db:
+    image: postgres:16"
+
+check "two engines demand confirmation" "ask which one" \
+  "docker-compose.yml:services:
+  pg:
+    image: postgres:16
+  my:
+    image: mysql:8.4"
+
+check "mariadb demands confirmation" "ask which one" \
+  "docker-compose.yml:services:
+  db:
+    image: mariadb:11"
+
 echo "---"
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

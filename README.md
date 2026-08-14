@@ -153,6 +153,10 @@ nobody intended.
 **MySQL, PostgreSQL, and SQLite only.** Other relational engines are out of scope; the plugin says
 so rather than pretending to advise on them.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Current: **0.3.0**.
+
 ## Development
 
 ```bash

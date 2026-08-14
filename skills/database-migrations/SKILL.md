@@ -208,13 +208,16 @@ For operations Prisma cannot express (concurrent indexes, data backfills):
 
 ```bash
 # Create empty migration, then edit the SQL manually
-npx prisma migrate dev --create-only --name add_email_index
+npx prisma migrate dev --create-only --name add_member_last_login_index
 ```
 
 ```sql
--- migrations/20240115_add_email_index/migration.sql
--- Prisma cannot generate CONCURRENTLY, so we write it manually
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON member (email);
+-- migrations/20260815_add_member_last_login_index/migration.sql
+-- Prisma cannot generate CONCURRENTLY, so we write it manually.
+-- (Not an index on `email` — the model already declares `email @unique`, which
+--  creates a unique index; a second one would be pure write cost.)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_member_last_login
+  ON member (last_login_at);
 ```
 
 ## Drizzle (TypeScript/Node.js)

@@ -3,7 +3,7 @@ name: rdbms-naming
 description: >
   Common RDBMS naming and data type conventions (single source for MySQL and PostgreSQL).
   Table/column snake_case, singular, past-participle time columns, prefix/postfix, abbreviation
-  dictionary, column prefix/suffix system, index/constraint naming (lowercase prefix pk_/fk_/uq_/chk_/idx_/ftx_),
+  dictionary, column prefix/suffix system, index/constraint naming (lowercase prefix pk_/fk_/uq_/chk_/idx_/fts_),
   identifier case-folding, 63-char limit, data type selection. Triggers: table/column/index design,
   DDL authoring, schema review, naming conventions, snake_case, abbreviations, PK/FK naming,
   boolean columns, DECIMAL, settlement amount columns.
@@ -93,6 +93,11 @@ change on another.
 
 ## 3. Constraint / Index Naming — lowercase prefix
 
+> **Two retired conventions.** (1) An uppercase postfix (`_IDX`) — see below. (2) The full-text prefix
+> `ftx_`, now **`fts_`**: `FTX` is not standard terminology, while FTS (Full-Text Search) is what every
+> engine's documentation uses. Existing `ftx_*` indexes may remain — rename them when a table is
+> already being changed, not in a migration of their own.
+>
 > A prior version used an uppercase postfix (`_IDX`). That **breaks under PostgreSQL case-folding** and blows
 > past the 63-char limit on composite indexes. Use a **lowercase prefix** instead — prefixes also sort by type,
 > which helps management. **Always name constraints/indexes explicitly**: engine-generated names (`SYS_C00…`,
@@ -106,7 +111,7 @@ change on another.
 | Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
 | General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |
 | Composite index | `idx_<table>_<col1>_<col2>…` | `idx_actor_first_name_last_name` |
-| Fulltext index | `ftx_<table>_<col…>` | `ftx_book_name` |
+| Fulltext index | `fts_<table>_<col…>` | `fts_book_name` |
 
 **63-char overflow** — when listing every column exceeds 63 chars, shorten in this order:
 1. Apply an abbreviation registered in the dictionary (§4) (e.g. `authentication` → `auth`).

@@ -231,7 +231,7 @@ looks like `<DB>`. Correct?"
 Then produce:
 
 - Table and column names per `rdbms-naming` — `snake_case`, singular tables, lowercase-prefix
-  constraints and indexes (`pk_` / `fk_` / `uq_` / `chk_` / `idx_` / `ftx_`). The uppercase
+  constraints and indexes (`pk_` / `fk_` / `uq_` / `chk_` / `idx_` / `fts_`). The uppercase
   `_IDX` suffix is retired; it breaks under PostgreSQL case-folding
 - Engine-specific data types, and the **identifier decision** — see below
 - Constraints: PK, UNIQUE, CHECK, and NOT NULL. **No `FOREIGN KEY` constraints** — see the

@@ -46,7 +46,7 @@ Summary + PostgreSQL-specific:
   `create_date` rule is retired)
 - Boolean: `is_`/`has_` prefix + native `boolean` (never 'Y'/'N' strings)
 - Constraints/Indexes: **lowercase prefix** — `pk_<table>` / `fk_<child>_<parent>` / `uq_<table>_<col>` /
-  `chk_<table>_<rule>` / `idx_<table>_<col>` / `ftx_<table>_<col>`. (Uppercase suffix `_IDX` breaks under PG
+  `chk_<table>_<rule>` / `idx_<table>_<col>` / `fts_<table>_<col>`. (Uppercase suffix `_IDX` breaks under PG
   case-folding — do not use.)
 - Sequences (PG-specific): `{table}_{column}_seq` (auto-created with IDENTITY)
 

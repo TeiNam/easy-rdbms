@@ -39,8 +39,8 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
   `create_date` rule is retired)
 - Boolean: `is_`/`has_` prefix + `TINYINT(1)` 0/1 (not the old `use_yn` CHAR(1) 'Y'/'N')
 - Constraints/Indexes: **lowercase prefix** (uppercase suffix `_IDX` breaks PostgreSQL case-folding)
-  - `pk_<table>` · `fk_<child>_<parent>` · `uq_<table>_<col>` · `chk_<table>_<rule>` · `idx_<table>_<col>` · `ftx_<table>_<col>`
-  - Examples: `idx_book_like_member_id`, `uq_member_email`, `ftx_book_name`
+  - `pk_<table>` · `fk_<child>_<parent>` · `uq_<table>_<col>` · `chk_<table>_<rule>` · `idx_<table>_<col>` · `fts_<table>_<col>`
+  - Examples: `idx_book_like_member_id`, `uq_member_email`, `fts_book_name`
 
 ## Data Type Guide
 

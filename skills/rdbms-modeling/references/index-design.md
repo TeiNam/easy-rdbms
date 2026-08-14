@@ -129,7 +129,7 @@ and similarity searches can use `pg_trgm` with GIN or GiST.
 committing.
 
 ```sql
-ALTER TABLE article ADD FULLTEXT KEY ftx_article_title_body (title, body) WITH PARSER ngram;
+ALTER TABLE article ADD FULLTEXT KEY fts_article_title_body (title, body) WITH PARSER ngram;
 
 SELECT id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
 FROM article
@@ -151,8 +151,9 @@ SELECT id, title FROM article
 WHERE search_vector @@ to_tsquery('simple', ?);   -- same configuration as the index
 ```
 
-Naming note: this plugin's index prefix convention is `ftx_` (see `rdbms-naming`). In prose, use
-**FTS** or the engine's own keyword `FULLTEXT` — `FTX` is not standard terminology.
+Naming note: the full-text index prefix is **`fts_`** (see `rdbms-naming`). In prose use **FTS** or the
+engine's own keyword `FULLTEXT`. An earlier convention used `ftx_`, which is not standard terminology —
+existing `ftx_*` indexes can stay; rename them opportunistically, not in a dedicated migration.
 
 ## When to Signal a Move to a Search Engine
 

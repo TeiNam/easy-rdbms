@@ -48,7 +48,7 @@ CREATE INDEX idx_chat_history_user_date ON chat_history (user_id, created_at);
 CREATE UNIQUE INDEX uq_user_email ON user (email);
 
 -- Fulltext with ngram parser (Korean/CJK support)
-CREATE FULLTEXT INDEX ftx_small_talk_search
+CREATE FULLTEXT INDEX fts_small_talk_search
 ON small_talk (eng_sentence, kor_sentence) WITH PARSER ngram;
 
 -- Covering index: WHERE(status) → ORDER BY(created_at) → SELECT additional columns(user_id, total_amount)

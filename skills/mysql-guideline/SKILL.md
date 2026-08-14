@@ -52,7 +52,7 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 | Large PK / default surrogate | `bigint unsigned` | Default choice; `int` risks exhaustion (~4.2B) on large tables |
 | Boolean | `tinyint(1)` 0/1 | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`. Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched — new designs use `tinyint(1)`) |
 | Variable string | `varchar(n)` | `n` = **character count** (MySQL 4.1+), sized to real max length. Row-wide 65,535B cap limits max `n` (utf8mb4 ≈ 16,383 chars single-column) |
-| Long text | `text` | 4 tiers: `tinytext`(256B)/`text`(64KB)/`mediumtext`(16MB)/`longtext`(4GB). Prefix index only |
+| Long text | `text` | 4 tiers: `tinytext`(255B)/`text`(64KB)/`mediumtext`(16MB)/`longtext`(4GB). Prefix index only |
 | Fixed string | `char(n)` | Truly fixed-width codes only (e.g. `char(2)` country code) |
 | Date+Time | `datetime` (5B packed binary, 5.6.4+) | With `DEFAULT CURRENT_TIMESTAMP`. Use for values past 2038 (Y2038). +1~3B for fractional seconds |
 | Auto-UTC timestamp | `timestamp` (4B) | Session-tz→UTC auto-conversion, but **≤ 2038-01-19** — never for future/expiry dates |
@@ -63,10 +63,11 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 | Money | `decimal(p,s)` | Never float. **Per-currency:** KRW `(15,0)` (no minor unit), multinational `(19,4)`, rate `(19,6)`, ratio `(5,4)`. No blanket `(10,2)` |
 
 ## Prohibited Items
-- Stored Procedures: discouraged (stored-program cache is **per-session**, not a global shared cache like
-  Oracle/PostgreSQL — connection-pool churn re-pays parse/compile cost; plus maintenance/portability/security)
+- Stored Procedures: discouraged (stored-program cache is **per-session**, not a global shared cache
+  like Oracle's — connection-pool churn re-pays parse/compile cost; plus maintenance/portability/security)
 - Triggers: prohibited for business logic
-- Events: prohibited
+- Events: prohibited for business processing — the operational-utility exception (partition
+  rotation etc. when no external scheduler exists) follows `rdbms-modeling/references/db-internal-routines.md`
 - Views: simple read-only views are fine for query reuse, security, and interface abstraction —
   **complex or nested views are discouraged** (a view is not a performance cache; aggregates, window
   functions, `DISTINCT`, `UNION`, `LIMIT` block `MERGE` and force internal materialization). MySQL has

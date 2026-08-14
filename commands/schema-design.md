@@ -22,7 +22,7 @@ stopping at each confirmation gate:
    `db-select` at this point. Then produce DDL in the correct dialect, constraints, indexes,
    partitioning, ordered migration SQL, and a sample-data constraint test. **FK policy splits by
    engine**: on MySQL emit no physical `FOREIGN KEY` (and create the referencing-column index
-   explicitly — InnoDB's auto-created one disappears with the constraint); on PostgreSQL physical
+   explicitly — nothing auto-creates it without an FK); on PostgreSQL physical
    FKs are allowed but only when all six conditions hold. Anything left logical carries a
    `COMMENT`, an index, a named integrity owner, and an orphan-detection query.
 

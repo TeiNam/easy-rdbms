@@ -137,7 +137,9 @@ list **minimal**.
 ## 5. Data Types (by DB)
 
 Type selection varies by DB engine. Follow the **common principles** below, but use the target DB column for
-concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tables.
+concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tables. SQLite has no
+real types (affinity + `STRICT`) — its conventions live in `sqlite-guideline`; the naming rules here
+apply to it unchanged.
 
 ### Common Principles (DB-agnostic)
 
@@ -180,7 +182,7 @@ concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tab
 | Amount | `DECIMAL(p,s)` | `numeric(p,s)` |
 | Date+Time | `datetime` (+`DEFAULT CURRENT_TIMESTAMP`); `TIMESTAMP` only for auto-UTC ≤ 2038 | `timestamptz` (timezone required) |
 | Date | `date` | `date` |
-| Long text | `TINYTEXT`(256B)/`TEXT`(64KB)/`MEDIUMTEXT`(16MB)/`LONGTEXT`(4GB) 4 tiers | Variable `text` **single** (no length distinction) |
+| Long text | `TINYTEXT`(255B)/`TEXT`(64KB)/`MEDIUMTEXT`(16MB)/`LONGTEXT`(4GB) 4 tiers | Variable `text` **single** (no length distinction) |
 | JSON | `json` (8.0+ native) | `jsonb` (indexing support, not `json`) |
 | Positive-only | `UNSIGNED` (MySQL-only) or `CHECK (col >= 0)` (portable) | `CHECK (col >= 0)` (no UNSIGNED) |
 | Fixed display width | (avoid) `ZEROFILL` deprecated 8.0.17 → pad in app/`LPAD` | No display width → app or `LPAD` |

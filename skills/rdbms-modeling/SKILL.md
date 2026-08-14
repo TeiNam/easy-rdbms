@@ -232,6 +232,7 @@ If the engine is decided but unstated, ask:
 > 2. **MySQL Community** (8.4 LTS+)
 > 3. **Aurora PostgreSQL** (AWS, PostgreSQL-compatible)
 > 4. **PostgreSQL Community** (16.7+)
+> 5. **SQLite** (3.37+, embedded / local / Tier 0)
 
 If repo files already answer it (`docker-compose.yml`, `alembic.ini`, `flyway.conf`,
 `prisma/schema.prisma`, `DATABASE_URL` in `.env`), confirm instead of asking cold: "The repo
@@ -243,6 +244,7 @@ looks like `<DB>`. Correct?"
 |---|---|---|
 | Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
 | Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
+| SQLite | `sqlite-guideline` | `STRICT` tables, PRAGMA baseline (`foreign_keys=ON`, WAL), `INTEGER PRIMARY KEY` rowid, integer-cents money, physical FKs allowed, no partitioning |
 
 Aurora variants follow the base guideline plus:
 
@@ -264,8 +266,9 @@ Then produce:
   below — none on MySQL; on PostgreSQL only through the six gates
 - `created_at` on every table; `updated_at` on every mutable table (skip for append-only logs)
 - Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
-- **Indexes from evidence, not from guesses.** Composite draft order is equality → first range → sort
-  → covering, confirmed against the real plan. Every index costs write throughput, storage, backup
+- **Indexes from evidence, not from guesses.** Composite draft: equality first, then sort columns
+  (when the query needs the index's ordering) or the first selective range — one range column ends
+  seek-and-order for everything after it. Confirm against the real plan. Every index costs write throughput, storage, backup
   size, and buffer-pool space forever — emit the justifying query, the column-order reason, and the
   rollback with each one. With no plan or metrics available, say `needs measurement` rather than
   estimating an improvement. See `references/index-design.md` and
@@ -355,13 +358,17 @@ Full criteria, the SQL, and the exception paths: `references/foreign-keys.md`.
 | Referencing-column index | **Mandatory, by hand** | Created unless an existing index already leads with it |
 
 Why: InnoDB cannot put an FK on a partitioned table (and log/history tables are the usual
-partitioning candidates), FK checks lock the parent row, and online DDL tools need special
-handling. PostgreSQL has none of the clustering penalty and validates large tables via
+partitioning candidates), FK checks take parent-row locks that make hot-parent key updates and
+child writes stall each other, and online DDL tools need special handling. PostgreSQL has none of the clustering penalty and validates large tables via
 `NOT VALID` → `VALIDATE CONSTRAINT`.
 
-**The MySQL trap**: InnoDB's automatic child index comes *from* the FK constraint — drop the
-constraint and the index silently goes with it, so the referencing-column index is mandatory
-and manual.
+(SQLite targets differ again: physical FKs are fine there but enforcement is per-connection —
+`sqlite-guideline` owns that policy.)
+
+**The MySQL trap**: under a no-FK policy nothing ever auto-creates the child index, so the
+referencing-column index is deliberate and manual. (On inherited schemas, dropping an FK leaves
+its auto-created index behind under an auto-generated name — verify with `SHOW INDEX` and rename
+it before a cleanup job mistakes it for dead weight.)
 
 Every **logical** FK carries four controls: `COMMENT`, the index, a named integrity owner, a
 scheduled orphan-detection query. The six PostgreSQL gates: ① parent is PK/UNIQUE ② referencing
@@ -438,8 +445,8 @@ STAGE 3 — Physical model
       left unvalidated
 - [ ] Subtype physical mapping chosen and justified; single-table strategy recovers `NOT NULL`
       with conditional `CHECK` per type
-- [ ] Indexes: composite order equality → first range → sort → covering, confirmed against a
-      real plan; each index ships with its justifying query, write cost, and rollback; no
+- [ ] Indexes: composite order chosen between sort-first and range-first per the query's needs,
+      confirmed against a real plan; each index ships with its justifying query, write cost, and rollback; no
       improvement figure without a plan or metrics
 - [ ] Partitioning recommended from evidence (queries + retention code), never from expected
       growth; if partitioned — key `NOT NULL` and in the main `WHERE`, every PK/UNIQUE contains
@@ -469,7 +476,7 @@ STAGE 3 — Physical model
 | Habitual `varchar(255)` (PostgreSQL) | `text` |
 | Natural key as PK when the key changes | Surrogate PK + `UNIQUE` constraint |
 | `FOREIGN KEY` constraint on MySQL/InnoDB | Logical FK: `COMMENT` + index + named integrity owner + orphan check |
-| Dropping a MySQL FK without first creating the index | The auto-created child index goes with it — create the explicit index first |
+| Dropping a MySQL FK and then "cleaning up" its auto-named index | The index survives the drop — verify with `SHOW INDEX`, rename to `idx_` convention |
 | `ON DELETE CASCADE` on a high-fan-out parent | `RESTRICT` + explicit deletion, or a bounded batch job |
 | PostgreSQL FK with an unindexed referencing column | Create the index — PostgreSQL never auto-creates it |
 | PostgreSQL constraint left `NOT VALID` | `VALIDATE CONSTRAINT`; until then it is a logical FK |

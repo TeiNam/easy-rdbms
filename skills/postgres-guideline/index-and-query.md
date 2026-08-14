@@ -104,14 +104,17 @@ with pool.connection() as conn:
 ## Anti-Pattern Detection Queries
 
 ```sql
--- Find unindexed foreign keys
+-- Find FK columns with no index LEADING on them (a non-leading appearance does not serve
+-- the parent-side lookup, so match indkey[0], not ANY(indkey))
 SELECT conrelid::regclass, a.attname
 FROM pg_constraint c
-JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
 WHERE c.contype = 'f'
   AND NOT EXISTS (
-    SELECT 1 FROM pg_index i WHERE i.indrelid = c.conrelid AND a.attnum = ANY(i.indkey)
+    SELECT 1 FROM pg_index i
+    WHERE i.indrelid = c.conrelid AND i.indkey[0] = a.attnum
   );
+-- Multi-column FKs: compare the full conkey vector against the index prefix by hand
 
 -- Find slow queries
 SELECT query, mean_exec_time, calls

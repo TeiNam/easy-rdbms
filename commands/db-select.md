@@ -13,7 +13,8 @@ Follow the skill exactly:
    guess at data volume, QPS, or who operates the database.
 2. Decide whether an RDBMS fits at all before comparing engines.
 3. Place the workload in a scale tier using the 12-month projection.
-4. Name one recommendation. Not three options with tradeoffs.
+4. Present up to three candidates with **one clearly named default** — never three options
+   without a recommendation, never one option with no alternatives shown.
 5. Give every deferred item a measurable trigger.
 6. Route to `mysql-guideline` or `postgres-guideline` for the follow-up design work.
 

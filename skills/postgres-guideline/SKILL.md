@@ -63,7 +63,7 @@ Summary + PostgreSQL-specific:
 | Timestamp | `timestamptz` | Timezone required |
 | Date only | `date` | |
 | JSON data | `jsonb` | Not `json` (indexing support) |
-| Money | `numeric(p,s)` | Never use float / `numeric(15,2)`: KRW, `numeric(10,2)`: USD, `numeric(5,4)`: ratio (0.1234=12.34%) |
+| Money | `numeric(p,s)` | Never use float. Per-currency scale: `numeric(15,0)` KRW (no minor unit), `numeric(10,2)` USD, `numeric(5,4)` ratio (0.1234=12.34%) |
 | IP address | `inet` | PostgreSQL native type |
 | Arrays | `type[]` | Simple lists (e.g. `text[]`) |
 | IDs (external) | `uuid` via `gen_random_uuid()` | |

@@ -38,9 +38,9 @@ Six rules override any urge to move faster:
 - **3NF is required; BCNF is checked on every entity.** Emit the check result per entity even
   when it is "none". Decompose where a non-superkey determinant causes a real anomaly;
   otherwise name the exception that keeps it at 3NF.
-- **FK policy splits by engine.** MySQL/InnoDB: emit **no** physical `FOREIGN KEY` — and note that
-  removing it also removes InnoDB's auto-created child index, so the explicit index on the
-  referencing column is mandatory. PostgreSQL: physical FKs are allowed by default but created
+- **FK policy splits by engine.** MySQL/InnoDB: emit **no** physical `FOREIGN KEY` — and since no
+  FK ever auto-creates the child index under this policy, the explicit index on the referencing
+  column is mandatory. PostgreSQL: physical FKs are allowed by default but created
   only when all six conditions hold (PK/UNIQUE target, referencing column indexed, no redundant
   index, `CASCADE` justified by lifecycle dependency, `NOT DEFERRABLE`, `NOT VALID`+`VALIDATE`
   on large tables). Any relationship left logical carries four compensating controls: `COMMENT`,

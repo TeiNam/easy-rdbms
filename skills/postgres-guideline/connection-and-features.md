@@ -74,8 +74,9 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 ## Advisory Lock
 
 ```python
-# Session-level (pg_advisory_lock): automatically released on connection return
-# Transaction-level (pg_advisory_xact_lock): automatically released on transaction end → recommended
+# Session-level (pg_advisory_lock): held until unlocked or the connection CLOSES —
+#   returning a pooled connection does NOT close it, so the next borrower inherits the lock
+# Transaction-level (pg_advisory_xact_lock): released at transaction end → the only safe kind with a pool
 
 # PASS: Transaction-level: lock auto-released when with conn.transaction() ends, no finally needed
 async with async_pool.connection() as conn:
@@ -117,14 +118,18 @@ async with async_pool.connection() as conn:
 
 ```python
 import psycopg
+from psycopg import sql
 
 def notify(conn, channel: str, payload: str):
-    conn.execute(f"NOTIFY {channel}, %(payload)s", {"payload": payload})
+    # NOTIFY is a utility command — it takes no bind parameters.
+    # pg_notify() is a regular function, so both arguments bind safely.
+    conn.execute("SELECT pg_notify(%s, %s)", (channel, payload))
     conn.commit()
 
 def listen(conninfo: str, channel: str):
     with psycopg.connect(conninfo, autocommit=True) as conn:
-        conn.execute(f"LISTEN {channel}")
+        # LISTEN takes an identifier — compose it, never f-string it
+        conn.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
         for notify in conn.notifies():
             print(f"Received: {notify.payload}")
 ```
@@ -132,13 +137,19 @@ def listen(conninfo: str, channel: str):
 ## Server Configuration Template
 
 ```sql
-ALTER SYSTEM SET max_connections = 100;
+-- Reloadable — takes effect with pg_reload_conf()
 ALTER SYSTEM SET work_mem = '8MB';
 ALTER SYSTEM SET idle_in_transaction_session_timeout = '30s';
 ALTER SYSTEM SET statement_timeout = '30s';
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-REVOKE ALL ON SCHEMA public FROM public;
 SELECT pg_reload_conf();
+
+-- Restart-required — pg_reload_conf() does NOT apply these
+ALTER SYSTEM SET max_connections = 100;
+ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
+-- ...restart the server, then:
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+REVOKE ALL ON SCHEMA public FROM public;
 ```
 
 ## Performance Checklist

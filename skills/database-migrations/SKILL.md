@@ -1,6 +1,6 @@
 ---
 name: database-migrations
-description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments across PostgreSQL, MySQL, and common ORMs (Prisma, Drizzle, Kysely, Django, TypeORM, golang-migrate).
+description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments. PostgreSQL-first mechanics with MySQL online-DDL notes, and workflows for Prisma, Drizzle, Kysely, Django, and golang-migrate.
 ---
 
 # Database Migration Patterns
@@ -39,16 +39,25 @@ Before applying any migration:
 
 ### Adding a Column Safely
 
+Every `ADD COLUMN` takes a brief **ACCESS EXCLUSIVE lock** — what varies is whether the table is
+*rewritten*. Behind long transactions or `pg_dump`, even the brief lock queues everything after it,
+so set a `lock_timeout` and retry.
+
 ```sql
--- GOOD: Nullable column, no lock
+-- GOOD: nullable column — brief lock, no rewrite
 ALTER TABLE users ADD COLUMN avatar_url TEXT;
 
--- GOOD: Column with default (Postgres 11+ is instant, no rewrite)
+-- GOOD: column with constant default (Postgres 11+ stores the default in the catalog, no rewrite)
 ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
 
--- BAD: NOT NULL without default on existing table (requires full rewrite)
+-- FAILS on a non-empty table: NOT NULL with no default has nothing to fill existing rows with
 ALTER TABLE users ADD COLUMN role TEXT NOT NULL;
--- This locks the table and rewrites every row
+-- ERROR: column "role" of relation "users" contains null values
+
+-- GOOD: the NOT NULL-without-default path is three steps
+ALTER TABLE users ADD COLUMN role TEXT;                       -- 1. nullable add
+UPDATE users SET role = 'member' WHERE role IS NULL;          -- 2. backfill (batched, below)
+ALTER TABLE users ALTER COLUMN role SET NOT NULL;             -- 3. scans once, then enforced
 ```
 
 ### Adding an Index Without Downtime
@@ -62,6 +71,15 @@ CREATE INDEX CONCURRENTLY idx_users_email ON users (email);
 
 -- Note: CONCURRENTLY cannot run inside a transaction block
 -- Most migration tools need special handling for this
+```
+
+`CONCURRENTLY` is **PostgreSQL-only**, and even there a **partitioned parent** does not accept it —
+build each child's index `CONCURRENTLY`, then create the parent index (metadata-only once all
+children have one). On **MySQL** the equivalent is InnoDB online DDL:
+
+```sql
+ALTER TABLE users ADD INDEX idx_users_email (email), ALGORITHM=INPLACE, LOCK=NONE;
+-- If the ALTER cannot run in-place MySQL errors instead of silently locking — that error is the signal
 ```
 
 ### Renaming a Column (Zero-Downtime)
@@ -101,6 +119,9 @@ ALTER TABLE orders DROP COLUMN legacy_status;
 UPDATE users SET normalized_email = LOWER(email);
 
 -- GOOD: Batch update with progress
+-- CAUTION: a DO block cannot COMMIT between batches when the migration runner wraps it
+-- in a transaction — then it is one giant transaction wearing a loop. Run it outside a
+-- transaction (psql, or the runner's no-transaction mode), or batch from application code.
 DO $$
 DECLARE
   batch_size INT := 10000;
@@ -198,8 +219,8 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name"),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 ```
 
@@ -235,10 +256,10 @@ import { type Kysely, sql } from 'kysely'
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('user_profile')
-    .addColumn('id', 'serial', (col) => col.primaryKey())
+    .addColumn('id', 'bigint', (col) => col.generatedAlwaysAsIdentity().primaryKey())
     .addColumn('email', 'varchar(255)', (col) => col.notNull().unique())
     .addColumn('avatar_url', 'text')
-    .addColumn('created_at', 'timestamp', (col) =>
+    .addColumn('created_at', 'timestamptz', (col) =>
       col.defaultTo(sql`now()`).notNull()
     )
     .execute()

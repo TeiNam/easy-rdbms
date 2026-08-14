@@ -64,9 +64,10 @@ reach.
 
 **Full ACID transactions are the baseline requirement**, not a feature to trade for
 throughput. Any flow touching money, inventory, permissions, or a state machine needs
-atomicity and isolation across multiple rows and tables. MySQL/InnoDB and PostgreSQL both
-provide this; most alternatives below narrow it to a single item or document. Losing
-multi-entity transactions is the cost the table understates.
+atomicity and isolation across multiple rows and tables. MySQL/InnoDB and PostgreSQL provide
+this as the default execution model; the alternatives below bolt transactions on with real limits
+(DynamoDB caps them at 100 items and double cost, MongoDB treats multi-document transactions as
+the exception). Designing every money flow around those limits is the cost the table understates.
 
 (ACID and normalization are separate concerns — ACID is how a transaction stays safe,
 normalization is how the schema avoids redundancy. Neither substitutes for the other. See
@@ -76,8 +77,8 @@ Leave the RDBMS only when a row below matches the workload **as stated** — not
 
 | Leave for | Only when all of these hold | What you give up |
 |---|---|---|
-| **DynamoDB** | Access patterns are fixed and enumerable up front; no ad-hoc queries; no multi-entity joins; single-digit-ms latency at very high, spiky throughput is a stated requirement | Ad-hoc querying, joins, flexible aggregation. Every new access pattern is a table or GSI redesign |
-| **MongoDB** | Documents genuinely vary in shape per record (not "we might add fields"); the aggregate is read and written whole; per-document atomicity is sufficient | Cross-entity transactional guarantees, mature relational query planning |
+| **DynamoDB** | Access patterns are fixed and enumerable up front; no ad-hoc queries; no multi-entity joins; single-digit-ms latency at very high, spiky throughput is a stated requirement | Ad-hoc querying, joins, flexible aggregation. Transactions exist (`TransactWriteItems`) but are capped at 100 items and cost double capacity. Every new access pattern is a table or GSI redesign |
+| **MongoDB** | Documents genuinely vary in shape per record (not "we might add fields"); the aggregate is read and written whole; per-document atomicity covers most flows | Multi-document transactions exist but cost more and are the exception, not the model; mature relational query planning |
 | **Redis** | Data is ephemeral, derived, or reconstructible — cache, session, rate limit, leaderboard, lock, lightweight queue | Durability guarantees. **Redis complements an RDBMS; it does not replace one** |
 | **ClickHouse / DuckDB / warehouse** | Workload is analytical: wide scans, aggregation over millions of rows, few concurrent writers | Row-level OLTP performance, transactional writes. **Add alongside OLTP, never instead** |
 | **Search engine** (OpenSearch, Meilisearch, Typesense) | Typo tolerance, relevance ranking, faceting, or per-language analysis are product requirements | It is an index, not a source of truth. Keep the RDBMS authoritative |
@@ -245,6 +246,7 @@ Every re-evaluation trigger must be **measurable**. "When we get bigger" is not 
 |---|---|
 | MySQL or Aurora MySQL | `mysql-guideline` |
 | PostgreSQL or Aurora PostgreSQL | `postgres-guideline` |
+| SQLite (Tier 0, embedded, local tools) | `sqlite-guideline` |
 | Naming and data types (either engine) | `rdbms-naming` |
 | Table and relationship design | `rdbms-modeling` |
 | Migrating off the current database | `database-migrations` |

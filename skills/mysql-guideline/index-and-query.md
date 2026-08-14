@@ -25,6 +25,10 @@ Order columns by:
    index seeking, only as a filter.
 4. **Higher cardinality earlier** — but rules 1–3 (query shape) win over raw cardinality.
 
+> The E→S→R order above optimizes for serving `ORDER BY` from the index. When the range predicate
+> is **highly selective** and the query does not need index ordering (no `ORDER BY`, or sorting a
+> handful of rows is cheap), equality → range wins instead — decide from the plan, not the mnemonic.
+
 ```sql
 -- WHERE status='ACTIVE' AND created_at BETWEEN ... ORDER BY user_id
 -- status(equality) → user_id(sort) → created_at(range)
@@ -102,10 +106,12 @@ db.select("user", columns=["user_id", "email"], where={"is_active": 1})
 ### UPSERT (INSERT ... ON DUPLICATE KEY)
 
 ```sql
+-- MySQL 8.0.19+ row-alias form (VALUES(col) is deprecated on MySQL; see operations.md
+-- for the MariaDB/mixed-fleet variant that still uses VALUES(col))
 INSERT INTO user_setting (user_id, setting_key, setting_value, updated_at)
-VALUES (%(user_id)s, %(key)s, %(value)s, NOW())
+VALUES (%(user_id)s, %(key)s, %(value)s, NOW()) AS new
 ON DUPLICATE KEY UPDATE
-  setting_value = VALUES(setting_value),
+  setting_value = new.setting_value,
   updated_at = NOW();
 ```
 

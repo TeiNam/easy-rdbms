@@ -85,6 +85,17 @@ check "aurora endpoint noted" "Aurora/RDS" \
 check "supabase noted" "managed database platform" \
   ".env:DATABASE_URL=postgresql://x@db.abcdef.supabase.co:5432/postgres"
 
+check "mariadb detected separately" "MariaDB" \
+  "docker-compose.yml:services:
+  db:
+    image: mariadb:11"
+
+check "sqlite via python driver" "SQLite" \
+  "requirements.txt:aiosqlite==0.20.0"
+
+check "sqlite via node driver" "SQLite" \
+  "package.json:{\"dependencies\":{\"better-sqlite3\":\"11.0.0\"}}"
+
 echo "---"
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

@@ -20,8 +20,9 @@ behaviour are not, and the difference is large enough that the policy splits by 
 | **`NO ACTION` vs `RESTRICT`** | Effectively identical; both check immediately | `NO ACTION` can defer to end of transaction; `RESTRICT` blocks immediately |
 | **Partitioned tables** | InnoDB **cannot** have an FK on a partitioned table, either direction | Supported (referencing a partitioned table from PG 12+); `ATTACH PARTITION` validates, taking stronger locks |
 
-The partitioning row is the decisive one for MySQL. This plugin treats log and history tables as
-the usual partitioning candidates, and on InnoDB an FK today is a blocked partition tomorrow.
+The operational rows (write I/O, parent-row locks, online-DDL tooling) justify the MySQL policy on
+their own; the partitioning row seals it — log and history tables are the usual partitioning
+candidates, and on InnoDB an FK today is a blocked partition tomorrow.
 
 ## MySQL / InnoDB — Logical FK Only
 
@@ -29,19 +30,23 @@ the usual partitioning candidates, and on InnoDB an FK today is a blocked partit
 the relationship is documented in a `COMMENT`.
 
 Why, beyond partitioning: an FK adds a parent-index lookup to every child write that the statement
-never shows and slow-query analysis cannot attribute; FK checks take shared locks on the parent row,
-so a hot parent (a tenant, a category, a config row) serializes unrelated child writes as
-hard-to-diagnose incidents; `ON DELETE CASCADE` gives one statement unbounded transaction scope; and
+never shows and slow-query analysis cannot attribute; FK checks take shared locks on the parent row —
+child writes do not block each other, but any update or delete of a hot parent's key (a tenant, a
+category, a config row) blocks, and is blocked by, **every** in-flight child write, surfacing as
+hard-to-diagnose stalls; `ON DELETE CASCADE` gives one statement unbounded transaction scope; and
 `pt-online-schema-change` / `gh-ost` need special handling for FKs, turning routine maintenance into
 a downtime negotiation.
 
 ### The Index Consequence — Do Not Miss This
 
-> **InnoDB's automatic child index comes *from* the FK constraint. Remove the constraint and the
-> automatic index goes with it, silently.**
+InnoDB auto-creates a child index **when the FK is created** (if none leads with that column).
+**Dropping the FK does not drop that index** — it remains, but under an auto-generated name that
+reads like leftovers, and the next "unused index cleanup" is likely to remove it.
 
-So on MySQL the referencing-column index is **mandatory and manual**. Nothing will warn you that it
-is missing; you simply get a full scan of the child table on every parent-side lookup and join.
+So on MySQL the referencing-column index is **deliberate and manual**: under this policy no FK ever
+creates one for you, and on an inherited schema, after dropping an FK, run `SHOW INDEX` and keep or
+rename the auto-created index explicitly. An unindexed child column means a full scan of the child
+table on every parent-side lookup and join.
 
 ```sql
 -- Mandatory unless an existing composite index already LEADS with customer_id
@@ -119,9 +124,9 @@ Allowing FKs does not make them free. These still apply and are reasons to choos
 specific relationship:
 
 - **Extra write I/O** — each child write does a parent lookup the statement does not show
-- **Parent-row lock contention** — validation takes a `FOR KEY SHARE` lock, which does not block
-  ordinary reads but **does** conflict with parent-key updates and deletes. A hot parent row
-  serializes unrelated child writes
+- **Parent-row lock contention** — validation takes a `FOR KEY SHARE` lock. Child writes are
+  mutually compatible, but a parent-key update or delete conflicts with all of them — on a hot
+  parent row the two sides stall each other
 - **Cascade scope** — `ON DELETE CASCADE` on a high-fan-out parent turns one statement into a long
   transaction with lock and bloat consequences
 - **Bulk load and restore ordering** — `pg_restore` and backfills must order operations or run with
@@ -155,5 +160,7 @@ high-volume children; see `identifier-selection.md`.
 ## Inherited MySQL Schemas
 
 When an InnoDB schema you did not author already has FK constraints, do not rip them out
-opportunistically — dropping an FK also drops the auto-created child index. Plan it: create the
-explicit index first, then drop the constraint, then add the remaining compensating controls.
+opportunistically. Dropping the FK leaves its auto-created child index in place — but under an
+auto-generated name that invites deletion by cleanup jobs. Plan it: drop the constraint, verify the
+index with `SHOW INDEX` and rename it to the `idx_` convention (or create the explicit index if a
+suitable one is missing), then add the remaining compensating controls.

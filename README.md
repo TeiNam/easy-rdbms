@@ -2,7 +2,7 @@
 
 RDBMS design companion for **Claude Code** and **Codex**. Picks the database for your scale
 and budget, keeps naming consistent, normalizes tables to 3NF with a BCNF check, and reviews
-schemas and queries before they ship. Covers MySQL and PostgreSQL, including Aurora variants.
+schemas and queries before they ship. Covers MySQL and PostgreSQL (including Aurora variants), with SQLite for the embedded/Tier-0 end.
 
 한국어 안내는 [아래](#한국어)에 있습니다.
 
@@ -35,6 +35,7 @@ repo slug.
 | `rdbms-review` | Reviewing existing SQL, schemas, and migrations |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL: schema, indexes, partitioning, operations, JDBC |
 | `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL: schema, indexes, partitioning, RLS, psycopg |
+| `sqlite-guideline` | SQLite 3.37+: STRICT tables, PRAGMA baseline, single-writer design, growth path |
 | `database-migrations` | Zero-downtime schema changes, rollback strategy, ORM migration tooling |
 
 Skills activate on their own when a task mentions relevant work. You can also invoke them
@@ -111,11 +112,10 @@ are allowed by default but created only when six conditions hold (PK/UNIQUE targ
 column indexed, no redundant index, `CASCADE` justified by lifecycle dependency, `NOT DEFERRABLE`,
 `NOT VALID`+`VALIDATE` on large tables).
 
-The consequence that is easy to miss: **InnoDB's automatic child index comes from the FK
-constraint.** Drop the constraint and the index goes with it, silently — so on MySQL the
-referencing-column index is mandatory and manual. Anything left as a logical FK carries four
-compensating controls: a `COMMENT`, that index, a named integrity owner, and a scheduled
-orphan-detection query.
+The consequence that is easy to miss: under a no-FK policy **nothing ever auto-creates the child
+index** (InnoDB only does so when an FK is created), so on MySQL the referencing-column index is
+deliberate and manual. Anything left as a logical FK carries four compensating controls: a
+`COMMENT`, that index, a named integrity owner, and a scheduled orphan-detection query.
 
 **History has a purpose before it has a structure.** "History" conflates three different questions —
 who changed what (audit), which state changed and why (business), and what was in effect at a point in
@@ -201,6 +201,7 @@ codex plugin add easy-rdbms@easy-rdbms
 | `rdbms-review` | 기존 SQL·스키마·마이그레이션 리뷰 |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL |
 | `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL |
+| `sqlite-guideline` | SQLite 3.37+ — STRICT·PRAGMA 기준선·단일 라이터 설계·전환 경로 |
 | `database-migrations` | 무중단 스키마 변경, 롤백 전략 |
 
 커맨드는 `/db-select`, `/schema-design`, `/schema-review` 세 개입니다. 스킬은 관련 작업이
@@ -237,9 +238,10 @@ codex plugin add easy-rdbms@easy-rdbms
   오늘의 FK가 내일의 막힌 파티션이 됩니다. PostgreSQL은 기본 허용하되 6개 조건을
   충족할 때 생성합니다(PK/UNIQUE 대상, 자식 컬럼 인덱스, 중복 인덱스 금지, 생명주기 종속일 때만
   `CASCADE`, `NOT DEFERRABLE`, 대용량은 `NOT VALID`→`VALIDATE`).
-- **놓치기 쉬운 귀결**: InnoDB의 자식 인덱스 자동 생성은 **FK 제약에서 나옵니다.** 제약을 제거하면
-  인덱스도 조용히 사라지므로, MySQL에서는 참조 컬럼 인덱스가 필수이고 수동입니다. 논리 FK로 남긴
-  관계는 4개 보상 통제를 함께 갖습니다 — `COMMENT`, 인덱스, 명시된 무결성 책임자, 예약된 고아 탐지 쿼리.
+- **놓치기 쉬운 귀결**: 자식 인덱스 자동 생성은 FK를 **만들 때만** 일어나므로, FK 없는 정책에서는
+  아무것도 인덱스를 대신 만들어주지 않습니다 — MySQL의 참조 컬럼 인덱스는 의도적·수동입니다. 논리
+  FK로 남긴 관계는 4개 보상 통제를 함께 갖습니다 — `COMMENT`, 인덱스, 명시된 무결성 책임자, 예약된
+  고아 탐지 쿼리.
 - **이력은 구조보다 목적이 먼저입니다.** "이력"은 세 가지 다른 질문을 뭉쳐 부르는 말입니다 — 누가 무엇을
   바꿨나(감사), 어떤 상태가 왜 바뀌었나(비즈니스), 특정 시점에 무엇이 유효했나(유효시간). 하나에 답하는
   설계가 나머지에 답하지 않고, `updated_at`은 셋 다 답하지 못합니다. 플러그인은 코드에서 목적을 식별하고

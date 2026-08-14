@@ -37,10 +37,19 @@ if printf '%s' "$HAYSTACK" | grep -qiE \
   FOUND="PostgreSQL"
 fi
 
-# MySQL / MariaDB
-if printf '%s' "$HAYSTACK" | grep -qiE \
-  'mysql|mariadb|aiomysql|pymysql|mysqlclient|mysql2|go-sql-driver|sqlx.*mysql|provider *= *"mysql"|jdbc:mysql'; then
+# MariaDB — detect separately so MySQL-specific advice gets a compatibility check first
+if printf '%s' "$HAYSTACK" | grep -qiE 'mariadb'; then
+  if [ -n "$FOUND" ]; then FOUND="$FOUND and MariaDB (MySQL-compatible; verify divergence)"; else FOUND="MariaDB (MySQL-compatible; verify divergence)"; fi
+# MySQL
+elif printf '%s' "$HAYSTACK" | grep -qiE \
+  'mysql|aiomysql|pymysql|mysqlclient|mysql2|go-sql-driver|sqlx.*mysql|provider *= *"mysql"|jdbc:mysql'; then
   if [ -n "$FOUND" ]; then FOUND="$FOUND and MySQL"; else FOUND="MySQL"; fi
+fi
+
+# SQLite
+if printf '%s' "$HAYSTACK" | grep -qiE \
+  'sqlite|better-sqlite3|rusqlite|aiosqlite|sql\.js|modernc\.org/sqlite'; then
+  if [ -n "$FOUND" ]; then FOUND="$FOUND and SQLite"; else FOUND="SQLite"; fi
 fi
 
 [ -n "$FOUND" ] || exit 0

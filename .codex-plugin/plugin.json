@@ -1,7 +1,7 @@
 {
   "name": "easy-rdbms",
-  "version": "0.1.0",
-  "description": "RDBMS design companion. Use when a project needs a relational database: choosing the engine and topology for the current scale, naming tables and columns consistently, modeling to Third Normal Form, and reviewing schemas, queries, and migrations for MySQL and PostgreSQL.",
+  "version": "0.2.0",
+  "description": "RDBMS design companion. Use when a project needs a relational database: choosing the engine and topology for the current scale, naming tables and columns consistently, modeling to Third Normal Form, and reviewing schemas, queries, and migrations for MySQL, PostgreSQL, and SQLite.",
   "author": {
     "name": "TeiNam",
     "url": "https://github.com/TeiNam"
@@ -14,6 +14,7 @@
     "database",
     "mysql",
     "postgresql",
+    "sqlite",
     "schema-design",
     "naming-conventions",
     "normalization",

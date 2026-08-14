@@ -45,9 +45,16 @@ SELECT VERSION();
 SHOW VARIABLES LIKE 'version_comment';
 ```
 
-Then load the matching skill: `postgres-guideline` or `mysql-guideline`. If the engine
-cannot be determined, say so and scope the review to engine-neutral findings only — do not
-guess a dialect.
+```sql
+-- SQLite
+SELECT sqlite_version();
+PRAGMA foreign_keys;    -- 0 means every REFERENCES clause in the schema is decorative
+```
+
+Then load the matching skill: `postgres-guideline`, `mysql-guideline`, or `sqlite-guideline`.
+On SQLite, check the PRAGMA baseline first — `foreign_keys` off and missing `STRICT` are the
+two highest-yield findings there. If the engine cannot be determined, say so and scope the
+review to engine-neutral findings only — do not guess a dialect.
 
 ## Diagnostics
 
@@ -113,13 +120,17 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
 
 ### 2. Query Performance (CRITICAL)
 
-- WHERE / JOIN / ORDER BY columns unindexed
+- WHERE / JOIN / ORDER BY columns unindexed **on a hot path or a large table, with the plan showing
+  a scan** — flag with the evidence, per `rdbms-modeling/references/index-design.md`. A cold small
+  table with no index is not a finding
 - **Referencing (logical FK) columns unindexed** — always a finding, both engines. Dropping the
   physical constraint does not remove the need for the index; joins and parent-side lookups still
   depend on it. PostgreSQL never auto-indexes the referencing side even when an FK exists
 - Sequential/full scan on a large table in an interactive path
 - N+1 query patterns
-- Composite index column order wrong — equality → sort → range
+- Composite index column order wrong — equality columns must lead; then sort-before-range when the
+  query needs the index's ordering, or range-first when it is highly selective. A range column in
+  the middle silently disables seek and ordering for everything after it
 - A column wrapped in a function is not seekable (`WHERE YEAR(created_at) = 2026`) — needs a
   functional index or generated column
 - `OFFSET` pagination on a large table → keyset/cursor pagination
@@ -139,11 +150,13 @@ What to read in the plan:
 - **Foreign keys — the policy splits by engine, so establish the engine before judging.**
 
   **MySQL / InnoDB — a physical `FOREIGN KEY` is a finding.** It adds parent-index I/O to every child
-  write the statement does not show, takes shared locks on the parent row that serialize unrelated
-  child writes, needs special handling in `pt-online-schema-change`/`gh-ost`, and **blocks
+  write the statement does not show, takes parent-row shared locks that make hot-parent key updates
+  and all child writes block each other, needs special handling in `pt-online-schema-change`/`gh-ost`,
+  and **blocks
   partitioning outright** — InnoDB cannot have an FK on a partitioned table in either direction.
-  Report the drop, but note the ordering trap: dropping the FK also drops the auto-created child
-  index, so the explicit index must be created **first**. Then the four compensating controls.
+  Report the drop, and the follow-up: the auto-created child index **survives** the drop but keeps
+  its auto-generated name — verify with `SHOW INDEX`, rename it to the `idx_` convention (or create
+  a proper one if missing), then the four compensating controls.
 
   **PostgreSQL — a physical FK is fine; audit its six conditions instead.** Flag any that fail:
   non-unique parent target; **referencing column unindexed** (PostgreSQL never auto-creates it — the

@@ -22,8 +22,8 @@ CREATE TABLE `user` (
 
 ```sql
 CREATE TABLE `chat_history` (
-  `chat_history_id` int unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` tinyint unsigned NOT NULL COMMENT 'logical FK: user.user_id',
+  `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned NOT NULL COMMENT 'logical FK: user.user_id — same type as the parent PK, always',
   `conversation_id` char(18) NOT NULL COMMENT 'logical FK: conversation_session.conversation_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
@@ -69,12 +69,15 @@ Standardize tables requiring soft delete with the `is_active` column.
 CREATE INDEX idx_user_active_email ON user (is_active, email);  -- lowercase idx_ prefix (see rdbms-naming)
 ```
 
-> WARNING: Standalone `is_active` index is ineffective due to low cardinality. Always use in composite index.
+> WARNING: a standalone `is_active` index is *usually* wasted — but low cardinality alone does not
+> decide it. If the queried value is rare (say 0.5% of rows are inactive and you query those), the
+> index is selective for that value. Judge by skew and the plan; the composite form above serves
+> the common case either way.
 
 
 - [ ] No physical FK constraints (logical only, documented with COMMENT)
 - [ ] AUTO_INCREMENT with appropriate unsigned type
-- [ ] Log tables have monthly partitioning
+- [ ] Log tables evaluated as partitioning candidates against the evidence rules (see `partitioning.md`)
 - [ ] Appropriate indexes created
 - [ ] Engine: InnoDB, Charset: utf8mb4
 - [ ] No procedures/triggers/events

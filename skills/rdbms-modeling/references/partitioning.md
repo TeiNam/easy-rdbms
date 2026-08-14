@@ -155,8 +155,8 @@ you cannot simply create the next regular partition. The portable procedure:
 3. Move any rows that landed in the detached partition into it
 4. Re-`ATTACH` the default partition
 
-PostgreSQL 18 added `ALTER TABLE ... SPLIT PARTITION`, which does this in one command. Check the
-target version before relying on it; use detach-and-move on 16 and 17.
+(`SPLIT PARTITION` was proposed for core PostgreSQL and reverted before release — do not assume it
+exists. The detach-and-move procedure above is the reliable path on 16, 17, and 18.)
 
 ## Safety-Partition Operating Rules
 

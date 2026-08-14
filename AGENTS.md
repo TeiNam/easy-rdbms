@@ -23,7 +23,7 @@ Codex both deliver it through `skills/`, and neither loads this file from a plug
   edits (dropped `mysql_` filename prefix, stripped `origin:`/`workloads:` frontmatter,
   cross-references repointed at plugin skills). Use `scripts/sync-from-harness.sh` to see
   upstream drift — never blind-copy over them.
-- **`db-select`, `rdbms-modeling`, `rdbms-review` are plugin-authored.** No upstream to sync.
+- **`db-select`, `rdbms-modeling`, `rdbms-review`, `sqlite-guideline` are plugin-authored.** No upstream to sync.
 - **A skill's `description` is its only trigger.** If a skill should fire on a phrase, that
   phrase belongs in the description.
 - **Reference filenames in a `SKILL.md` must resolve.** The harness originals shipped broken

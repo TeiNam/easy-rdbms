@@ -32,8 +32,8 @@ identify the top-cost queries
 → decide: keep, revise, or drop
 ```
 
-A composite B-tree candidate is usually ordered: **equality → the first range → sort columns →
-covering columns**. Treat that as the starting draft, then confirm with the actual plan.
+A composite B-tree candidate starts with equality columns first; then **either** the sort columns (when the query needs the index's ordering — a range column placed earlier makes later columns unusable for ordering) **or** the first range column (when it is highly selective and sorting few rows is cheap); covering columns last. Confirm with the plan. MySQL's classic ESR mnemonic
+(equality → sort → range) is the ordering-first branch of the same rule.
 
 A low-cardinality column is not automatically useless — combined with other predicates, or restricted
 by a PostgreSQL partial index, it can still be selective.
@@ -65,7 +65,8 @@ ALTER TABLE orders DROP INDEX idx_orders_status;            -- commit
 ### PostgreSQL
 
 A **HOT update** avoids touching indexes entirely, but only when **no indexed column is updated** and
-the page has free space. So on a write-heavy table, indexing a frequently-changing column costs more
+the page has free space (PG 16+ exempts summarizing indexes — a column indexed only by BRIN can
+still update HOT). So on a write-heavy table, indexing a frequently-changing column costs more
 than the index itself — it disables HOT for those updates. Reduce indexes on churning columns, and
 consider lowering `fillfactor` to leave in-page room.
 

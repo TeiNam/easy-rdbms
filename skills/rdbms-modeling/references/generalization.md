@@ -54,9 +54,9 @@ fraction of the cost.
 - **Exclusive** — a customer is either individual or corporate, never both. Subtypes work.
 - **Overlapping** — an employee can be a manager *and* an instructor at the same time.
 
-Overlapping types are not subtypes. A single type code cannot represent two simultaneous
-values, and a supertype/subtype structure will force you to fake it. Model overlapping
-capabilities as a **role table**:
+ER theory does allow overlapping specialization, but a single discriminator column cannot
+represent two simultaneous values, and subtype tables make the overlap awkward to enforce.
+**This plugin models overlapping capabilities as a role table**:
 
 ```text
 employee(employee_id, name, hired_at)

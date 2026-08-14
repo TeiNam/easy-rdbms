@@ -71,8 +71,9 @@ mechanism belongs in the transaction that changed the source, where it is visibl
 
 ## MySQL-Specific Note
 
-Stored programs are additionally weak on MySQL: the stored-program cache is **per-session**, not a
-global shared pool like Oracle or PostgreSQL. Connection-pool churn re-pays the parse and compile cost
+Stored programs are additionally weak on MySQL: the stored-program cache is **per-session**, with no
+global shared pool like Oracle's. (PostgreSQL's prepared-statement and PL/pgSQL plan caches are also
+per-backend.) Connection-pool churn re-pays the parse and compile cost
 on each connection's first call. See `mysql-guideline/dev-practices.md`.
 
 ## Review Position

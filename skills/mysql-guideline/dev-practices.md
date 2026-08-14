@@ -95,7 +95,8 @@ reuses it only within that connection; the compiled form dies with the connectio
 - **Connection-pool interaction**: a pool that churns connections re-pays the "first call" parse cost on
   every new connection. A pool reusing long-lived connections keeps the cache warm from the 2nd call on.
 - **So**: "recompiled on *every* call" is an overstatement — but the **lack of a global shared cache** means
-  SP caching benefits are weaker than Oracle/PostgreSQL, which (with the reasons below) argues against SP overuse.
+  SP caching benefits are weaker than Oracle's global shared pool (PostgreSQL plan caches are also
+  per-backend), which (with the reasons below) argues against SP overuse.
 
 Problem areas: maintenance (logic scattered, IDE debugging impossible), portability (DBMS vendor lock-in),
 performance (caching integration with Redis etc. difficult, scale-out limitations), productivity (version
@@ -147,7 +148,7 @@ check existence*, not `COUNT` itself.
 ### 5.2 Random Keys as PK
 
 MySQL PK is a **clustered index** — physically sorted by PK order. Random keys (UUIDv4 etc.)
-trigger page reorganization and splits on every insert, degrading write performance.
+scatter inserts across the tree, causing far more page splits and lower page utilization, degrading write performance.
 **PK should be `INT` family + `AUTO_INCREMENT`** by default. If distributed globally-unique keys are
 essential, prefer **UUID v7** (timestamp-based, sortable) generated in the application and stored as
 `BINARY(16)` over random v4 — this minimizes index fragmentation. (v1 + `UUID_TO_BIN(…, 1)` is a fallback;
@@ -171,8 +172,8 @@ Why this is a hard rule rather than a preference:
 | Cost | What actually happens |
 |---|---|
 | **Extra internal I/O on every write** | Each `INSERT`/`UPDATE` on the child does a parent index lookup the query never asked for. Each parent `UPDATE`/`DELETE` scans children. The I/O is invisible in the SQL and unattributable in slow-query analysis |
-| **Lock contention and deadlocks** | FK checks take shared locks on the parent row. A hot parent row (a tenant, a category, a config row) serializes unrelated child writes. These locks do not appear where engineers look for them, so the incidents are hard to diagnose |
-| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction — long undo, replication lag, lock escalation |
+| **Lock contention and deadlocks** | FK checks take shared locks on the parent row. Child writes are mutually compatible, but any update/delete of a hot parent's key (a tenant, a category, a config row) blocks — and is blocked by — every in-flight child write. These locks do not appear where engineers look, so the stalls are hard to diagnose |
+| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction — long undo history, replication lag, a row lock per affected child |
 | **Blocks partitioning outright** | InnoDB **cannot** have foreign keys on a partitioned table, in either direction. Since log and history tables are the usual partitioning candidates, an FK today is a blocked partition tomorrow |
 | **Breaks online schema change** | `pt-online-schema-change` and `gh-ost` need special handling for FKs, and some paths are unsupported. Routine maintenance turns into a downtime negotiation |
 | **Bulk and recovery operations need FK checks disabled** | Loads, backfills, and data repairs run with checks off — which means the guarantee was not there during exactly the operations most likely to corrupt data |

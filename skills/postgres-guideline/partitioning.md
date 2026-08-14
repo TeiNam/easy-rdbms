@@ -43,8 +43,8 @@ range it already covers — so `DEFAULT` costs nothing extra.
 Without the alert, a stalled partition-creation job looks fine until every recent row sits in one
 unpruned partition.
 
-PostgreSQL 18 added `ALTER TABLE … SPLIT PARTITION`, which replaces the detach-and-move dance in one
-command. Check the target version before relying on it — on 16 and 17 use the detach sequence below.
+(`SPLIT PARTITION` was proposed for core PostgreSQL and reverted before release — do not assume it
+exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 
 ## Log Tables: Monthly Declarative Partitioning
 
@@ -71,11 +71,11 @@ CREATE INDEX idx_chat_history_user_id ON log.chat_history (user_id);
 CREATE INDEX idx_chat_history_created_at ON log.chat_history (created_at);
 ```
 
-## Tables That Should Be Partitioned
-- `chat_history`: chat logs
-- `conversation_session`: conversation sessions (optional)
-- `audit_log`: audit logs
-- `access_log`: access logs
+## Candidate Tables
+
+Append-only, time-queried, retention-bounded tables — chat logs, audit logs, access logs. Each is a
+**candidate**, not a decision: the evidence rules apply (time-range queries and retention/deletion
+code present, volume figures known — see the recommendation policy referenced above).
 
 ## pg_partman (Recommended)
 
@@ -96,9 +96,10 @@ SELECT partman.run_maintenance();
 
 ## Partition Management
 
-> WARNING: Adding a new partition directly when a `DEFAULT` partition exists will cause an error.
-> If the default partition already contains data in that range, constraint violation occurs.
-> Always follow the sequence below.
+> WARNING: creating a partition directly while a `DEFAULT` partition exists makes PostgreSQL
+> **scan the default partition** (taking a lock) and error **only if** it holds rows in the new
+> range. On an empty or clean default the direct create succeeds — but on a fallen-behind one it
+> fails, so the safe sequence is detach → create → **move** → re-attach.
 
 ```sql
 -- PASS: Correct sequence when DEFAULT partition exists
@@ -109,7 +110,16 @@ ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_default;
 CREATE TABLE log.chat_history_2024_05 PARTITION OF log.chat_history
   FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
 
--- 3. Re-attach default partition
+-- 3. Move rows for the new range OUT of the detached default — without this,
+--    re-attach fails validation if any 2024-05 rows are present
+WITH moved AS (
+  DELETE FROM log.chat_history_default
+  WHERE created_at >= '2024-05-01' AND created_at < '2024-06-01'
+  RETURNING *
+)
+INSERT INTO log.chat_history SELECT * FROM moved;
+
+-- 4. Re-attach default partition
 ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;
 
 -- FAIL: Incorrect approach: errors if default partition contains 2024-05 data

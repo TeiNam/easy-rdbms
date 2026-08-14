@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.1
+
+Integer PK sizing, corrected. The previous guidance said widening a column later is comparatively
+easy — true for an ordinary column, **wrong for a primary key**, which is where it mattered most.
+
+**Fixed**
+
+- **PK type is a one-way decision.** MySQL has no in-place path for changing an integer's type, so
+  `ALTER TABLE … MODIFY` on the PK requires `ALGORITHM=COPY`: a full table rebuild, plus a rebuild of
+  **every secondary index** (InnoDB appends the PK to all of them). On PostgreSQL,
+  `ALTER COLUMN … TYPE bigint` rewrites the table under `ACCESS EXCLUSIVE`. Both cases also require
+  every referencing column to move in lockstep — and under this plugin's logical-FK policy those are
+  plain columns needing their own migrations.
+- **PK size now follows growth class, not current row count.** An *entity* table (one row per real
+  thing) is capped by the real world — `member` cannot exceed the human population, so `int unsigned`
+  and its 4.2 billion is enough. An *event/log* table has no cap: rows = insert rate × elapsed time.
+  At 10,000 inserts/s an `int unsigned` is exhausted in about **five days**. IoT telemetry, audit
+  trails, message history, access logs, metering, outbox → `bigint unsigned` from the start.
+- **Retention does not reclaim ID space.** `AUTO_INCREMENT` and sequences never reuse values, so
+  deleting old rows or dropping old partitions frees storage but not range. A 30-day-retention log
+  table burns through the range at the full insert rate as if nothing were ever deleted.
+- **`UNSIGNED` is now the MySQL default for non-negative columns.** The old text preferred
+  `CHECK (col >= 0)` for portability, which gave up `UNSIGNED` for a requirement nobody had.
+  `UNSIGNED` doubles the positive range for the same bytes — free runway on exactly the columns most
+  likely to run out. Added the two traps: `UNSIGNED` subtraction below zero **wraps to a huge
+  positive value** rather than erroring (absent `NO_UNSIGNED_SUBTRACTION`), and mixing signed with
+  unsigned across a join key is a type mismatch.
+- `rdbms-naming`'s Bad/Good table had `member` in both columns — a bulk rename had made the example
+  teach nothing. Restored to `users` → `member`.
+- Example schemas now demonstrate the entity/event contrast (`member` `int unsigned`,
+  `chat_history` `bigint unsigned`) instead of applying one type everywhere.
+
 ## 0.3.0
 
 Eight rounds of review — Claude self-review plus independent Codex passes — found and fixed 151

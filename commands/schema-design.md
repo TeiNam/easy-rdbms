@@ -14,7 +14,8 @@ stopping at each confirmation gate:
    columns, no types, no keys, no DB product. Then ask what is missing or misnamed and wait.
 2. **Logical** — entities, attributes, PK/FK, cardinality, NOT NULL and UNIQUE, normalized to
    3NF with the BCNF check emitted for **every** entity (including "none" results), plus the
-   generalization check on entity pairs sharing their base attributes. Generic types only — no
+   generalization check (IS-A test — not attribute overlap; and nothing that is really a state
+   or a role modeled as a subtype). Generic types only — no
    `bigint unsigned`, no `timestamptz`. Then ask whether the keys, cardinalities, and subtype
    structure match the business rules and wait.
 3. **Physical** — only after the target RDBMS is confirmed. If it is undecided, use

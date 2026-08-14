@@ -90,12 +90,19 @@ to be stated. Denormalization needs a measurement, the cheaper alternatives alre
 a written synchronization mechanism. ACID and normalization are treated as separate concerns:
 one keeps transactions safe, the other keeps the schema from drifting.
 
-**Generalization runs in both directions.** Normalization splits by functional dependency;
-generalization merges entities whose base attributes are substantially the same into a supertype
-with subtypes. The skill checks every entity pair — but guards the other side too: a supertype
-where every meaningful column ended up nullable has traded database constraints for application
-checks, and an entity/attribute/value table has given up on the schema entirely. Both are
-flagged as findings, not accepted as flexibility.
+**Generalization is decided by IS-A, not by attribute overlap.** Two entities sharing half
+their columns are not automatically a supertype — the test is whether each is genuinely *a kind
+of* the other thing and can stand in wherever it is expected. The skill runs seven questions
+(IS-A, subtype-specific attributes, exclusivity, totality, type mutability, type-vs-state, query
+shape) and lands on one of three outcomes: a **type column** when only the label differs, a
+**role model** when responsibilities are mutable or held simultaneously, or **supertype +
+subtypes** when the IS-A is real. It also guards the far side: a supertype where every meaningful
+column ended up nullable has traded database constraints for application checks, and an
+entity/attribute/value table has given up on the schema entirely.
+
+The single highest-value check is type-vs-state. `pending` / `paid` / `cancelled` are states of
+an order, not subtypes of it — modeling them as subtypes turns every transition into a
+cross-table move. `rdbms-review` flags the same confusion in existing schemas.
 
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
@@ -165,11 +172,15 @@ codex plugin add easy-rdbms@easy-rdbms
   단계는 일반 자료형으로 정규화하며, 엔진 확정이 필요한 시점은 물리 단계뿐입니다 — 이때 `db-select`를
   실행합니다. 논리 모델이 나와야 엔진 선택에 답할 수 있기 때문입니다. 결제·재고·권한·계약은 3단계를
   모두 거치고, 개인 도구는 앞 두 단계를 축약할 수 있지만 축약했다는 사실을 반드시 밝힙니다.
-- **일반화(generalization)는 양방향으로 봅니다.** 정규화가 함수적 종속으로 쪼개는 반대편에서, 일반화는
-  기초 속성이 대부분 같은 엔터티를 슈퍼타입-서브타입으로 묶습니다. 모든 엔터티 쌍을 검사하되 반대 방향도
-  막습니다 — 의미 있는 컬럼이 전부 nullable이 된 슈퍼타입은 DB 제약을 애플리케이션 검사로 바꾼 것이고,
-  EAV(entity·attr_name·attr_value) 테이블은 스키마를 포기한 것입니다. 둘 다 유연성이 아니라 결함으로
-  보고합니다.
+- **일반화는 속성 유사성이 아니라 `IS-A`로 판단합니다.** 컬럼이 절반 겹쳐도 슈퍼타입이 되는 게 아니고,
+  기준은 "정말 그것의 한 종류인가, 슈퍼타입이 필요한 자리에 대체 가능한가"입니다. 7개 질문(IS-A,
+  서브타입 고유 속성, 배타성, 전체성, 타입 변경 가능성, 타입 vs 상태, 조회 패턴)을 거쳐 세 결과 중
+  하나로 갑니다 — 이름만 다르면 **타입 컬럼**, 책임이 변하거나 동시에 여러 개면 **역할 모델**,
+  IS-A가 진짜면 **슈퍼타입+서브타입**. 반대 방향도 막습니다: 의미 있는 컬럼이 전부 nullable이 된
+  슈퍼타입은 DB 제약을 애플리케이션 검사로 바꾼 것이고, EAV 테이블은 스키마를 포기한 것입니다.
+- **가장 값진 검사는 타입 vs 상태입니다.** `주문대기`·`결제완료`·`취소`는 주문의 상태이지 종류가
+  아닙니다. 서브타입으로 모델링하면 상태 전이마다 테이블 간 이동이 됩니다. `rdbms-review`도 기존
+  스키마에서 같은 혼동을 탐지합니다.
 - **정규화는 취향이 아니라 정책입니다.** 3NF는 필수, BCNF는 **모든 엔터티에 검사**하고 슈퍼키가
   아닌 결정자로 실제 이상이 생길 수 있을 때 분해합니다. 함수적 종속성 보존이 깨지거나 조인이
   과도해지면 3NF 유지를 허용하되 그 이유를 반드시 남깁니다. 비정규화는 **측정된** 성능 문제와

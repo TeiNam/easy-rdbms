@@ -4,13 +4,16 @@ description: >
   Turn business requirements into a data model through three staged steps — conceptual,
   logical, then physical — with a confirmation gate between each. Never converts requirements
   straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
-  BCNF violations, generalizes entities that share their base attributes into supertypes, and
+  BCNF violations, applies the IS-A test before generalizing entities into supertypes, and
   permits denormalization only against a measurement. Triggers: design tables from
   requirements, data model, conceptual model, logical model, physical model, ERD, entity
   relationship diagram, domain model, business entities, normalization, 1NF 2NF 3NF, BCNF,
   Boyce-Codd normal form, functional dependency, determinant, candidate key, overlapping
   candidate keys, update anomaly, generalization, specialization, supertype, subtype, entity
-  inheritance, single table inheritance, discriminator column, EAV, entity attribute value,
+  inheritance, single table inheritance, discriminator column, IS-A, is-a relationship,
+  substitutability, exclusive subtypes, overlapping subtypes, total partial classification,
+  role table, type column vs subtype, status vs type, state machine or subtype, EAV,
+  entity attribute value,
   similar tables, duplicate entities, denormalization, denormalize, table design, schema
   design from scratch, N:M relationship, junction table, surrogate key vs natural key,
   composite primary key, cardinality, soft delete design, which PK type, do I need a history
@@ -74,10 +77,14 @@ erDiagram
     CATEGORY ||--o{ PRODUCT : classifies
 ```
 
-While listing concepts, watch for **generalization candidates**: two or more concepts whose
-base attributes are largely the same are probably one concept with variants. Flag them here as
-a question — "are corporate customer and individual customer both kinds of customer?" — and
-resolve the structure in Stage 2.
+While listing concepts, watch for **specialization candidates** — say the IS-A sentence and see
+if it reads correctly: "is a corporate customer *a kind of* customer?" Flag those here as a
+question and resolve the structure in Stage 2.
+
+Also separate what a thing **is** from what it is **doing**. `pending`, `paid`, and `cancelled`
+are states of an order; `manager` and `instructor` are roles an employee holds. Neither is a
+kind of thing, and mistaking them for one here produces subtype tables that should have been a
+status column or a role table.
 
 **→ Confirmation gate.** Present the concepts and the vocabulary, then ask whether anything is
 missing or named wrong. Wait for the answer. Terminology corrections are cheapest here and
@@ -97,7 +104,7 @@ Produce:
 - Relationships with cardinality (1:1, 1:N, N:M — resolve N:M into a junction entity)
 - Required (`NOT NULL`) and unique attributes
 - **3NF normalization, then the BCNF check on every entity**
-- **The generalization check on every entity pair** — merge what shares its base attributes
+- **The generalization check** — IS-A, exclusivity, totality, and type vs state
 
 Exclude: engine-specific data types, indexes, partitioning, storage.
 
@@ -108,52 +115,70 @@ Read `references/normalization.md` for the per-normal-form rules, the BCNF check
 and the denormalization bar. Emit the BCNF check block for every entity, including the ones
 where the answer is "none".
 
-### Generalization — Merge What Shares Its Base Attributes
+### Generalization — The Test Is IS-A
 
 Normalization and generalization pull in opposite directions and you need both. Normalization
-**splits** a table by functional dependency; generalization **merges** entities whose base
-attributes are substantially the same into a supertype with subtypes.
+**splits** by functional dependency; generalization asks whether several entities are *kinds
+of* one thing.
 
-Run this check after normalizing: for every pair of entities, ask whether they share most of
-their base attributes.
+**Shared attributes are a hint, never the criterion.** The test is:
 
-**Generalize when all of these hold:**
+> Is every subtype an instance *of* the supertype, and can it stand in anywhere the supertype
+> is expected?
 
-- The shared attributes are the *substance* of both entities, not incidental
-- Both participate in the same relationships (both are referenced the same way)
-- Most business flows treat them uniformly, with only a few branching on type
+`Individual customer IS-A customer` reads correctly. Every corporate customer is a customer;
+not every customer is a corporate customer. That one-directional substitutability is the
+relationship — attribute overlap without it is just coincidence.
 
+Answer these seven for each candidate group. Full criteria in `references/generalization.md`.
+
+| # | Question | If the answer is… |
+|---|---|---|
+| 1 | Genuinely IS-A? | No → not specialization. Stop |
+| 2 | Does each subtype have its own attributes, relationships, or rules? | No, only the name differs → **type column** |
+| 3 | Mutually exclusive? | No, several at once → **role table** |
+| 4 | Is every instance in some subtype? | Total vs partial — state which, and make partial joins tolerate a miss |
+| 5 | Can the type change over time? | Frequently → **type column** or **role model**, not subtype tables |
+| 6 | Is it a type, or a **state**? | State → status column + history table. **Never subtype tables** |
+| 7 | Queried across all types, or one at a time? | Informs the Stage 3 physical mapping only |
+
+**Question 6 catches the most common error.** `pending` / `paid` / `cancelled` are states of an
+order, not subtypes of it. If it changes as part of normal operation, has constrained
+transitions, or you want its history — it is a state. Rule of thumb: *if it changes, it is a
+state or a role; if it is what the thing fundamentally is, it is a type.*
+
+Three outcomes, only the last of which is generalization:
+
+| Situation | Build |
+|---|---|
+| Same attributes, relationships, and rules — only the label differs | **Type column** with a `CHECK` on allowed values |
+| Mutable responsibilities, or several held at once | **Role model** — role table keyed by the entity, with validity dates |
+| Genuine IS-A with subtype-specific attributes, relationships, or constraints | **Supertype + subtypes** |
+
+```text
+customer:            customer_id, customer_type, name, joined_at   ← supertype
+individual_customer: customer_id, birth_date
+corporate_customer:  customer_id, business_registration_number, corporate_name
 ```
-Before:  CorporateCustomer(name, contact, tax_id, credit_limit)
-         IndividualCustomer(name, contact, birth_date)
 
-After:   Customer(customer_id, customer_type, name, contact)     ← supertype
-         CorporateCustomerDetail(customer_id, tax_id, credit_limit)
-         IndividualCustomerDetail(customer_id, birth_date)
-```
+A subtype **shares the supertype's PK** — never mint a separate surrogate key for it. Under this
+plugin's logical-FK policy that shared key is a documented reference, not a constraint, so state
+the two rules the application must carry: a subtype row requires its supertype row, and an
+exclusive classification permits at most one subtype row per supertype row (exactly one, if
+total).
 
-**Keep them separate when any of these hold:**
+**Do not over-generalize.** A supertype where every meaningful column ended up nullable has
+traded database constraints for application checks; an entity/attribute/value table
+(`entity`, `attr_name`, `attr_value`) has discarded typing, constraints, and the query planner
+altogether. Neither is flexibility.
 
-- The overlap is only bookkeeping columns — `name`, `created_at`, and `updated_at` in common is
-  not similarity
-- The subtypes participate in disjoint relationships
-- Their lifecycles differ (one is immutable, the other is edited; one is retained, the other purged)
-- There are exactly two subtypes sharing one or two attributes — the supertype buys nothing
-
-**Do not over-generalize.** Two failure modes cost more than the duplication they removed:
-
-- A supertype so abstract that every meaningful column is nullable — you have traded database
-  constraints for application checks
-- An entity/attribute/value table (`entity`, `attr_name`, `attr_value`) — this discards typing,
-  constraints, and the query planner's ability to help. It is not generalization, it is giving
-  up on the schema
-
-Record the decision per candidate pair: `generalized` with the supertype named, or `kept
-separate` with which condition applied.
+Record per candidate group: the outcome (type column / role model / supertype+subtypes / kept
+separate), plus exclusivity and totality when you built subtypes.
 
 **→ Confirmation gate.** Present the ERD, the normalization steps, the BCNF results, and any
 generalization decisions. Ask whether the keys, cardinalities, and subtype structure match the
-business rules. Wait for the answer.
+business rules — specifically whether anything you modeled as a type is really a state. Wait for
+the answer.
 
 ## Stage 3 — Physical Model
 
@@ -194,14 +219,24 @@ Then produce:
 If Stage 2 produced a supertype/subtype structure, choose its physical mapping here — the
 tradeoff is about constraints and query shape, so it belongs to the physical model:
 
-| Strategy | Use when | What it costs |
+| Strategy | Fits | Watch out for |
 |---|---|---|
-| **Single table + discriminator column** | Subtypes differ by only a few attributes, and most queries span all subtypes | Subtype-specific columns must be nullable, so `NOT NULL` can no longer enforce them. Recover it with a `CHECK` on the discriminator: `CHECK (customer_type <> 'CORPORATE' OR tax_id IS NOT NULL)` |
-| **Supertype table + one table per subtype** | Subtypes carry many distinct attributes, and queries usually target one subtype | A join for the full picture. Subtype PK is also an FK to the supertype; enforce exclusivity in the application (logical FK policy) |
-| **One table per concrete subtype, no supertype table** | Subtypes are almost never queried together | Shared attributes are duplicated, and cross-subtype queries need `UNION ALL`. Shared relationships become awkward — usually the wrong choice when anything references the supertype |
+| **Single table + discriminator** | Few types, small differences, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover with conditional `CHECK` per type — and note these multiply with each type added |
+| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is unenforced under a logical-FK policy |
+| **One table per concrete subtype** | Types used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
 
-Default to the supertype + subtype tables when the subtype attributes are substantial, and to
-the single table with `CHECK` constraints when they are not. Say which one you picked and why.
+**Default for ordinary business systems: supertype table + one table per subtype.** It is the
+most normalized of the three. Say which you picked and why.
+
+Under the single-table strategy, restore what nullability gave up:
+
+```sql
+ALTER TABLE customer ADD CONSTRAINT chk_customer_corporate
+  CHECK (customer_type <> 'CORPORATE' OR business_registration_number IS NOT NULL);
+```
+
+Two types need two such constraints, five need five, and each new type edits the existing set —
+weigh that before choosing this strategy for a classification you expect to extend.
 
 Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
 uniqueness, check constraints, and any subtype rules behave as intended.
@@ -262,8 +297,11 @@ STAGE 2 — Logical model
   Required/unique: <NOT NULL and UNIQUE attributes>
   Normalization:  1NF result / 2NF violations + resolution / 3NF violations + resolution
   BCNF check:     one block per entity — FDs, violation or "none", decision, reason
-  Generalization: per candidate pair — generalized (supertype named) | kept separate (why)
-  → Confirm: do the keys, cardinalities, and subtype structure match the business rules?
+  Generalization: per candidate group — IS-A verdict, then outcome (type column | role model |
+                  supertype+subtypes | kept separate). If subtypes: exclusive/overlapping,
+                  total/partial, and whether the type can change
+  → Confirm: do the keys, cardinalities, and subtype structure match the business rules —
+             and is anything modeled as a type actually a state?
 
 STAGE 3 — Physical model
   Target DB:      <name and version, and how it was confirmed>
@@ -289,11 +327,17 @@ STAGE 3 — Physical model
 - [ ] BCNF check run on **every** entity, with the result stated (including "none")
 - [ ] Each BCNF violation either decomposed, or kept at 3NF with the exception named
       (dependency preservation or join cost)
-- [ ] Generalization checked: entity pairs sharing their base attributes either generalized
-      into a supertype, or kept separate with the reason given
+- [ ] Generalization checked per candidate group, with the IS-A test applied — not attribute overlap
+- [ ] Nothing modeled as a subtype that is actually a **state** (changes in normal operation,
+      constrained transitions, history wanted)
+- [ ] Overlapping capabilities modeled as a role table, not a type code
+- [ ] Classifications that differ only in name use a type column, not subtype tables
+- [ ] For each subtype structure: exclusivity, totality, and type mutability stated
+- [ ] Subtype PK **is** the supertype PK — no separate surrogate key on the subtype
+- [ ] The two integrity rules a logical-FK policy leaves to the application are stated
 - [ ] No supertype where every meaningful column ended up nullable; no entity/attribute/value table
-- [ ] Subtype physical mapping chosen and justified, with `CHECK` constraints recovering any
-      `NOT NULL` lost to the single-table strategy
+- [ ] Subtype physical mapping chosen and justified, with conditional `CHECK` constraints
+      recovering any `NOT NULL` lost to the single-table strategy
 - [ ] No denormalization without a measurement, the alternatives already tried, and a stated
       synchronization mechanism
 - [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
@@ -315,8 +359,12 @@ STAGE 3 — Physical model
 |---|---|
 | Requirements straight to `CREATE TABLE` | Conceptual → logical → physical, with gates |
 | Engine types in the logical model | Generic types until Stage 3 |
-| Near-duplicate tables sharing their base attributes | Generalize into a supertype with subtypes |
-| Supertype where every meaningful column is nullable | Split into subtype tables, or add `CHECK` per discriminator value |
+| Generalizing on attribute overlap with no IS-A relationship | Keep them separate |
+| Subtypes for `pending` / `paid` / `cancelled` | Status column + history table — these are states |
+| Subtypes for overlapping capabilities (manager *and* instructor) | Role table with validity dates |
+| Subtypes that differ only in name | Type column with a `CHECK` on allowed values |
+| Supertype where every meaningful column is nullable | Split into subtype tables, or conditional `CHECK` per type |
+| Separate surrogate key on a subtype row | Subtype PK **is** the supertype PK |
 | Entity/attribute/value table | Real columns; `jsonb`/`json` only for non-queried config |
 | Multi-value storage via CSV or pipe delimiters | Separate N:M table |
 | `'Y'` / `'N'` string flags | MySQL `tinyint(1)` / PostgreSQL `boolean` |
@@ -333,6 +381,8 @@ STAGE 3 — Physical model
 - `db-select` — pick the engine, scale tier, and cost position at the Stage 3 gate
 - `rdbms-naming` — naming and data-type conventions (single source of truth)
 - `references/normalization.md` — per-normal-form rules, BCNF procedure, denormalization bar
+- `references/generalization.md` — IS-A and substitutability, the seven questions in full,
+  type column vs role model vs supertype, identifier inheritance, physical mapping
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

@@ -7,7 +7,8 @@ description: >
   seq scan, full table scan, N+1 query, EXPLAIN output, EXPLAIN ANALYZE, deadlock, lock
   wait timeout, table bloat, vacuum, slow query log, connection pool exhausted, too many
   connections, RLS policy review, GRANT audit, database security review, duplicate tables,
-  over-generalized schema, EAV anti-pattern, nullable everything, is this schema
+  over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status,
+  type column holding a state, missing role table, is this schema
   safe to deploy.
 ---
 
@@ -126,13 +127,22 @@ What to read in the plan:
 - **Denormalized columns without a stated synchronization mechanism** are a data-integrity
   finding, not a style note. Duplicated data that no code keeps in sync will drift. Check for
   a `COMMENT` naming the source and the sync path
-- **Generalization**: near-duplicate tables whose base attributes are substantially the same
-  (`corporate_customer` / `individual_customer`) are a maintenance finding — every change lands
-  twice. Conversely flag over-generalization: a supertype where every meaningful column is
-  nullable has traded constraints for application checks, and an entity/attribute/value table
-  (`entity`, `attr_name`, `attr_value`) has discarded typing, constraints, and the planner.
-  Where a single-table subtype strategy is used, check that `CHECK` constraints on the
-  discriminator recover the `NOT NULL` guarantees it gave up
+- **Type vs state confusion** — the highest-value finding in this category. Subtype tables (or a
+  type code) holding what is really a lifecycle value (`pending` / `paid` / `cancelled`) means
+  every transition is a cross-table move instead of an `UPDATE`. If the value changes in normal
+  operation, has constrained transitions, or its history matters, it belongs in a status column
+  with a history table
+- **Overlapping types forced into a single type code** — if an entity can legitimately hold two
+  classifications at once (manager *and* instructor), a single `type` column cannot express it
+  and the application will be encoding it in strings or duplicate rows. Needs a role table
+- **Missed generalization** — near-duplicate tables in a true IS-A relationship
+  (`corporate_customer` / `individual_customer` with no `customer`) mean every shared change
+  lands twice. Confirm IS-A actually holds before flagging; attribute overlap alone is not it
+- **Over-generalization** — a supertype where every meaningful column is nullable has traded
+  constraints for application checks; an entity/attribute/value table (`entity`, `attr_name`,
+  `attr_value`) has discarded typing, constraints, and the planner. Where a single-table subtype
+  strategy is used, check that conditional `CHECK` constraints recover the `NOT NULL` guarantees
+  it gave up, and that a separate surrogate key was not minted on subtype rows
 - Types: `bigint` for growing IDs, `numeric`/`decimal` for money (never float), timezone-aware
   timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
 - `NOT NULL` and `CHECK` constraints present where the domain requires them

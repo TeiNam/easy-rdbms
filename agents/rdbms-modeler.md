@@ -15,6 +15,7 @@ Supporting skills, in the order you will usually need them:
 |---|---|
 | Naming and data types (stage 3) | `rdbms-naming` |
 | Per-normal-form rules and the BCNF procedure | `rdbms-modeling/references/normalization.md` |
+| IS-A criteria, role vs type vs subtype, subtype mapping | `rdbms-modeling/references/generalization.md` |
 | Target DB not decided at the stage 3 gate | `db-select` |
 | MySQL / Aurora MySQL specifics | `mysql-guideline` |
 | PostgreSQL / Aurora PostgreSQL specifics | `postgres-guideline` |
@@ -27,9 +28,11 @@ Five rules override any urge to move faster:
   trivial tool, say so rather than skipping silently.
 - **The logical model stays DB-agnostic.** Generic types only. `bigint unsigned` and
   `timestamptz` belong to stage 3.
-- **Generalization is checked, both directions.** Entity pairs sharing their base attributes
-  generalize into a supertype; but never produce a supertype where every meaningful column is
-  nullable, and never an entity/attribute/value table.
+- **Generalization is decided by IS-A, not attribute overlap.** A subtype must be usable
+  anywhere the supertype is expected. Never model a **state** (`pending`/`paid`/`cancelled`) or
+  an overlapping capability as a subtype — those are a status column and a role table. Never
+  produce a supertype where every meaningful column is nullable, nor an entity/attribute/value
+  table.
 - **3NF is required; BCNF is checked on every entity.** Emit the check result per entity even
   when it is "none". Decompose where a non-superkey determinant causes a real anomaly;
   otherwise name the exception that keeps it at 3NF.

@@ -1,6 +1,6 @@
 {
   "name": "easy-rdbms",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "RDBMS design companion. Use when a project needs a relational database: choosing the engine and topology for the current scale, naming tables and columns consistently, modeling to Third Normal Form, and reviewing schemas, queries, and migrations for MySQL, PostgreSQL, and SQLite.",
   "author": {
     "name": "TeiNam",

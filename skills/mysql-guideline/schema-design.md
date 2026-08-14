@@ -59,28 +59,44 @@ LIMIT 100;
 ## Application-Level Referential Integrity
 
 ```python
-async def create_chat_history(member_id: int, conversation_id: str, message: str, response: str):
-    # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
-    # and the insert. Lock each parent row FOR UPDATE inside the same transaction as the insert.
-    # (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)
-    user = db.select_for_update("member", where={"member_id": member_id, "is_active": 1})
-    if not user:
-        raise ValueError("User does not exist")
+def create_chat_history(pool, member_id: int, conversation_id: str,
+                        message: str, response: str) -> int:
+    """An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
+    and the insert. Lock each parent row FOR UPDATE inside the SAME transaction as the insert.
+    (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)"""
+    conn = pool.get_connection()          # autocommit=False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT member_id FROM member"
+                " WHERE member_id = %s AND is_active = 1 FOR UPDATE",
+                (member_id,),
+            )
+            if cur.fetchone() is None:
+                raise ValueError("member does not exist")
 
-    conversation = db.select_for_update(
-        "conversation_session", where={"conversation_id": conversation_id}
-    )
-    if not conversation:
-        raise ValueError("Conversation session does not exist")
+            cur.execute(
+                "SELECT conversation_id FROM conversation_session"
+                " WHERE conversation_id = %s FOR UPDATE",
+                (conversation_id,),
+            )
+            if cur.fetchone() is None:
+                raise ValueError("conversation session does not exist")
 
-    # The locks above and this insert must be ONE transaction — otherwise the parent can
-    # be deleted between them and the check bought nothing.
-    return db.insert("chat_history", {
-        "member_id": member_id,
-        "conversation_id": conversation_id,
-        "user_message": message,
-        "bot_response": response
-    })
+            cur.execute(
+                "INSERT INTO chat_history"
+                " (member_id, conversation_id, user_message, bot_response)"
+                " VALUES (%s, %s, %s, %s)",
+                (member_id, conversation_id, message, response),
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+        return new_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()                      # returns the connection to the pool
 ```
 
 ## Soft Delete Pattern

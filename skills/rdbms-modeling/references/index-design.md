@@ -146,7 +146,7 @@ be used. Use a stored `tsvector` column or an expression index.
 ALTER TABLE article ADD COLUMN search_vector tsvector
   GENERATED ALWAYS AS (to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(body,''))) STORED;
 
-CREATE INDEX idx_article_search ON article USING gin (search_vector);
+CREATE INDEX fts_article_search_vector ON article USING gin (search_vector);
 
 SELECT id, title FROM article
 WHERE search_vector @@ to_tsquery('simple', %(q)s);  -- same configuration as the index

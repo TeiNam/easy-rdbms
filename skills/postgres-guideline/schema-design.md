@@ -158,39 +158,39 @@ CREATE INDEX idx_chat_history_conversation_id ON log.chat_history (conversation_
 
 ```python
 async def create_chat_history(pool, member_id: int, conversation_id: str,
-                              message: str, response: str):
-    # The parent locks and the insert must share ONE transaction — otherwise the lock is
-    # released before the insert and the check bought nothing. Validate EVERY logical
-    # reference: conversation_id needs the same treatment as member_id.
+                              message: str, response: str) -> int:
+    """The parent locks and the insert must share ONE transaction — otherwise the locks are
+    released before the insert and the checks bought nothing. Validate EVERY logical
+    reference: conversation_id needs the same treatment as member_id."""
     async with pool.connection() as conn:
         async with conn.transaction():
-            return await _insert_chat_history(
-                conn, member_id, conversation_id, message, response
-            )
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT member_id FROM app.member"
+                    " WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
+                    {"member_id": member_id},
+                )
+                if await cur.fetchone() is None:
+                    raise ValueError("member does not exist")
 
-async def _insert_chat_history(conn, member_id, conversation_id, message, response):
-    member = await db.execute_query(
-        "SELECT member_id FROM app.member WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
-        {"member_id": member_id}
-    )
-    if not user:
-        raise ValueError("User does not exist")
+                await cur.execute(
+                    "SELECT conversation_id FROM app.conversation_session"
+                    " WHERE conversation_id = %(cid)s FOR UPDATE",
+                    {"cid": conversation_id},
+                )
+                if await cur.fetchone() is None:
+                    raise ValueError("conversation session does not exist")
 
-    conversation = await db.execute_query(
-        "SELECT conversation_id FROM app.conversation_session"
-        " WHERE conversation_id = %(cid)s FOR UPDATE",
-        {"cid": conversation_id}
-    )
-    if not conversation:
-        raise ValueError("Conversation session does not exist")
-
-    result = await db.execute_command(
-        """INSERT INTO log.chat_history (member_id, conversation_id, user_message, bot_response)
-           VALUES (%(member_id)s, %(cid)s, %(msg)s, %(resp)s)
-           RETURNING chat_history_id""",
-        {"member_id": member_id, "cid": conversation_id, "msg": message, "resp": response}
-    )
-    return result
+                await cur.execute(
+                    "INSERT INTO log.chat_history"
+                    " (member_id, conversation_id, user_message, bot_response)"
+                    " VALUES (%(member_id)s, %(cid)s, %(msg)s, %(resp)s)"
+                    " RETURNING chat_history_id",
+                    {"member_id": member_id, "cid": conversation_id,
+                     "msg": message, "resp": response},
+                )
+                row = await cur.fetchone()
+                return row["chat_history_id"]
 ```
 
 ## Soft Delete Pattern
@@ -251,7 +251,7 @@ REVOKE ALL ON SCHEMA public FROM public;
 
 ```sql
 CREATE TABLE app.member_setting (
-  member_id int NOT NULL,
+  member_id bigint NOT NULL,   -- logical FK: app.member.member_id (type matches parent)
   setting_data jsonb NOT NULL DEFAULT '{}',
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_member_setting PRIMARY KEY (member_id)

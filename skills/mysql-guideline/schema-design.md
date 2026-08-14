@@ -30,7 +30,7 @@ CREATE TABLE `chat_history` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`chat_history_id`),
   -- Control 2: index every referencing column — nothing auto-creates it without an FK
-  KEY `idx_chat_history_user_id` (`member_id`),
+  KEY `idx_chat_history_member_id` (`member_id`),
   KEY `idx_chat_history_conversation_id` (`conversation_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT 'integrity owner: chat-service ChatWriter (all writers go through it)';

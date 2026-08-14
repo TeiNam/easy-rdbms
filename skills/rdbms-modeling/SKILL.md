@@ -70,7 +70,7 @@ Exclude entirely: columns, data types, keys, indexes, and the DB product.
 Keep it to a few sentences or a small Mermaid diagram:
 
 ```
-A customer places purchase_order. An order contains one or more products.
+A customer places orders. An order contains one or more products.
 A product belongs to a category.
 ```
 

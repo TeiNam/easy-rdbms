@@ -73,7 +73,7 @@ swapping its fields destroys that ordering — the exact property you chose v7 f
 SELECT UUID_TO_BIN(UUID(), 1);
 
 -- v7 generated in the application: NO swap flag
-SELECT UUID_TO_BIN('018f7e2a-...-7...-...', 0);   -- or simply UUID_TO_BIN(v)
+SELECT UUID_TO_BIN('01912d4e-8f3a-7c21-9b7e-2f5a6c1d4e30', 0);  -- or simply UUID_TO_BIN(v)
 ```
 
 Be consistent per column, and record which convention a column uses in its `COMMENT` — reading a

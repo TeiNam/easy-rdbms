@@ -63,10 +63,10 @@ Summary + PostgreSQL-specific:
 | Timestamp | `timestamptz` | Timezone required |
 | Date only | `date` | |
 | JSON data | `jsonb` | Not `json` (indexing support) |
-| Money | `numeric(p,s)` | Never use float. Per-currency scale: `numeric(15,0)` KRW (no minor unit), `numeric(10,2)` USD, `numeric(5,4)` ratio (0.1234=12.34%) |
+| Money | `numeric(p,s)` | Never use float. Scale from the currency's minor unit, precision from the domain maximum: KRW `numeric(15,0)` (no minor unit), USD `numeric(p,2)` with `p` sized to the largest amount, ratio `numeric(5,4)` (0.1234=12.34%). No blanket `(10,2)` |
 | IP address | `inet` | PostgreSQL native type |
 | Arrays | `type[]` | Simple lists (e.g. `text[]`) |
-| IDs (external) | `uuid` via `gen_random_uuid()` | |
+| IDs (external) | `uuid` — **UUIDv7**: `uuidv7()` on PG 18+, app-generated on 16/17. `gen_random_uuid()` is v4 (use only when unpredictability matters more than index locality) |
 
 ## Foreign Keys — Differs from MySQL
 
@@ -77,7 +77,9 @@ remain, and the compensating controls for relationships left as logical FKs. Pos
 auto-creates the referencing-column index, so condition 2 is the one most often missed.
 
 ## Prohibited Items
-- Stored Procedures: prohibited
+- Stored Procedures / functions: prohibited for **business logic** — the sanctioned
+  operational-utility and audit-trigger exceptions are in
+  `rdbms-modeling/references/db-internal-routines.md`
 - Triggers: prohibited for business logic (handle `updated_at` in the application)
 - Events/Schedulers: use external (cron, Airflow)
 - Views: simple read-only views are fine for query reuse, security, and interface abstraction —

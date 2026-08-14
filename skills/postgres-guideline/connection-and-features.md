@@ -96,44 +96,48 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 #   because it cannot be leaked into a pooled connection. Session-level is usable only if the
 #   unlock is guaranteed on every path (or the connection is reset before return)
 
-# PASS: Transaction-level — the lock releases when conn.transaction() ends; no finally needed.
-# (All snippets below live inside an `async def`; see the pool example above.)
-async with pool.connection() as conn:
-    async with conn.transaction():
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT pg_advisory_xact_lock(%(id)s)", {"id": job_id})
-            result = await cur.fetchone()
-            # Waits on lock acquisition failure (use pg_try_advisory_xact_lock for non-blocking)
-            await cur.execute(
-                "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
-                {"id": job_id}
-            )
-        # Transaction commit + lock release handled atomically
+async def claim_job(pool, job_id: int) -> bool:
+    """PASS: transaction-level lock — released when conn.transaction() ends, no finally needed."""
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                # Blocks until acquired; use pg_try_advisory_xact_lock for non-blocking
+                await cur.execute("SELECT pg_advisory_xact_lock(%(id)s)", {"id": job_id})
+                await cur.execute(
+                    "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
+                    {"id": job_id},
+                )
+        # transaction commit and lock release happen together
+        return True
 
-# PASS: Non-blocking — returns immediately if the lock is unavailable
-async with pool.connection() as conn:
-    async with conn.transaction():
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT pg_try_advisory_xact_lock(%(id)s)", {"id": job_id})
-            result = await cur.fetchone()
-            if not result["pg_try_advisory_xact_lock"]:
-                return  # Another process is handling
-            await cur.execute(
-                "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
-                {"id": job_id}
-            )
+async def try_claim_job(pool, job_id: int) -> bool:
+    """PASS: non-blocking — returns immediately if the lock is unavailable."""
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT pg_try_advisory_xact_lock(%(id)s)", {"id": job_id}
+                )
+                row = await cur.fetchone()
+                if not row["pg_try_advisory_xact_lock"]:
+                    return False          # another worker holds it
+                await cur.execute(
+                    "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
+                    {"id": job_id},
+                )
+    return True
 
-# RISKY: session-level lock + manual unlock.
-# A crash is actually safe — the backend terminates and session locks release with it.
-# The real leak is the pooled path: if the unlock is skipped (early return, exception
-# before finally, a code path added later), the connection goes back to the pool still
-# holding the lock and the next borrower inherits it.
-# async with conn.cursor() as cur:
-# await cur.execute("SELECT pg_try_advisory_lock(...)")
-# try:
-# await conn.commit()
-# finally:
-# await cur.execute("SELECT pg_advisory_unlock(...)")  # ← Dangerous
+# FAIL: session-level lock + manual unlock.
+# A crash is safe — the backend terminates and session locks release with it.
+# The real leak is the pooled path: if the unlock is skipped (early return, an
+# exception before finally, a code path added later), the connection returns to
+# the pool still holding the lock and the next borrower inherits it.
+#
+#   await cur.execute("SELECT pg_try_advisory_lock(%(id)s)", {"id": job_id})
+#   try:
+#       ...
+#   finally:
+#       await cur.execute("SELECT pg_advisory_unlock(%(id)s)", {"id": job_id})
 ```
 
 ## LISTEN/NOTIFY

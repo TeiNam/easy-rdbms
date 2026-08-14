@@ -126,7 +126,7 @@ If several writers exist (batch jobs, admin tooling, external integrations), the
 be a layer they all pass through — not one application's validation code.
 
 ```sql
-CREATE TABLE app.chat_history (
+CREATE TABLE log.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
   member_id bigint NOT NULL,         -- logical FK: app.member.member_id
   conversation_id char(18) NOT NULL, -- logical FK: app.conversation_session.conversation_id
@@ -137,28 +137,39 @@ CREATE TABLE app.chat_history (
 );
 
 -- Control 1: document both references
-COMMENT ON COLUMN app.chat_history.member_id IS
+COMMENT ON COLUMN log.chat_history.member_id IS
   'logical FK: app.member.member_id; integrity owner: chat-service ChatWriter';
-COMMENT ON COLUMN app.chat_history.conversation_id IS
+COMMENT ON COLUMN log.chat_history.conversation_id IS
   'logical FK: app.conversation_session.conversation_id; integrity owner: chat-service ChatWriter';
 
 -- Control 2: index every referencing column (PostgreSQL never auto-creates these)
-CREATE INDEX idx_chat_history_member_id ON app.chat_history (member_id);
-CREATE INDEX idx_chat_history_conversation_id ON app.chat_history (conversation_id);
+CREATE INDEX idx_chat_history_member_id ON log.chat_history (member_id);
+CREATE INDEX idx_chat_history_conversation_id ON log.chat_history (conversation_id);
 
 -- Control 4: one scheduled orphan query per reference
--- SELECT c.chat_history_id FROM app.chat_history c
+-- SELECT c.chat_history_id FROM log.chat_history c
 -- LEFT JOIN app.member m ON m.member_id = c.member_id WHERE m.member_id IS NULL LIMIT 100;
+-- SELECT c.chat_history_id FROM log.chat_history c
+-- LEFT JOIN app.conversation_session s ON s.conversation_id = c.conversation_id
+-- WHERE s.conversation_id IS NULL LIMIT 100;
 ```
 
 ### Application-Level Referential Integrity
 
 ```python
-async def create_chat_history(member_id: int, conversation_id: str, message: str, response: str):
-    # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check and
-    # the insert. Lock every parent row FOR UPDATE in the same transaction as the insert, and
-    # validate EVERY logical reference — conversation_id needs the same treatment as member_id.
-    user = await db.execute_query(
+async def create_chat_history(pool, member_id: int, conversation_id: str,
+                              message: str, response: str):
+    # The parent locks and the insert must share ONE transaction — otherwise the lock is
+    # released before the insert and the check bought nothing. Validate EVERY logical
+    # reference: conversation_id needs the same treatment as member_id.
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            return await _insert_chat_history(
+                conn, member_id, conversation_id, message, response
+            )
+
+async def _insert_chat_history(conn, member_id, conversation_id, message, response):
+    member = await db.execute_query(
         "SELECT member_id FROM app.member WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
         {"member_id": member_id}
     )

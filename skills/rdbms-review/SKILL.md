@@ -6,7 +6,8 @@ description: >
   query, review this migration, why is this query slow, is this index right, missing index,
   seq scan, full table scan, N+1 query, EXPLAIN output, EXPLAIN ANALYZE, deadlock, lock
   wait timeout, table bloat, vacuum, slow query log, connection pool exhausted, too many
-  connections, RLS policy review, GRANT audit, database security review, is this schema
+  connections, RLS policy review, GRANT audit, database security review, duplicate tables,
+  over-generalized schema, EAV anti-pattern, nullable everything, is this schema
   safe to deploy.
 ---
 
@@ -125,6 +126,13 @@ What to read in the plan:
 - **Denormalized columns without a stated synchronization mechanism** are a data-integrity
   finding, not a style note. Duplicated data that no code keeps in sync will drift. Check for
   a `COMMENT` naming the source and the sync path
+- **Generalization**: near-duplicate tables whose base attributes are substantially the same
+  (`corporate_customer` / `individual_customer`) are a maintenance finding — every change lands
+  twice. Conversely flag over-generalization: a supertype where every meaningful column is
+  nullable has traded constraints for application checks, and an entity/attribute/value table
+  (`entity`, `attr_name`, `attr_value`) has discarded typing, constraints, and the planner.
+  Where a single-table subtype strategy is used, check that `CHECK` constraints on the
+  discriminator recover the `NOT NULL` guarantees it gave up
 - Types: `bigint` for growing IDs, `numeric`/`decimal` for money (never float), timezone-aware
   timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
 - `NOT NULL` and `CHECK` constraints present where the domain requires them

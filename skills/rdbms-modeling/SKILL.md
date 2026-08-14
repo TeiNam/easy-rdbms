@@ -3,13 +3,16 @@ name: rdbms-modeling
 description: >
   Turn business requirements into a data model through three staged steps — conceptual,
   logical, then physical — with a confirmation gate between each. Never converts requirements
-  straight into DDL. Normalizes to Third Normal Form as the baseline, checks every table for
-  BCNF violations, and permits denormalization only against a measurement. Triggers: design
-  tables from requirements, data model, conceptual model, logical model, physical model, ERD,
-  entity relationship diagram, domain model, business entities, normalization, 1NF 2NF 3NF,
-  BCNF, Boyce-Codd normal form, functional dependency, determinant, candidate key,
-  overlapping candidate keys, update anomaly, denormalization, denormalize, table design,
-  schema design from scratch, N:M relationship, junction table, surrogate key vs natural key,
+  straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
+  BCNF violations, generalizes entities that share their base attributes into supertypes, and
+  permits denormalization only against a measurement. Triggers: design tables from
+  requirements, data model, conceptual model, logical model, physical model, ERD, entity
+  relationship diagram, domain model, business entities, normalization, 1NF 2NF 3NF, BCNF,
+  Boyce-Codd normal form, functional dependency, determinant, candidate key, overlapping
+  candidate keys, update anomaly, generalization, specialization, supertype, subtype, entity
+  inheritance, single table inheritance, discriminator column, EAV, entity attribute value,
+  similar tables, duplicate entities, denormalization, denormalize, table design, schema
+  design from scratch, N:M relationship, junction table, surrogate key vs natural key,
   composite primary key, cardinality, soft delete design, which PK type, do I need a history
   table, design a schema for, migration SQL for a new feature.
 ---
@@ -27,7 +30,8 @@ and every missed concept becomes a migration later.
 
 - Designing tables for a new feature or service
 - Authoring or reviewing an ERD
-- Deciding a normalization or denormalization tradeoff
+- Deciding a normalization, generalization, or denormalization tradeoff
+- Two entities look like near-duplicates and you are unsure whether to merge them
 - Planning a schema migration's target shape
 - Choosing PK type, relationship cardinality, or soft-delete strategy
 
@@ -70,6 +74,11 @@ erDiagram
     CATEGORY ||--o{ PRODUCT : classifies
 ```
 
+While listing concepts, watch for **generalization candidates**: two or more concepts whose
+base attributes are largely the same are probably one concept with variants. Flag them here as
+a question — "are corporate customer and individual customer both kinds of customer?" — and
+resolve the structure in Stage 2.
+
 **→ Confirmation gate.** Present the concepts and the vocabulary, then ask whether anything is
 missing or named wrong. Wait for the answer. Terminology corrections are cheapest here and
 most expensive after the DDL exists.
@@ -88,6 +97,7 @@ Produce:
 - Relationships with cardinality (1:1, 1:N, N:M — resolve N:M into a junction entity)
 - Required (`NOT NULL`) and unique attributes
 - **3NF normalization, then the BCNF check on every entity**
+- **The generalization check on every entity pair** — merge what shares its base attributes
 
 Exclude: engine-specific data types, indexes, partitioning, storage.
 
@@ -98,8 +108,52 @@ Read `references/normalization.md` for the per-normal-form rules, the BCNF check
 and the denormalization bar. Emit the BCNF check block for every entity, including the ones
 where the answer is "none".
 
-**→ Confirmation gate.** Present the ERD, the normalization steps, and the BCNF results. Ask
-whether the keys and cardinalities match the business rules. Wait for the answer.
+### Generalization — Merge What Shares Its Base Attributes
+
+Normalization and generalization pull in opposite directions and you need both. Normalization
+**splits** a table by functional dependency; generalization **merges** entities whose base
+attributes are substantially the same into a supertype with subtypes.
+
+Run this check after normalizing: for every pair of entities, ask whether they share most of
+their base attributes.
+
+**Generalize when all of these hold:**
+
+- The shared attributes are the *substance* of both entities, not incidental
+- Both participate in the same relationships (both are referenced the same way)
+- Most business flows treat them uniformly, with only a few branching on type
+
+```
+Before:  CorporateCustomer(name, contact, tax_id, credit_limit)
+         IndividualCustomer(name, contact, birth_date)
+
+After:   Customer(customer_id, customer_type, name, contact)     ← supertype
+         CorporateCustomerDetail(customer_id, tax_id, credit_limit)
+         IndividualCustomerDetail(customer_id, birth_date)
+```
+
+**Keep them separate when any of these hold:**
+
+- The overlap is only bookkeeping columns — `name`, `created_at`, and `updated_at` in common is
+  not similarity
+- The subtypes participate in disjoint relationships
+- Their lifecycles differ (one is immutable, the other is edited; one is retained, the other purged)
+- There are exactly two subtypes sharing one or two attributes — the supertype buys nothing
+
+**Do not over-generalize.** Two failure modes cost more than the duplication they removed:
+
+- A supertype so abstract that every meaningful column is nullable — you have traded database
+  constraints for application checks
+- An entity/attribute/value table (`entity`, `attr_name`, `attr_value`) — this discards typing,
+  constraints, and the query planner's ability to help. It is not generalization, it is giving
+  up on the schema
+
+Record the decision per candidate pair: `generalized` with the supertype named, or `kept
+separate` with which condition applied.
+
+**→ Confirmation gate.** Present the ERD, the normalization steps, the BCNF results, and any
+generalization decisions. Ask whether the keys, cardinalities, and subtype structure match the
+business rules. Wait for the answer.
 
 ## Stage 3 — Physical Model
 
@@ -137,8 +191,20 @@ Then produce:
 - Partitioning and retention for log and history tables — monthly is the default cadence
 - Migration SQL, ordered, with the rollout considerations from `database-migrations`
 
+If Stage 2 produced a supertype/subtype structure, choose its physical mapping here — the
+tradeoff is about constraints and query shape, so it belongs to the physical model:
+
+| Strategy | Use when | What it costs |
+|---|---|---|
+| **Single table + discriminator column** | Subtypes differ by only a few attributes, and most queries span all subtypes | Subtype-specific columns must be nullable, so `NOT NULL` can no longer enforce them. Recover it with a `CHECK` on the discriminator: `CHECK (customer_type <> 'CORPORATE' OR tax_id IS NOT NULL)` |
+| **Supertype table + one table per subtype** | Subtypes carry many distinct attributes, and queries usually target one subtype | A join for the full picture. Subtype PK is also an FK to the supertype; enforce exclusivity in the application (logical FK policy) |
+| **One table per concrete subtype, no supertype table** | Subtypes are almost never queried together | Shared attributes are duplicated, and cross-subtype queries need `UNION ALL`. Shared relationships become awkward — usually the wrong choice when anything references the supertype |
+
+Default to the supertype + subtype tables when the subtype attributes are substantial, and to
+the single table with `CHECK` constraints when they are not. Say which one you picked and why.
+
 Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
-uniqueness, and check constraints behave as intended.
+uniqueness, check constraints, and any subtype rules behave as intended.
 
 ### DB-to-Guideline Mapping
 
@@ -196,10 +262,12 @@ STAGE 2 — Logical model
   Required/unique: <NOT NULL and UNIQUE attributes>
   Normalization:  1NF result / 2NF violations + resolution / 3NF violations + resolution
   BCNF check:     one block per entity — FDs, violation or "none", decision, reason
-  → Confirm: do the keys and cardinalities match the business rules?
+  Generalization: per candidate pair — generalized (supertype named) | kept separate (why)
+  → Confirm: do the keys, cardinalities, and subtype structure match the business rules?
 
 STAGE 3 — Physical model
   Target DB:      <name and version, and how it was confirmed>
+  Subtype mapping: <strategy and why — only if Stage 2 produced a supertype>
   DDL:            <CREATE TABLE + constraints in the correct dialect>
   Indexes:        <with the query each one serves>
   Partitioning:   <decision for log/history tables>
@@ -221,6 +289,11 @@ STAGE 3 — Physical model
 - [ ] BCNF check run on **every** entity, with the result stated (including "none")
 - [ ] Each BCNF violation either decomposed, or kept at 3NF with the exception named
       (dependency preservation or join cost)
+- [ ] Generalization checked: entity pairs sharing their base attributes either generalized
+      into a supertype, or kept separate with the reason given
+- [ ] No supertype where every meaningful column ended up nullable; no entity/attribute/value table
+- [ ] Subtype physical mapping chosen and justified, with `CHECK` constraints recovering any
+      `NOT NULL` lost to the single-table strategy
 - [ ] No denormalization without a measurement, the alternatives already tried, and a stated
       synchronization mechanism
 - [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
@@ -242,6 +315,9 @@ STAGE 3 — Physical model
 |---|---|
 | Requirements straight to `CREATE TABLE` | Conceptual → logical → physical, with gates |
 | Engine types in the logical model | Generic types until Stage 3 |
+| Near-duplicate tables sharing their base attributes | Generalize into a supertype with subtypes |
+| Supertype where every meaningful column is nullable | Split into subtype tables, or add `CHECK` per discriminator value |
+| Entity/attribute/value table | Real columns; `jsonb`/`json` only for non-queried config |
 | Multi-value storage via CSV or pipe delimiters | Separate N:M table |
 | `'Y'` / `'N'` string flags | MySQL `tinyint(1)` / PostgreSQL `boolean` |
 | `timestamp` without timezone (PostgreSQL) | `timestamptz` |

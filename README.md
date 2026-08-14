@@ -31,7 +31,7 @@ repo slug.
 |---|---|
 | `db-select` | Which database, which topology, and what it costs over three years |
 | `rdbms-naming` | Table, column, index, and constraint naming; data type selection |
-| `rdbms-modeling` | Designing a model in three stages: conceptual → logical → physical, 3NF + BCNF check |
+| `rdbms-modeling` | Designing a model in three stages: conceptual → logical → physical, with normalization and generalization checks |
 | `rdbms-review` | Reviewing existing SQL, schemas, and migrations |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL: schema, indexes, partitioning, operations, JDBC |
 | `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL: schema, indexes, partitioning, RLS, psycopg |
@@ -84,11 +84,18 @@ all three stages in full; a personal tool may compress the first two, but the pl
 rather than skipping silently.
 
 **Normalization has a policy, not a preference.** 3NF is required. BCNF is *checked on every
-table* and applied when a non-superkey determinant can cause a real anomaly — staying at 3NF is
+entity* and applied when a non-superkey determinant can cause a real anomaly — staying at 3NF is
 allowed when decomposition breaks dependency preservation or explodes joins, but the reason has
 to be stated. Denormalization needs a measurement, the cheaper alternatives already tried, and
 a written synchronization mechanism. ACID and normalization are treated as separate concerns:
 one keeps transactions safe, the other keeps the schema from drifting.
+
+**Generalization runs in both directions.** Normalization splits by functional dependency;
+generalization merges entities whose base attributes are substantially the same into a supertype
+with subtypes. The skill checks every entity pair — but guards the other side too: a supertype
+where every meaningful column ended up nullable has traded database constraints for application
+checks, and an entity/attribute/value table has given up on the schema entirely. Both are
+flagged as findings, not accepted as flexibility.
 
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
@@ -137,7 +144,7 @@ codex plugin add easy-rdbms@easy-rdbms
 |---|---|
 | `db-select` | 어떤 DB를, 어떤 구성으로, 3년 비용은 얼마인지 |
 | `rdbms-naming` | 테이블·컬럼·인덱스·제약 네이밍, 데이터 타입 선택 |
-| `rdbms-modeling` | 3단계 설계: 개념 → 논리 → 물리, 3NF 기본 + BCNF 검사 |
+| `rdbms-modeling` | 3단계 설계: 개념 → 논리 → 물리, 정규화·일반화 검사 |
 | `rdbms-review` | 기존 SQL·스키마·마이그레이션 리뷰 |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL |
 | `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL |
@@ -158,7 +165,12 @@ codex plugin add easy-rdbms@easy-rdbms
   단계는 일반 자료형으로 정규화하며, 엔진 확정이 필요한 시점은 물리 단계뿐입니다 — 이때 `db-select`를
   실행합니다. 논리 모델이 나와야 엔진 선택에 답할 수 있기 때문입니다. 결제·재고·권한·계약은 3단계를
   모두 거치고, 개인 도구는 앞 두 단계를 축약할 수 있지만 축약했다는 사실을 반드시 밝힙니다.
-- **정규화는 취향이 아니라 정책입니다.** 3NF는 필수, BCNF는 **모든 테이블에 검사**하고 슈퍼키가
+- **일반화(generalization)는 양방향으로 봅니다.** 정규화가 함수적 종속으로 쪼개는 반대편에서, 일반화는
+  기초 속성이 대부분 같은 엔터티를 슈퍼타입-서브타입으로 묶습니다. 모든 엔터티 쌍을 검사하되 반대 방향도
+  막습니다 — 의미 있는 컬럼이 전부 nullable이 된 슈퍼타입은 DB 제약을 애플리케이션 검사로 바꾼 것이고,
+  EAV(entity·attr_name·attr_value) 테이블은 스키마를 포기한 것입니다. 둘 다 유연성이 아니라 결함으로
+  보고합니다.
+- **정규화는 취향이 아니라 정책입니다.** 3NF는 필수, BCNF는 **모든 엔터티에 검사**하고 슈퍼키가
   아닌 결정자로 실제 이상이 생길 수 있을 때 분해합니다. 함수적 종속성 보존이 깨지거나 조인이
   과도해지면 3NF 유지를 허용하되 그 이유를 반드시 남깁니다. 비정규화는 **측정된** 성능 문제와
   더 싼 대안을 먼저 시도한 기록, 그리고 동기화 방식이 명시돼야 합니다. ACID와 정규화는 역할이

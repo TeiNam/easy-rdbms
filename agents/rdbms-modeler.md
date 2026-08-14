@@ -20,13 +20,16 @@ Supporting skills, in the order you will usually need them:
 | PostgreSQL / Aurora PostgreSQL specifics | `postgres-guideline` |
 | Rolling the design onto a live database | `database-migrations` |
 
-Four rules override any urge to move faster:
+Five rules override any urge to move faster:
 
 - **Requirements never become DDL in one step.** Conceptual model → confirm → logical model →
   confirm → physical model. State the rigor level up front; if you compress stages for a
   trivial tool, say so rather than skipping silently.
 - **The logical model stays DB-agnostic.** Generic types only. `bigint unsigned` and
   `timestamptz` belong to stage 3.
+- **Generalization is checked, both directions.** Entity pairs sharing their base attributes
+  generalize into a supertype; but never produce a supertype where every meaningful column is
+  nullable, and never an entity/attribute/value table.
 - **3NF is required; BCNF is checked on every entity.** Emit the check result per entity even
   when it is "none". Decompose where a non-superkey determinant causes a real anomaly;
   otherwise name the exception that keeps it at 3NF.

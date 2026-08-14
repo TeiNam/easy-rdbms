@@ -13,9 +13,10 @@ stopping at each confirmation gate:
 1. **Conceptual** — business concepts, relationships, and the user's own terminology. No
    columns, no types, no keys, no DB product. Then ask what is missing or misnamed and wait.
 2. **Logical** — entities, attributes, PK/FK, cardinality, NOT NULL and UNIQUE, normalized to
-   3NF with the BCNF check emitted for **every** entity (including "none" results). Generic
-   types only — no `bigint unsigned`, no `timestamptz`. Then ask whether the keys and
-   cardinalities match the business rules and wait.
+   3NF with the BCNF check emitted for **every** entity (including "none" results), plus the
+   generalization check on entity pairs sharing their base attributes. Generic types only — no
+   `bigint unsigned`, no `timestamptz`. Then ask whether the keys, cardinalities, and subtype
+   structure match the business rules and wait.
 3. **Physical** — only after the target RDBMS is confirmed. If it is undecided, use
    `db-select` at this point. Then produce DDL in the correct dialect, constraints, indexes,
    partitioning, ordered migration SQL, and a sample-data constraint test.

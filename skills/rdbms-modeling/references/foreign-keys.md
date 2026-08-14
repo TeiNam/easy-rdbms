@@ -21,7 +21,7 @@ behaviour are not, and the difference is large enough that the policy splits by 
 | **Partitioned tables** | InnoDB **cannot** have an FK on a partitioned table, either direction | Supported (referencing a partitioned table from PG 12+); `ATTACH PARTITION` validates, taking stronger locks |
 
 The partitioning row is the decisive one for MySQL. This plugin treats log and history tables as
-partitioning candidates by default, and on InnoDB an FK today is a blocked partition tomorrow.
+the usual partitioning candidates, and on InnoDB an FK today is a blocked partition tomorrow.
 
 ## MySQL / InnoDB — Logical FK Only
 

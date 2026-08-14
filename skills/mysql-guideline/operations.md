@@ -62,6 +62,35 @@ LIMIT 20;
 Move to an external search engine when you need typo tolerance, complex ranking,
 cross-table facets, or language analysis beyond the built-in parsers.
 
+## Transaction Isolation — InnoDB Defaults to REPEATABLE READ
+
+InnoDB's default is **`REPEATABLE READ`**, and unlike most engines it prevents phantoms at RR by
+using **gap locks and next-key locks** — which are also the most common deadlock source that
+surprises teams coming from other databases.
+
+| Symptom | Cause at RR |
+|---|---|
+| Deadlocks on concurrent `INSERT`s near the same index range | Gap locks taken by locking reads / `INSERT ... SELECT` |
+| Lock waits with no row conflict visible | Next-key lock covers the *gap*, not just the row |
+| A plain `SELECT` sees stale data mid-transaction | Consistent snapshot from first read — by design |
+
+Practical rules:
+
+- **High-concurrency OLTP often runs better at `READ COMMITTED`** — gap locks largely disappear.
+  Requirement: row-based binlog (`binlog_format = ROW`, the 8.x default). Set per session or
+  globally, and record the choice in the design.
+- A locking read (`FOR UPDATE` / `FOR SHARE`) at RC reads the **latest committed** row, not the
+  transaction snapshot — SELECT-then-act logic must tolerate that.
+- Do not mix isolation levels across services touching the same tables without documenting it —
+  the deadlock behaviour differs per level and debugging assumes one.
+- `SERIALIZABLE` on InnoDB converts plain reads into locking reads; it is rarely the right tool —
+  prefer explicit `FOR UPDATE` on the rows that matter.
+
+```sql
+SELECT @@transaction_isolation;
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;
+```
+
 ## Locking, Deadlocks, and Queues
 
 Lock rows in a deterministic order across every code path:

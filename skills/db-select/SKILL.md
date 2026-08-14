@@ -1,17 +1,18 @@
 ---
 name: db-select
 description: >
-  Pick the database before designing the schema. Decides whether an RDBMS is the right fit
-  at all, which engine (MySQL vs PostgreSQL), which deployment form and topology the current
-  scale justifies, and which candidate has the lowest three-year total cost of ownership —
-  then routes to the matching guideline skill. Triggers: which database should I use, MySQL
-  or PostgreSQL, do I need NoSQL, DynamoDB vs RDBMS, MongoDB or Postgres, is Postgres
-  enough, do I need sharding, do I need read replicas, Aurora vs RDS, RDS vs self-managed,
-  managed vs self-hosted database, Supabase Neon PlanetScale, serverless database, SQLite in
-  production, distributed SQL, CockroachDB TiDB,
-  choosing a DB for a new project, database cost, TCO, how much will the database cost,
-  is this database too expensive, database budget, do we need a DBA, scaling the database,
-  database for a prototype, separate analytics database, OLTP vs OLAP separation.
+  Pick the database before designing the schema. Decides whether an RDBMS is the right fit at
+  all, which engine (MySQL vs PostgreSQL), which deployment form and topology the current scale
+  justifies, and which candidate has the lowest three-year total cost of ownership — then
+  routes to the matching guideline skill. Triggers: which database should I use, MySQL or
+  PostgreSQL, do I need NoSQL, DynamoDB vs RDBMS, MongoDB or Postgres, is Postgres enough, do I
+  need sharding, do I need read replicas, Aurora vs RDS, RDS vs self-managed, managed vs
+  self-hosted database, Supabase Neon PlanetScale, serverless database, SQLite in production,
+  distributed SQL, CockroachDB TiDB, choosing a DB for a new project, database cost, TCO, how
+  much will the database cost, is this database too expensive, database budget, do we need a
+  DBA, multi-tenant, multi-tenancy, tenant isolation, schema per tenant, database per tenant,
+  SaaS tenancy, scaling the database, database for a prototype, separate analytics database,
+  OLTP vs OLAP separation.
 ---
 
 # Database Selection
@@ -156,6 +157,26 @@ recommending against their platform.
 | **Serverless / autoscaling** (Aurora Serverless v2, Neon) | Spiky or intermittent traffic; per-branch dev databases | Cold starts; scale-to-zero pauses; cost is unpredictable under sustained load |
 | **Platform DB** (Supabase, PlanetScale) | Small teams wanting auth, APIs, and branching bundled | Platform-specific idioms leak into the schema. Confirm the migration path out before committing |
 | **Distributed SQL** (CockroachDB, TiDB, Citus, Aurora Limitless) | Tier 4, or a hard multi-region write requirement | Real SQL and operational differences, paid from day one. Do not adopt for Tier 2 problems |
+
+### Multi-Tenancy Shape
+
+If the product serves multiple tenants, the isolation shape is part of the topology decision —
+retrofitting it is a full migration.
+
+| Shape | Fits | Cost |
+|---|---|---|
+| **Shared tables + `tenant_id`** | The default. Hundreds-to-millions of tenants, uniform schema | Every table carries `tenant_id`, every query filters on it, every unique constraint includes it. On PostgreSQL, RLS enforces it at the database; on MySQL it is application-carried |
+| **Schema per tenant** (PostgreSQL) | Tens-to-hundreds of tenants needing hard separation or per-tenant customization | Migrations run N times; connection pooling fragments per schema; cross-tenant reporting needs UNION machinery |
+| **Database per tenant** | Few, large, contractually isolated tenants (compliance, residency) | Full operational cost multiplies per tenant — backups, monitoring, upgrades |
+
+Rules that follow from the choice:
+
+- Shared tables: `tenant_id` **leads** the composite indexes and is part of every `UNIQUE` — a
+  uniqueness rule that ignores the tenant is almost always a bug
+- Never mix shapes for the same entity; a hybrid ("big tenants get a database") is two systems
+  with two operational stories — accept that explicitly or do not do it
+- A missing `tenant_id` predicate is a data-leak bug, not a performance bug. On PostgreSQL,
+  RLS turns that class of bug into an empty result; price that in when choosing the engine
 
 Connection limits bite earlier than people expect — serverless application runtimes multiply
 connections. Budget a pooler at Tier 2 regardless of engine.

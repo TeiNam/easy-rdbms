@@ -45,6 +45,32 @@ async def get_user(user_id: int):
             return await cur.fetchone()
 ```
 
+## Transaction Isolation — PostgreSQL Defaults to READ COMMITTED
+
+The default is **`READ COMMITTED`** — the opposite default from MySQL InnoDB, which matters when
+porting code or reasoning shared across both engines. PostgreSQL has **no gap locks**; phantom
+prevention at higher levels uses Serializable Snapshot Isolation (SSI), not blocking.
+
+| Level | Behaviour | Use |
+|---|---|---|
+| `READ COMMITTED` (default) | Each statement sees the latest committed snapshot | Correct for most OLTP; SELECT-then-act races handled with explicit locking |
+| `REPEATABLE READ` | Transaction-wide snapshot; **serialization failures possible** on write conflicts | Multi-statement reads needing one consistent view (reports, exports) |
+| `SERIALIZABLE` | SSI — detects dangerous patterns, aborts with `40001` | Invariants spanning several rows/tables that no constraint can express |
+
+Practical rules:
+
+- At `READ COMMITTED`, two transactions can both pass a `SELECT`-based check and both act on it.
+  Guard invariants with `FOR UPDATE`, a `UNIQUE` constraint, or advisory locks — not with a
+  bare read.
+- `REPEATABLE READ` and `SERIALIZABLE` **fail with SQLSTATE `40001`/`40P01` instead of blocking**
+  — the application must retry the whole transaction. No retry loop → do not raise the level.
+- `SERIALIZABLE` costs predicate tracking; keep such transactions short and touch few rows.
+
+```sql
+SHOW default_transaction_isolation;
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+```
+
 ## Advisory Lock
 
 ```python

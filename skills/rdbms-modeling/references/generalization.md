@@ -119,9 +119,10 @@ over-modeling this check exists to prevent.
 A subtype shares the supertype's primary key. The same `customer_id` identifies the customer
 and its individual-customer detail — do not mint a separate surrogate key for the subtype row.
 
-That shared PK is conceptually also a foreign key to the supertype. **Physical `FOREIGN KEY`
-constraints are not created** (see the Hard Rule in `SKILL.md`), so express it as a documented
-reference:
+That shared PK is conceptually also a foreign key to the supertype. The FK policy splits by
+engine (see `foreign-keys.md`): on **MySQL** it stays a documented logical reference; on
+**PostgreSQL** a physical FK from the subtype PK to the supertype PK is a natural fit for the six
+gates — it typically passes all of them.
 
 ```sql
 -- MySQL
@@ -132,15 +133,14 @@ CREATE TABLE individual_customer (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Two integrity rules the application must then carry, because no constraint enforces them:
+Two integrity rules follow, with different enforceability:
 
-1. A subtype row exists only if its supertype row exists.
-2. For an exclusive classification, a supertype row has a detail row in **at most one** subtype
-   table — and for a total classification, in **exactly one**.
-
-State both explicitly in the deliverable, with the named integrity owner and an orphan check for
-each — the same four compensating controls every logical FK carries. Rule 2 needs its own
-detection query, since it is the one no single-table check can catch:
+1. **A subtype row exists only if its supertype row exists.** On PostgreSQL a physical FK enforces
+   this; on MySQL it is application-carried with the four compensating controls of a logical FK.
+2. **Exclusivity/totality** — an exclusive classification permits a detail row in **at most one**
+   subtype table (exactly one, if total). **No foreign key can enforce this on either engine**: an
+   FK guarantees the parent exists, not that the other subtype table is empty. Always
+   application-carried, always with its own detection query:
 
 ```sql
 -- Exclusivity violation: a customer with detail rows in more than one subtype table
@@ -160,7 +160,7 @@ in any subtype table.
 | Strategy | Fits | Watch out for |
 |---|---|---|
 | **Single table + discriminator** | Few types, small differences between them, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover it with conditional `CHECK` constraints — and note these multiply with each type |
-| **Supertype table + one table per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is unenforced under a logical-FK policy |
+| **Supertype table + one table per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is not FK-enforceable on either engine — application rule + detection query |
 | **One table per concrete subtype, no supertype table** | Types are used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
 
 **Default for ordinary business systems: supertype table + one table per subtype.** It is the

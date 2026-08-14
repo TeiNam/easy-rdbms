@@ -11,18 +11,18 @@ description: >
   ERD, entity relationship diagram, domain model, business entities, normalization, 1NF 2NF
   3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant, candidate key,
   overlapping candidate keys, update anomaly, generalization, specialization, supertype,
-  subtype, entity inheritance, single table inheritance, discriminator column, IS-A, is-a
+  subtype, entity inheritance, single table inheritance, discriminator column, IS-A
   relationship, substitutability, exclusive subtypes, overlapping subtypes, total partial
   classification, role table, type column vs subtype, status vs type, state machine or subtype,
-  EAV, entity attribute value, similar tables, duplicate entities, denormalization,
-  denormalize, table design, schema design from scratch, N:M relationship, junction table,
-  surrogate key vs natural key, composite primary key, cardinality, logical FK, physical FK,
-  foreign key constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete
-  design, which PK type, do I need a history table, partitioning, should I partition this
-  table, RANGE COLUMNS, partition key, MAXVALUE partition, default partition, retention policy,
-  history table, audit table, audit trail, versioning, temporal table, bi-temporal, valid_from
-  valid_to, state transition history, event sourcing, CDC, point-in-time query, restore past
-  data, design a schema for, migration SQL for a new feature.
+  EAV entity attribute value, similar tables, duplicate entities, denormalization, table
+  design, schema design from scratch, N:M relationship, junction table, surrogate key vs
+  natural key, composite primary key, cardinality, logical FK, physical FK, foreign key
+  constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete design, which
+  PK type, do I need a history table, partitioning, should I partition this table, partition
+  key, MAXVALUE or default partition, retention policy, history table, audit trail, versioning,
+  temporal table, bi-temporal, valid_from valid_to, state transition history, event sourcing,
+  CDC, point-in-time query, restore past data, design a schema for, migration SQL for a new
+  feature.
 ---
 
 # RDBMS Data Modeling
@@ -121,6 +121,15 @@ Read `references/normalization.md` for the per-normal-form rules, the BCNF check
 and the denormalization bar. Emit the BCNF check block for every entity, including the ones
 where the answer is "none".
 
+| Level | Status |
+|---|---|
+| 1NF → 3NF | **Required** — the OLTP baseline, not negotiable |
+| BCNF | **Checked on every entity**, decomposed when a non-superkey determinant causes a real anomaly; staying at 3NF is allowed for dependency preservation or join cost — say which |
+| Denormalization | **Physical-model only, against a measurement** — see `references/denormalization.md`. A snapshot of a business fact (order-time price) is not denormalization |
+
+ACID and normalization are separate concerns — one keeps transactions safe, the other keeps the
+schema from drifting; neither substitutes for the other. Both engines here are ACID-capable.
+
 ### Generalization — The Test Is IS-A
 
 Normalization and generalization pull in opposite directions and you need both. Normalization
@@ -167,11 +176,11 @@ individual_customer: customer_id, birth_date
 corporate_customer:  customer_id, business_registration_number, corporate_name
 ```
 
-A subtype **shares the supertype's PK** — never mint a separate surrogate key for it. Under this
-plugin's logical-FK policy that shared key is a documented reference, not a constraint, so state
-the two rules the application must carry: a subtype row requires its supertype row, and an
-exclusive classification permits at most one subtype row per supertype row (exactly one, if
-total).
+A subtype **shares the supertype's PK** — never mint a separate surrogate key for it. Two
+integrity rules attach to it: a subtype row requires its supertype row (FK-enforceable on
+PostgreSQL, application-carried on MySQL), and an exclusive classification permits at most one
+subtype row per supertype row — exactly one, if total — which **no FK can enforce on either
+engine** and always needs an application rule plus a detection query.
 
 **Do not over-generalize.** A supertype where every meaningful column ended up nullable has
 traded database constraints for application checks; an entity/attribute/value table
@@ -228,14 +237,31 @@ If repo files already answer it (`docker-compose.yml`, `alembic.ini`, `flyway.co
 `prisma/schema.prisma`, `DATABASE_URL` in `.env`), confirm instead of asking cold: "The repo
 looks like `<DB>`. Correct?"
 
+### DB-to-Guideline Mapping
+
+| Target | Apply | Key rules |
+|---|---|---|
+| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
+| Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
+
+Aurora variants follow the base guideline plus:
+
+- **Aurora MySQL** — Writer/Reader split; avoid excessive indexes that slow writes; assume
+  `FOR UPDATE` runs against the Writer endpoint
+- **Aurora PostgreSQL** — Extension availability is limited (`pg_partman`, `pg_cron` may be
+  restricted); plan scripted partitioning as a fallback
+- **Both** — Size pools against RDS Proxy or app-side pools; account for IAM authentication
+  when designing DB users; treat log tables as candidates for S3 Export or partition-and-drop
+
+
 Then produce:
 
 - Table and column names per `rdbms-naming` — `snake_case`, singular tables, lowercase-prefix
   constraints and indexes (`pk_` / `fk_` / `uq_` / `chk_` / `idx_` / `fts_`). The uppercase
   `_IDX` suffix is retired; it breaks under PostgreSQL case-folding
 - Engine-specific data types, and the **identifier decision** — see below
-- Constraints: PK, UNIQUE, CHECK, and NOT NULL. **No `FOREIGN KEY` constraints** — see the
-  rule below
+- Constraints: PK, UNIQUE, CHECK, and NOT NULL. Foreign keys follow the **engine-split policy**
+  below — none on MySQL; on PostgreSQL only through the six gates
 - `created_at` on every table; `updated_at` on every mutable table (skip for append-only logs)
 - Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
 - **Indexes from evidence, not from guesses.** Composite draft order is equality → first range → sort
@@ -263,7 +289,7 @@ tradeoff is about constraints and query shape, so it belongs to the physical mod
 | Strategy | Fits | Watch out for |
 |---|---|---|
 | **Single table + discriminator** | Few types, small differences, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover with conditional `CHECK` per type — and note these multiply with each type added |
-| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is unenforced under a logical-FK policy |
+| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is not FK-enforceable on either engine — application rule + detection query |
 | **One table per concrete subtype** | Types used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
 
 **Default for ordinary business systems: supertype table + one table per subtype.** It is the
@@ -300,135 +326,49 @@ queries for reviewing an existing schema: `references/db-internal-routines.md`.
 
 ### Identifier Decision: UID vs Primary Key
 
-Separate the **logical identifier** from the **physical primary key**, and choose each against the
-engine's storage model. Full criteria in `references/identifier-selection.md`.
-
-Universal, both engines: a PK is `NOT NULL`, `UNIQUE`, and **immutable**. Business identifiers that
-can change or be exposed (email, national ID, business registration number) go in a `UNIQUE`
-constraint, never the PK. Never a raw timestamp alone as a PK — concurrent creation collides and
-clocks run backwards. Never `char(36)` for a UUID. **A UUID is not a credential** — possession is
-never authorization.
+A PK is `NOT NULL`, `UNIQUE`, **immutable**. Mutable or exposable business identifiers (email,
+national ID) go in a `UNIQUE` constraint, never the PK. Never a raw timestamp as PK, never
+`char(36)` for a UUID, and **a UUID is not a credential**. Full criteria and the reasoning:
+`references/identifier-selection.md`.
 
 | Situation | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
 | Single DB, ordinary table | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY`, or UUIDv7 |
 | Write-heavy | Sequential integer first | `IDENTITY` or UUIDv7 — not v4 |
-| Generated on multiple nodes | UUIDv7 as `binary(16)`, or a distributed integer ID | native `uuid` with UUIDv7 |
+| Generated on multiple nodes | UUIDv7 as `binary(16)` | native `uuid` with UUIDv7 |
 | Exposed externally | Internal integer PK + public UID column | UUID PK, or integer PK + public UID |
 | Wide natural or composite key | Split out as `UNIQUE` | Split out as `UNIQUE` |
 
-**Why the engines differ.** InnoDB uses the PK as its clustering index *and* copies the PK value
-into every secondary index — so PK width and ordering are storage decisions, and a random UUIDv4 PK
-fragments the table and inflates every index. PostgreSQL stores rows in a heap, so a UUID PK costs
-much less — but **not nothing**, because index locality still applies to the PK's own B-tree.
-
-Two engine specifics that are easy to get wrong:
-
-- MySQL: `UUID_TO_BIN(v, 1)`'s swap flag exists for **UUIDv1** (what MySQL's `UUID()` returns).
-  **Do not apply it to a UUIDv7** — v7 is already time-ordered and swapping destroys that.
-- PostgreSQL: `uuidv7()` is built in from **PG 18**. On 16/17 generate v7 in the application;
-  `gen_random_uuid()` is **v4**.
+Why they differ: InnoDB clusters on the PK and copies it into every secondary index; PostgreSQL
+heaps rows, so a UUID PK costs less — but not nothing. Two traps: `UUID_TO_BIN(v, 1)`'s swap flag
+is **UUIDv1-only** (swapping a v7 destroys its ordering), and `uuidv7()` is built in only from
+**PG 18** — `gen_random_uuid()` is v4.
 
 ### Foreign Keys — The Policy Splits by Engine
 
-Full criteria in `references/foreign-keys.md`.
+Full criteria, the SQL, and the exception paths: `references/foreign-keys.md`.
 
 | | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
-| Physical `FOREIGN KEY` | **Not created** | **Allowed by default — created when the six conditions are met** |
+| Physical `FOREIGN KEY` | **Not created** | **Allowed — created only through the six gates** |
 | Integrity owner | The application | The database, once the constraint is valid |
 | Referencing-column index | **Mandatory, by hand** | Created unless an existing index already leads with it |
 
-**Why they differ.** InnoDB cannot put a foreign key on a partitioned table in either direction —
-and this plugin treats log and history tables as partitioning candidates by default, so an FK today
-is a blocked partition tomorrow. Add the parent-index I/O on every child write, shared locks on the
-parent row that serialize unrelated child writes, and the special handling `pt-online-schema-change`
-and `gh-ost` need, and the constraint costs more than it provides. PostgreSQL has none of the
-clustering penalty, supports FKs on partitioned tables, and can validate a large table without
-holding a long exclusive lock.
+Why: InnoDB cannot put an FK on a partitioned table (and log/history tables are the usual
+partitioning candidates), FK checks lock the parent row, and online DDL tools need special
+handling. PostgreSQL has none of the clustering penalty and validates large tables via
+`NOT VALID` → `VALIDATE CONSTRAINT`.
 
-**MySQL — the index consequence is the trap.** InnoDB's automatic child index comes *from* the FK
-constraint. Remove the constraint and the index goes with it, silently. So an explicit index on the
-referencing column is **mandatory and manual** — skip only when an existing composite index already
-**leads** with that column.
+**The MySQL trap**: InnoDB's automatic child index comes *from* the FK constraint — drop the
+constraint and the index silently goes with it, so the referencing-column index is mandatory
+and manual.
 
-Every **logical** FK (all of MySQL, and PostgreSQL relationships where a gate failed) carries four
-compensating controls:
-
-1. The reference in a `COMMENT` — `logical FK: parent_table.parent_column`
-2. The index above
-3. A named **integrity owner** — which service or module guarantees it on the write path
-4. A scheduled orphan-detection query
-
-**PostgreSQL — six gates.** Allowed by default is not always create. Create the constraint only when
-all six hold; a failing gate means fix it first, or fall back to a logical FK and say why.
-
-| # | Gate |
-|---|---|
-| 1 | Parent column is a **PK or UNIQUE** |
-| 2 | Referencing column is **indexed** — create it in the same migration |
-| 3 | No **redundant** index introduced (reuse an existing leading-column index) |
-| 4 | `CASCADE` only where the child's **lifecycle genuinely depends** on the parent |
-| 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction |
-| 6 | Large existing table: **`NOT VALID`** first, then `VALIDATE CONSTRAINT` separately |
-
-A constraint left `NOT VALID` never checked the existing rows — until `VALIDATE CONSTRAINT` succeeds,
-treat the reference as a logical FK and run the orphan query.
-
-**Both engines**: the reference must target a **PK or UNIQUE** column. This holds for a logical FK
-too — a documented reference to a non-unique column is ambiguous by construction, and the orphan
-query cannot be written correctly against it.
-
-If multiple writers exist (batch, admin, external integrations), the integrity owner must be a
-shared layer all of them pass through. If no such layer can exist, say so in the design — do not
-resolve it by adding the constraint back.
-
-### DB-to-Guideline Mapping
-
-| Target | Apply | Key rules |
-|---|---|---|
-| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
-| Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
-
-Aurora variants follow the base guideline plus:
-
-- **Aurora MySQL** — Writer/Reader split; avoid excessive indexes that slow writes; assume
-  `FOR UPDATE` runs against the Writer endpoint
-- **Aurora PostgreSQL** — Extension availability is limited (`pg_partman`, `pg_cron` may be
-  restricted); plan scripted partitioning as a fallback
-- **Both** — Size pools against RDS Proxy or app-side pools; account for IAM authentication
-  when designing DB users; treat log tables as candidates for S3 Export or partition-and-drop
-
-## Normalization Policy
-
-**3NF is the requirement. BCNF is a check, then an option. Denormalization needs a
-measurement.** Full rules in `references/normalization.md`.
-
-| Level | Status | Rule |
-|---|---|---|
-| 1NF → 3NF | **Required** | The baseline for any OLTP schema. Not negotiable |
-| BCNF | **Checked, then optional** | Test every table for a determinant that is not a superkey. Decompose when that determinant can actually produce an update, insert, or delete anomaly |
-| Stay at 3NF | **Permitted exception** | When BCNF decomposition cannot preserve functional dependencies, or explodes the join count for normal queries. Record which one applied |
-| Denormalization | **Requires evidence** | Only after a performance problem has been *measured*. Record the evidence and the synchronization mechanism |
-
-Normalization and ACID solve different problems and neither substitutes for the other:
-
-- **ACID** is how a transaction handles data safely — atomicity, consistency, isolation, durability.
-- **Normalization** is how the schema avoids redundancy and update anomalies.
-
-A fully normalized schema on a non-transactional store still corrupts under concurrent writes;
-a transactional store with a denormalized schema still drifts out of sync. Assume an
-ACID-capable engine (both MySQL/InnoDB and PostgreSQL are) and normalize on top of it.
-
-Do not denormalize while designing something new. Denormalization answers a measured problem in a
-running system — with no measurement, the deliverable is the normalized design. When there *is* a
-measurement, `references/denormalization.md` has the seven apply-conditions, the cheaper alternatives
-to rule out first, and the consistency-check and rebuild requirements every duplicate must ship with.
-
-One distinction that trips people up: **a snapshot of a business fact is not denormalization.** The
-price on an order line at purchase time is the transaction's own data, not a cached copy of the product
-price. Ask whether the value should follow the source when the source changes — no means it is business
-source data and needs no synchronization.
+Every **logical** FK carries four controls: `COMMENT`, the index, a named integrity owner, a
+scheduled orphan-detection query. The six PostgreSQL gates: ① parent is PK/UNIQUE ② referencing
+column indexed ③ no redundant index ④ `CASCADE` only for genuine lifecycle dependency
+⑤ `NOT DEFERRABLE` ⑥ large tables via `NOT VALID` then `VALIDATE`. A failing gate → fix it, or
+fall back to a logical FK and say why. Both engines: every reference — logical included —
+targets a **PK or UNIQUE** column.
 
 ## Deliverable Format
 
@@ -467,61 +407,47 @@ STAGE 3 — Physical model
 
 ## Checklist
 
+**Process**
 - [ ] Rigor level stated; any compressed stage called out explicitly
-- [ ] Stage 1 confirmed by the user before Stage 2 began
-- [ ] Stage 2 confirmed by the user before any DDL was written
-- [ ] Target DB confirmed before Stage 3
-- [ ] Logical model used generic types, not engine-specific ones
-- [ ] 1NF: no repeating groups, no multi-value columns
-- [ ] 2NF: no partial dependencies on composite PKs
-- [ ] 3NF: no transitive dependencies between non-key columns
-- [ ] BCNF check run on **every** entity, with the result stated (including "none")
-- [ ] Each BCNF violation either decomposed, or kept at 3NF with the exception named
-      (dependency preservation or join cost)
-- [ ] Generalization checked per candidate group, with the IS-A test applied — not attribute overlap
-- [ ] Nothing modeled as a subtype that is actually a **state** (changes in normal operation,
-      constrained transitions, history wanted)
-- [ ] Overlapping capabilities modeled as a role table, not a type code
-- [ ] Classifications that differ only in name use a type column, not subtype tables
-- [ ] For each subtype structure: exclusivity, totality, and type mutability stated
-- [ ] Subtype PK **is** the supertype PK — no separate surrogate key on the subtype
-- [ ] The two integrity rules a logical-FK policy leaves to the application are stated
-- [ ] No supertype where every meaningful column ended up nullable; no entity/attribute/value table
-- [ ] Subtype physical mapping chosen and justified, with conditional `CHECK` constraints
-      recovering any `NOT NULL` lost to the single-table strategy
-- [ ] No denormalization without a measurement, the alternatives already tried, and a stated
-      synchronization mechanism
-- [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
-- [ ] PK type matches expected row count (tinyint / smallint / int / bigint)
-- [ ] MySQL: **no `FOREIGN KEY` constraints in the DDL**; PostgreSQL: each physical FK satisfies
-      all six conditions, or was deliberately left logical with the reason stated
-- [ ] Every logical FK has all four: `COMMENT`, index on the referencing column, named integrity
-      owner, scheduled orphan check
-- [ ] Every reference targets a PK or UNIQUE column — logical ones included
-- [ ] No PostgreSQL constraint left `NOT VALID` without a validation step
-- [ ] `created_at` on every table; `updated_at` on every mutable table
-- [ ] Soft-delete tables use `is_active` with the right index strategy per engine
-- [ ] Naming follows `rdbms-naming`: snake_case, singular tables, lowercase-prefix
-      indexes/constraints, boolean `is_`/`has_`, time columns `created_at`/`updated_at`
-- [ ] Engine-correct types (MySQL: `datetime`, `json`, `tinyint(1)`; PostgreSQL:
-      `timestamptz`, `jsonb`, `boolean`)
-- [ ] Partitioning recommended from evidence in the code, not from expected growth — with
-      confidence stated and missing volume figures named
-- [ ] If partitioned: partition key `NOT NULL` and present in the main `WHERE` predicates;
-      every PK/UNIQUE contains it (MySQL); trailing safety partition created with its
-      alert-and-move rules stated
-- [ ] Composite index order: equality → first range → sort → covering, confirmed against a real plan
-- [ ] Every index ships with its justifying query, column-order reason, write cost, and rollback
-- [ ] No expected-improvement figure stated without a plan or metrics behind it
-- [ ] History purpose identified (audit / business / valid-time) before any history structure, or
-      stated that none is needed
-- [ ] If history exists: `(entity_id, version)` unique, append-only, written in the same
-      transaction as the current row, no FK or `CASCADE` from the entity, retention period named
-- [ ] Personal data in snapshots has a stated retention period and purge path
-- [ ] Any view justified by reuse/security/abstraction — not proposed as a performance fix
-- [ ] Any materialized view or summary table carries its refresh interval, staleness tolerance,
-      consistency check, and rebuild path; `CONCURRENTLY` has its UNIQUE index and a non-concurrent
-      first refresh
+- [ ] Stage 1 and Stage 2 each confirmed by the user before the next began
+- [ ] Target DB confirmed before Stage 3; logical model used generic types only
+
+**Stage 2 — normalization and structure**
+- [ ] 1NF / 2NF / 3NF verified (no repeating groups, partial, or transitive dependencies)
+- [ ] BCNF check run on **every** entity with the result stated (including "none"); each
+      violation decomposed or kept at 3NF with the exception named
+- [ ] Generalization decided by the IS-A test, not attribute overlap; nothing modeled as a
+      subtype that is actually a **state** or an overlapping **role**; classifications that
+      differ only in name use a type column
+- [ ] For each subtype structure: exclusivity, totality, and type mutability stated; subtype PK
+      **is** the supertype PK; integrity split stated (supertype-row existence — FK on PG or
+      app-carried on MySQL; exclusivity/totality — always app-carried with a detection query)
+- [ ] No all-nullable supertype; no entity/attribute/value table
+- [ ] History purpose identified (audit / business / valid-time) or stated as not needed; any
+      history is `(entity_id, version)` unique, append-only, same-transaction, no FK/CASCADE
+      from the entity, retention and PII purge path named
+
+**Stage 3 — physical**
+- [ ] Naming per `rdbms-naming`; engine-correct types (MySQL `datetime`/`json`/`tinyint(1)`;
+      PostgreSQL `timestamptz`/`jsonb`/`boolean`); PK type sized to expected rows
+- [ ] `created_at` everywhere; `updated_at` on mutable tables; soft delete via `is_active` with
+      the per-engine index strategy
+- [ ] FK policy: MySQL DDL has **no** `FOREIGN KEY`; PostgreSQL FKs pass all six gates or are
+      deliberately logical with the reason stated; every logical FK has `COMMENT` + index +
+      integrity owner + orphan check; every reference targets a PK or UNIQUE; no `NOT VALID`
+      left unvalidated
+- [ ] Subtype physical mapping chosen and justified; single-table strategy recovers `NOT NULL`
+      with conditional `CHECK` per type
+- [ ] Indexes: composite order equality → first range → sort → covering, confirmed against a
+      real plan; each index ships with its justifying query, write cost, and rollback; no
+      improvement figure without a plan or metrics
+- [ ] Partitioning recommended from evidence (queries + retention code), never from expected
+      growth; if partitioned — key `NOT NULL` and in the main `WHERE`, every PK/UNIQUE contains
+      it (MySQL), trailing safety partition with alert-and-move rules
+- [ ] No denormalization without a measurement, alternatives tried, and a sync mechanism in a
+      `COMMENT`
+- [ ] Views justified by reuse/security/abstraction, not performance; any MView/summary table
+      has refresh interval, staleness tolerance, consistency check, and rebuild path
 - [ ] Sample data and constraint test proposed
 
 ## Anti-Patterns (Fix on Sight)
@@ -560,35 +486,15 @@ STAGE 3 — Physical model
 
 ## Related
 
-- `db-select` — pick the engine, scale tier, and cost position at the Stage 3 gate
+- `db-select` — engine, scale tier, and cost at the Stage 3 gate
 - `rdbms-naming` — naming and data-type conventions (single source of truth)
-- `references/normalization.md` — per-normal-form rules, BCNF procedure, denormalization bar
-- `references/generalization.md` — IS-A and substitutability, the seven questions in full,
-  type column vs role model vs supertype, identifier inheritance, physical mapping
-- `references/identifier-selection.md` — UID vs PK, per-engine storage model, UUIDv4/v7,
-  the `UUID_TO_BIN` swap-flag trap, PG 18 `uuidv7()`
-- `references/foreign-keys.md` — engine split, why the referencing index is mandatory on MySQL once
-  the constraint is gone, the six PostgreSQL conditions, reference-target rule
-- `references/partitioning.md` — code-based recommendation policy, recommend/exclude conditions,
-  MySQL RANGE-only scope decision, safety-partition operating rules
-- `references/history-entities.md` — audit vs business vs valid-time history, the eight methods and
-  when each applies, standard history entity, transaction flows, the trigger-audit exception
-- `references/denormalization.md` — the measured-problem bar, eight methods, cheaper alternatives to
-  try first, synchronization mechanisms, the seven apply-conditions, consistency check and rebuild
-- `references/db-internal-routines.md` — procedures/triggers/events: sanctioned operational
-  utilities, the narrow audit-trigger exception, and business logic that stays in the application
-- `references/views-and-materialized-views.md` — view vs materialized view vs summary table, why a
-  view is not a cache, indexing the base tables vs the MView, `REFRESH CONCURRENTLY` constraints
-- `references/index-design.md` — evidence required before recommending, write-heavy tables (InnoDB
-  index extensions and invisible indexes; PostgreSQL HOT updates, fillfactor, BRIN), covering indexes
-  and Heap Fetches, ORDER BY/GROUP BY, pattern matching, FTS per engine, search-engine migration signals
-- `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
-  `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
-  `mysql-guideline/operations.md`
-- `postgres-guideline` — and its `postgres-guideline/schema-design.md`,
-  `postgres-guideline/index-and-query.md`, `postgres-guideline/partitioning.md`
-- `rdbms-review` — review an existing schema or query rather than designing a new one
-- `database-migrations` — rolling the design out safely against a live database
+- `rdbms-review` — reviewing an existing schema instead of designing one
+- `database-migrations` — rolling the design out against a live database
+- `mysql-guideline` / `postgres-guideline` — engine rules; each carries schema-design,
+  index-and-query, and partitioning reference files (MySQL adds operations and dev-practices)
+- `references/` — one file per policy area: `normalization`, `generalization`,
+  `identifier-selection`, `foreign-keys`, `partitioning`, `history-entities`,
+  `denormalization`, `db-internal-routines`, `views-and-materialized-views`, `index-design`
 
 ---
 

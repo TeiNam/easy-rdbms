@@ -173,7 +173,7 @@ Why this is a hard rule rather than a preference:
 | **Extra internal I/O on every write** | Each `INSERT`/`UPDATE` on the child does a parent index lookup the query never asked for. Each parent `UPDATE`/`DELETE` scans children. The I/O is invisible in the SQL and unattributable in slow-query analysis |
 | **Lock contention and deadlocks** | FK checks take shared locks on the parent row. A hot parent row (a tenant, a category, a config row) serializes unrelated child writes. These locks do not appear where engineers look for them, so the incidents are hard to diagnose |
 | **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction — long undo, replication lag, lock escalation |
-| **Blocks partitioning outright** | InnoDB **cannot** have foreign keys on a partitioned table, in either direction. Since log and history tables are partitioning candidates by default here, an FK today is a blocked partition tomorrow |
+| **Blocks partitioning outright** | InnoDB **cannot** have foreign keys on a partitioned table, in either direction. Since log and history tables are the usual partitioning candidates, an FK today is a blocked partition tomorrow |
 | **Breaks online schema change** | `pt-online-schema-change` and `gh-ost` need special handling for FKs, and some paths are unsupported. Routine maintenance turns into a downtime negotiation |
 | **Bulk and recovery operations need FK checks disabled** | Loads, backfills, and data repairs run with checks off — which means the guarantee was not there during exactly the operations most likely to corrupt data |
 

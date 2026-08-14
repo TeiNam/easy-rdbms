@@ -97,6 +97,13 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
 ### 1. Correctness and Concurrency (CRITICAL)
 
 - Unparameterized SQL — string-concatenated user input is an injection defect, not a style issue
+- **SELECT-then-act race** — a check with a plain `SELECT` followed by a write assumes the check
+  still holds. At the engines' defaults (InnoDB `REPEATABLE READ`, PostgreSQL `READ COMMITTED`)
+  it does not. Require `FOR UPDATE`, a `UNIQUE` constraint, or an advisory lock on the invariant
+- **Isolation level assumed, not stated** — the two engines default differently, and InnoDB's RR
+  takes gap locks that RC does not. Code ported between engines, or a deadlock analysis, is wrong
+  until the level is confirmed. Raised levels (`REPEATABLE READ`+ on PG) without a `40001` retry
+  loop are a finding
 - Transactions spanning external API calls (holds locks for the duration of a network round trip)
 - Inconsistent lock ordering across code paths → deadlock. Require `ORDER BY <pk> FOR UPDATE`
 - `SKIP LOCKED` used outside queue claims — it returns a deliberately inconsistent view and

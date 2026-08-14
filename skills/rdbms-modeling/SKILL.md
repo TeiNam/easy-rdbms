@@ -70,7 +70,7 @@ Exclude entirely: columns, data types, keys, indexes, and the DB product.
 Keep it to a few sentences or a small Mermaid diagram:
 
 ```
-A customer places orders. An order contains one or more products.
+A customer places purchase_order. An order contains one or more products.
 A product belongs to a category.
 ```
 
@@ -253,7 +253,7 @@ Aurora variants follow the base guideline plus:
 - **Aurora PostgreSQL** — Extension availability is limited (`pg_partman`, `pg_cron` may be
   restricted); plan scripted partitioning as a fallback
 - **Both** — Size pools against RDS Proxy or app-side pools; account for IAM authentication
-  when designing DB users; treat log tables as candidates for S3 Export or partition-and-drop
+  when designing DB roles; treat log tables as candidates for S3 Export or partition-and-drop
 
 
 Then produce:

@@ -174,10 +174,10 @@ Every denormalization ships with:
 
 ```sql
 -- Consistency check: stored counter vs its source
-SELECT o.order_id, o.item_count, count(i.order_item_id) AS actual
-FROM orders o
-LEFT JOIN order_item i ON i.order_id = o.order_id
-GROUP BY o.order_id, o.item_count
+SELECT o.purchase_order_id, o.item_count, count(i.order_item_id) AS actual
+FROM purchase_order o
+LEFT JOIN purchase_order_item i ON i.purchase_order_id = o.purchase_order_id
+GROUP BY o.purchase_order_id, o.item_count
 HAVING o.item_count <> count(i.order_item_id);
 ```
 

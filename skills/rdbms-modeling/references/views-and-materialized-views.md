@@ -78,13 +78,13 @@ intermediate result at execution time, but **you cannot define a permanent index
 
 ```sql
 CREATE ALGORITHM = MERGE VIEW active_order AS
-SELECT order_id, customer_id, created_at, total_amount
-FROM orders
+SELECT purchase_order_id, customer_id, created_at, total_amount
+FROM purchase_order
 WHERE deleted_at IS NULL;
 
 -- The index that actually matters lives on the base table
-CREATE INDEX idx_orders_active_customer_created
-ON orders (deleted_at, customer_id, created_at DESC);
+CREATE INDEX idx_purchase_order_active_customer_created
+ON purchase_order (deleted_at, customer_id, created_at DESC);
 ```
 
 An `ORDER BY` inside a view can be ignored when the outer query has its own. **Never assume a view
@@ -116,7 +116,7 @@ CREATE MATERIALIZED VIEW customer_monthly_sales AS
 SELECT customer_id,
        date_trunc('month', ordered_at) AS month,
        sum(total_amount) AS total_amount
-FROM app.orders
+FROM app.purchase_order
 GROUP BY customer_id, date_trunc('month', ordered_at)
 WITH NO DATA;
 

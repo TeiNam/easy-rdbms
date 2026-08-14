@@ -45,8 +45,8 @@ change on another.
 - **Descriptive and intuitive**: Names should be self-explanatory. Use `delivery_log` / `order_log`
   instead of vague `log`. Prefer simple words.
 - **Time columns use the industry-standard past-participle form**: `created_at` / `updated_at` /
-  `deleted_at`. Most ORMs (Django, Rails, JPA, Prisma, TypeORM) default to these names, so they win on
-  portability and collaboration. Other time/date columns use `<purpose>_at` / `<purpose>_date`
+  `deleted_at`. These are the prevailing convention across the Django, Rails, JPA, Prisma, and TypeORM ecosystems
+  (not every framework generates them automatically), so they win on portability and collaboration. Other time/date columns use `<purpose>_at` / `<purpose>_date`
   (e.g. `publish_at`, `expire_at`, `open_date`).
   - **Note — the old "active voice" rule is retired.** A prior version forced `create_date`-style active
     voice, but that collides with the `created_at` industry standard. Time columns now follow the
@@ -60,7 +60,7 @@ change on another.
 ## 2. Table / Column
 
 - **Singular form**: Table names are singular (entity = 1 row, aligns with the `member_id` PK convention).
-  `users` → `user`.
+  `member` → `user`.
 - **No postfix / limited prefix**: `tb_user`, `user_tbl` → `member`. Use a prefix only to group attribute
   tables subordinate to a master table: `member_auth` (child of `member`), `book_like` (child of `book`).
 - **Reserved-word collision**: when the singular name is reserved (e.g. `user` in PostgreSQL), **rename
@@ -203,7 +203,7 @@ apply to it unchanged.
 |-----|------|--------|
 | `authUser` | `auth_user` | snake_case |
 | `Book_IDX` | `idx_book` | lowercase (PG folds uppercase) |
-| `users` | `member` | singular + reserved-word rename |
+| `member` | `member` | singular + reserved-word rename |
 | `tb_user` | `member` | unnecessary prefix |
 | `create_date` (as create time) | `created_at` | past-participle time-column standard |
 | `create_dt` | `created_date` | abbreviation overuse |

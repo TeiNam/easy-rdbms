@@ -6,40 +6,64 @@
 
 ```sql
 CREATE TABLE `user` (
-  `user_id` int unsigned NOT NULL AUTO_INCREMENT,
+  `member_id` int unsigned NOT NULL AUTO_INCREMENT,
   `email` varchar(255) NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`user_id`)
+  PRIMARY KEY (`member_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 
 ## Foreign Key Policy
-- Logical FK only (no physical FK constraints)
-- Referential integrity managed at application level
-- Document relationships via COMMENT
+- Logical FK only (no physical FK constraints) — see `dev-practices.md` §5.4 for why
+- Every logical FK carries **all four** compensating controls: the `COMMENT`, an index on the
+  referencing column, a **named integrity owner**, and a **scheduled orphan-detection query**
 
 ```sql
 CREATE TABLE `chat_history` (
   `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` int unsigned NOT NULL COMMENT 'logical FK: user.user_id — same type as the parent PK, always',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: user.member_id — same type as the parent PK, always',
   `conversation_id` char(18) NOT NULL COMMENT 'logical FK: conversation_session.conversation_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`chat_history_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`chat_history_id`),
+  -- Control 2: index every referencing column — nothing auto-creates it without an FK
+  KEY `idx_chat_history_user_id` (`member_id`),
+  KEY `idx_chat_history_conversation_id` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT 'integrity owner: chat-service ChatWriter (all writers go through it)';
+```
+
+### Control 4: Scheduled Orphan Detection
+
+One query per logical FK, on a schedule. Without it, violations accumulate unobserved.
+
+```sql
+-- chat_history.member_id → user.member_id
+SELECT c.chat_history_id
+FROM chat_history c
+LEFT JOIN user u ON u.member_id = c.member_id
+WHERE u.member_id IS NULL
+LIMIT 100;
+
+-- chat_history.conversation_id → conversation_session.conversation_id
+SELECT c.chat_history_id
+FROM chat_history c
+LEFT JOIN conversation_session s ON s.conversation_id = c.conversation_id
+WHERE s.conversation_id IS NULL
+LIMIT 100;
 ```
 
 ## Application-Level Referential Integrity
 
 ```python
-async def create_chat_history(user_id: int, conversation_id: str, message: str, response: str):
+async def create_chat_history(member_id: int, conversation_id: str, message: str, response: str):
     # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
     # and the insert. Lock each parent row FOR UPDATE inside the same transaction as the insert.
     # (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)
-    user = db.select_for_update("user", where={"user_id": user_id, "is_active": 1})
+    user = db.select_for_update("user", where={"member_id": member_id, "is_active": 1})
     if not user:
         raise ValueError("User does not exist")
 
@@ -49,8 +73,10 @@ async def create_chat_history(user_id: int, conversation_id: str, message: str, 
     if not conversation:
         raise ValueError("Conversation session does not exist")
 
+    # The locks above and this insert must be ONE transaction — otherwise the parent can
+    # be deleted between them and the check bought nothing.
     return db.insert("chat_history", {
-        "user_id": user_id,
+        "member_id": member_id,
         "conversation_id": conversation_id,
         "user_message": message,
         "bot_response": response

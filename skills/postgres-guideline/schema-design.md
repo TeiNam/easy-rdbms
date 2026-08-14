@@ -25,25 +25,18 @@ treat a UUID as an authentication or authorization token. Full criteria in
 `rdbms-modeling/references/identifier-selection.md`.
 
 ```sql
-CREATE TABLE app.user (
-  user_id int GENERATED ALWAYS AS IDENTITY,
-  email varchar(255) NOT NULL,
-  is_active boolean NOT NULL DEFAULT true,
+-- `user` is reserved in PostgreSQL — the table is named `member` per rdbms-naming.
+-- public_id is the externally visible UID; omit it when nothing outside sees the row.
+CREATE TABLE app.member (
+  member_id  bigint GENERATED ALWAYS AS IDENTITY,
+  public_id  uuid NOT NULL,          -- UUIDv7 from the app (uuidv7() on PG 18+)
+  email      text NOT NULL,          -- text, not varchar(n); length rules belong in CHECK
+  is_active  boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),  -- updated by application, not triggers
-  CONSTRAINT user_pk_user_id PRIMARY KEY (user_id)
-);
-
--- External-facing ID with UUID
-CREATE TABLE app.user (
-  user_id int GENERATED ALWAYS AS IDENTITY,
-  public_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  email varchar(255) NOT NULL,
-  is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT user_pk_user_id PRIMARY KEY (user_id),
-  CONSTRAINT uidx_user_public_id UNIQUE (public_id)
+  updated_at timestamptz NOT NULL DEFAULT now(),  -- set by the application, not a trigger
+  CONSTRAINT pk_member PRIMARY KEY (member_id),
+  CONSTRAINT uq_member_public_id UNIQUE (public_id),
+  CONSTRAINT uq_member_email UNIQUE (email)
 );
 ```
 
@@ -62,33 +55,35 @@ below and state why.
 | 1 | Parent column is a **PK or UNIQUE** | Fix the parent model — a non-unique target is a modeling error |
 | 2 | Referencing column is **indexed** (PostgreSQL never auto-creates this) | Create the index in the same migration, or every parent delete/key update sequentially scans the child |
 | 3 | No **redundant** index introduced | Reuse an index that already leads with the column |
-| 4 | If `CASCADE`: the child's **lifecycle genuinely depends** on the parent (order → order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
+| 4 | If `CASCADE`: the child's **lifecycle genuinely depends** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
 | 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if used |
 | 6 | Large existing table: **`NOT VALID`** first, then `VALIDATE CONSTRAINT` | Do the two-step; a single-step add holds a strong lock for the whole validation scan |
 
 ```sql
 -- Condition 2 first, in the same migration
-CREATE INDEX idx_orders_customer_id ON app.orders (customer_id);
+CREATE INDEX idx_purchase_order_customer_id ON app.purchase_order (customer_id);
 
-ALTER TABLE app.orders
-  ADD CONSTRAINT fk_orders_customer
+ALTER TABLE app.purchase_order
+  ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
   ON DELETE RESTRICT;
 ```
 
 ```sql
 -- Condition 6: two-step add on a large existing table
-ALTER TABLE app.orders
-  ADD CONSTRAINT fk_orders_customer
+ALTER TABLE app.purchase_order
+  ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
   ON DELETE RESTRICT
   NOT VALID;
 
-ALTER TABLE app.orders VALIDATE CONSTRAINT fk_orders_customer;
+ALTER TABLE app.purchase_order VALIDATE CONSTRAINT fk_purchase_order_customer;
 ```
 
-`RESTRICT` blocks immediately; `NO ACTION` can defer its check to the end of the transaction. On
-MySQL InnoDB the two are effectively identical — a schema relying on the difference is not portable.
+`RESTRICT` blocks immediately. `NO ACTION` can defer its check to the end of the transaction **only
+when the constraint is `DEFERRABLE` and actually deferred** — under this guideline's `NOT DEFERRABLE`
+default the two behave the same. On MySQL InnoDB they are always identical, so a schema relying on
+the difference is not portable.
 
 ### Costs That Remain
 
@@ -119,8 +114,8 @@ A relationship left as a logical FK — a failed condition, a very hot parent, o
 -- Orphan detection — schedule one per logical FK
 SELECT c.chat_history_id
 FROM log.chat_history c
-LEFT JOIN app.user u ON u.user_id = c.user_id
-WHERE u.user_id IS NULL
+LEFT JOIN app.user u ON u.member_id = c.member_id
+WHERE u.member_id IS NULL
 LIMIT 100;
 ```
 
@@ -133,27 +128,39 @@ be a layer they all pass through — not one application's validation code.
 ```sql
 CREATE TABLE app.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
-  user_id int NOT NULL,              -- logical FK: app.user.user_id
-  conversation_id char(18) NOT NULL, -- logical FK: app.conversation_session
+  member_id bigint NOT NULL,         -- logical FK: app.member.member_id
+  conversation_id char(18) NOT NULL, -- logical FK: app.conversation_session.conversation_id
   user_message text NOT NULL,
   bot_response text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT chat_history_pk PRIMARY KEY (chat_history_id)
+  CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id)
 );
 
-COMMENT ON COLUMN app.chat_history.user_id IS 'logical FK: app.user.user_id';
+-- Control 1: document both references
+COMMENT ON COLUMN app.chat_history.member_id IS
+  'logical FK: app.member.member_id; integrity owner: chat-service ChatWriter';
+COMMENT ON COLUMN app.chat_history.conversation_id IS
+  'logical FK: app.conversation_session.conversation_id; integrity owner: chat-service ChatWriter';
+
+-- Control 2: index every referencing column (PostgreSQL never auto-creates these)
+CREATE INDEX idx_chat_history_member_id ON app.chat_history (member_id);
+CREATE INDEX idx_chat_history_conversation_id ON app.chat_history (conversation_id);
+
+-- Control 4: one scheduled orphan query per reference
+-- SELECT c.chat_history_id FROM app.chat_history c
+-- LEFT JOIN app.member m ON m.member_id = c.member_id WHERE m.member_id IS NULL LIMIT 100;
 ```
 
 ### Application-Level Referential Integrity
 
 ```python
-async def create_chat_history(user_id: int, conversation_id: str, message: str, response: str):
+async def create_chat_history(member_id: int, conversation_id: str, message: str, response: str):
     # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check and
     # the insert. Lock every parent row FOR UPDATE in the same transaction as the insert, and
-    # validate EVERY logical reference — conversation_id needs the same treatment as user_id.
+    # validate EVERY logical reference — conversation_id needs the same treatment as member_id.
     user = await db.execute_query(
-        "SELECT user_id FROM app.user WHERE user_id = %(user_id)s AND is_active = true FOR UPDATE",
-        {"user_id": user_id}
+        "SELECT member_id FROM app.user WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
+        {"member_id": member_id}
     )
     if not user:
         raise ValueError("User does not exist")
@@ -167,10 +174,10 @@ async def create_chat_history(user_id: int, conversation_id: str, message: str, 
         raise ValueError("Conversation session does not exist")
 
     result = await db.execute_command(
-        """INSERT INTO log.chat_history (user_id, conversation_id, user_message, bot_response)
-           VALUES (%(user_id)s, %(cid)s, %(msg)s, %(resp)s)
+        """INSERT INTO log.chat_history (member_id, conversation_id, user_message, bot_response)
+           VALUES (%(member_id)s, %(cid)s, %(msg)s, %(resp)s)
            RETURNING chat_history_id""",
-        {"user_id": user_id, "cid": conversation_id, "msg": message, "resp": response}
+        {"member_id": member_id, "cid": conversation_id, "msg": message, "resp": response}
     )
     return result
 ```
@@ -180,7 +187,7 @@ async def create_chat_history(user_id: int, conversation_id: str, message: str, 
 Tables requiring logical deletion standardize on the `is_active` column.
 
 ```sql
-`is_active` boolean NOT NULL DEFAULT true
+is_active boolean NOT NULL DEFAULT true
 ```
 
 - Physical DELETE prohibited (recoverable logical deletion). **This is not an audit trail** — it
@@ -190,7 +197,7 @@ Tables requiring logical deletion standardize on the `is_active` column.
 - Use Partial Index to index only active records → reduces index size
 
 ```sql
--- Partial index: index only active users (excludes deleted users)
+-- Partial index: index only active member (excludes deleted member)
 CREATE INDEX idx_user_active_email ON app.user (email) WHERE is_active = true;
 ```
 
@@ -210,20 +217,21 @@ CREATE INDEX idx_user_active_email ON app.user (email) WHERE is_active = true;
 -- The runtime role must not own the table and must not bypass RLS
 CREATE ROLE app_runtime LOGIN NOSUPERUSER NOBYPASSRLS;
 
-ALTER TABLE app.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.purchase_order ENABLE ROW LEVEL SECURITY;
 -- Needed only if the owner itself must obey the policies
-ALTER TABLE app.orders FORCE ROW LEVEL SECURITY;
+ALTER TABLE app.purchase_order FORCE ROW LEVEL SECURITY;
 
--- Optimized RLS policy (wrap auth call in SELECT to avoid per-row evaluation)
--- Note: auth.uid() is project-specific — replace with platform-appropriate function (Supabase, etc.)
-CREATE POLICY user_orders ON app.orders
+-- Wrap the session lookup in SELECT so it evaluates once per query, not once per row.
+-- current_setting() is engine-native; on a platform like Supabase substitute its own
+-- auth.uid() — and make sure the types match the key you compare against.
+CREATE POLICY member_orders ON app.purchase_order
   USING (
-    (SELECT auth.uid()) = user_id
-    AND (SELECT is_active FROM app.user WHERE user_id = (SELECT auth.uid()))
+    member_id = (SELECT current_setting('app.current_member_id', true))::bigint
   );
 
 -- Always index RLS policy columns
-CREATE INDEX idx_orders_user_id ON app.orders (user_id);
+-- Always index the column an RLS policy filters on
+CREATE INDEX idx_purchase_order_member_id ON app.purchase_order (member_id);
 
 REVOKE ALL ON SCHEMA public FROM public;
 ```
@@ -231,23 +239,25 @@ REVOKE ALL ON SCHEMA public FROM public;
 ## JSONB Usage
 
 ```sql
-CREATE TABLE app.user_setting (
-  user_id int NOT NULL,
+CREATE TABLE app.member_setting (
+  member_id int NOT NULL,
   setting_data jsonb NOT NULL DEFAULT '{}',
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT user_setting_pk PRIMARY KEY (user_id)
+  CONSTRAINT user_setting_pk PRIMARY KEY (member_id)
 );
 
 -- Query
-SELECT setting_data->>'theme' AS theme FROM app.user_setting WHERE user_id = 1;
+SELECT setting_data->>'theme' AS theme FROM app.member_setting WHERE member_id = 1;
 
 -- Partial update
-UPDATE app.user_setting
+UPDATE app.member_setting
 SET setting_data = setting_data || '{"theme": "dark"}'::jsonb, updated_at = now()
-WHERE user_id = 1;
+WHERE member_id = 1;
 
 -- Key existence check
-SELECT * FROM app.user_setting WHERE setting_data ? 'theme';
+-- Filtering ON a JSON key means that key is a queried field — per the JSON policy it belongs in a
+-- real column (or a generated column + index). This example shows the operator, not a design to copy.
+SELECT member_id, setting_data FROM app.member_setting WHERE setting_data ? 'theme';
 ```
 
 ## Table Creation Checklist
@@ -258,7 +268,8 @@ SELECT * FROM app.user_setting WHERE setting_data ? 'theme';
 - [ ] Any relationship left as a logical FK carries all four compensating controls (`COMMENT`,
       index, named integrity owner, scheduled orphan check)
 - [ ] No constraint left `NOT VALID` without a validation step — it never checked existing rows
-- [ ] `timestamptz` used (never `timestamp`)
+- [ ] `timestamptz` for instants and audit times (plain `timestamp` only for genuine wall-clock
+      values with no instant meaning — e.g. a recurring local opening time)
 - [ ] `boolean` type used (never 'Y'/'N' strings)
 - [ ] `created_at` included (required for all tables)
 - [ ] `updated_at` included (except append-only log tables) — updated by application, not triggers

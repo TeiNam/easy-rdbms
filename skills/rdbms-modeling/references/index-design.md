@@ -56,10 +56,10 @@ can observe the plan and workload effect before committing. **Note the limit: an
 still maintained on every write.** It de-risks the read side, not the write cost.
 
 ```sql
-ALTER TABLE orders ALTER INDEX idx_orders_status INVISIBLE;
+ALTER TABLE purchase_order ALTER INDEX idx_purchase_order_status INVISIBLE;
 -- observe, then either
-ALTER TABLE orders ALTER INDEX idx_orders_status VISIBLE;   -- roll back
-ALTER TABLE orders DROP INDEX idx_orders_status;            -- commit
+ALTER TABLE purchase_order ALTER INDEX idx_purchase_order_status VISIBLE;   -- roll back
+ALTER TABLE purchase_order DROP INDEX idx_purchase_order_status;            -- commit
 ```
 
 ### PostgreSQL

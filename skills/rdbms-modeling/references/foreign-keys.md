@@ -50,10 +50,10 @@ table on every parent-side lookup and join.
 
 ```sql
 -- Mandatory unless an existing composite index already LEADS with customer_id
-CREATE INDEX idx_orders_customer_id ON orders (customer_id);
+CREATE INDEX idx_purchase_order_customer_id ON purchase_order (customer_id);
 ```
 
-Do not create a redundant one. If `idx_orders_customer_created (customer_id, created_at)` exists, it
+Do not create a redundant one. If `idx_purchase_order_customer_created (customer_id, created_at)` exists, it
 already serves the lookup — a separate `(customer_id)` index is write cost for no read benefit.
 
 ### Four Compensating Controls
@@ -68,8 +68,8 @@ Because nothing enforces the reference, every logical FK carries all four:
 ```sql
 SELECT c.chat_history_id
 FROM chat_history c
-LEFT JOIN user u ON u.user_id = c.user_id
-WHERE u.user_id IS NULL
+LEFT JOIN user u ON u.member_id = c.member_id
+WHERE u.member_id IS NULL
 LIMIT 100;
 ```
 
@@ -93,29 +93,29 @@ four compensating controls.
 | 1 | Parent column is a **PK or UNIQUE** | Fix the parent model. A non-unique target is a modeling error, not a constraint option |
 | 2 | Referencing column is **indexed** — create it unless an existing index already leads with that column | Create the index in the same migration. Without it, every parent delete or key update sequentially scans the child |
 | 3 | No **redundant** index introduced | Reuse the existing leading-column index; do not add a duplicate |
-| 4 | If `CASCADE`: the child's **lifecycle is genuinely dependent** on the parent (order → order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
+| 4 | If `CASCADE`: the child's **lifecycle is genuinely dependent** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
 | 5 | `NOT DEFERRABLE` unless a **circular reference must resolve inside one transaction** | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if you use them |
 | 6 | On a **large existing table**: added `NOT VALID`, then `VALIDATE CONSTRAINT` separately | Do the two-step. A single-step add holds a strong lock for the whole validation scan |
 
 ```sql
 -- Condition 2 first, in the same migration
-CREATE INDEX idx_orders_customer_id ON app.orders (customer_id);
+CREATE INDEX idx_purchase_order_customer_id ON app.purchase_order (customer_id);
 
-ALTER TABLE app.orders
-  ADD CONSTRAINT fk_orders_customer
+ALTER TABLE app.purchase_order
+  ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
   ON DELETE RESTRICT;
 ```
 
 ```sql
 -- Condition 6: two-step add on a large existing table
-ALTER TABLE app.orders
-  ADD CONSTRAINT fk_orders_customer
+ALTER TABLE app.purchase_order
+  ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
   ON DELETE RESTRICT
   NOT VALID;
 
-ALTER TABLE app.orders VALIDATE CONSTRAINT fk_orders_customer;
+ALTER TABLE app.purchase_order VALIDATE CONSTRAINT fk_purchase_order_customer;
 ```
 
 ### Costs That Remain

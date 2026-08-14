@@ -14,46 +14,51 @@
 
 ## Key Index Patterns
 
+These are **shapes, not prescriptions** — every index still needs its justifying query, the plan
+that shows the improvement, its write cost, and a rollback (see
+`rdbms-modeling/references/index-design.md`).
+
 ```sql
 -- Composite: equality first, then range
 CREATE INDEX idx_chat_history_user_created
-  ON log.chat_history (user_id, created_at DESC);
+  ON log.chat_history (member_id, created_at DESC);
 
 -- Covering index: enables an index-only scan (does NOT guarantee it — the visibility map
 -- decides; check Heap Fetches in EXPLAIN ANALYZE)
-CREATE INDEX idx ON users (email) INCLUDE (name, created_at);
+CREATE INDEX idx ON member (email) INCLUDE (name, created_at);
 
 -- Partial index (smaller, targeted)
-CREATE INDEX idx_user_active_email ON app.user (email) WHERE is_active = true;
+CREATE INDEX idx_member_active_email ON app.member (email) WHERE is_active = true;
 
 -- Unique index
-CREATE UNIQUE INDEX uidx_user_email ON app.user (email);
+CREATE UNIQUE INDEX uq_member_email ON app.member (email);
 ```
 
 ## Query Patterns
 
-### Cursor Pagination (O(1) vs OFFSET O(n))
+### Cursor Pagination (index seek per page, vs OFFSET scanning and discarding)
 
 ```sql
 -- Simple PK cursor (single id sort)
-SELECT * FROM products WHERE id > %(last_id)s ORDER BY id LIMIT 20;
+SELECT product_id, name, created_at FROM products
+WHERE product_id > %(last_id)s ORDER BY product_id LIMIT 20;
 
 -- Composite cursor (created_at + id tie-breaking)
 -- Guarantees order by id when created_at values are identical
-SELECT * FROM products
-WHERE (created_at, id) > (%(last_created_at)s::timestamptz, %(last_id)s)
-ORDER BY created_at ASC, id ASC
+SELECT product_id, name, created_at FROM products
+WHERE (created_at, product_id) > (%(last_created_at)s::timestamptz, %(last_id)s)
+ORDER BY created_at ASC, product_id ASC
 LIMIT 20;
 
 -- Reverse (previous page)
-SELECT * FROM products
-WHERE (created_at, id) < (%(last_created_at)s::timestamptz, %(last_id)s)
-ORDER BY created_at DESC, id DESC
+SELECT product_id, name, created_at FROM products
+WHERE (created_at, product_id) < (%(last_created_at)s::timestamptz, %(last_id)s)
+ORDER BY created_at DESC, product_id DESC
 LIMIT 20;
 ```
 
 > Note: Composite cursor comparison `(a, b) > (x, y)` uses PostgreSQL row comparison and can leverage indexes.
-> Recommend creating covering index `(created_at, id)`.
+> Recommend a matching index on `(created_at, product_id)`.
 
 ### Queue Processing (SKIP LOCKED)
 
@@ -69,9 +74,17 @@ WHERE id = (
 ### UPSERT
 
 ```sql
-INSERT INTO app.user_setting (user_id, setting_key, setting_value, updated_at)
-VALUES (%(user_id)s, %(key)s, %(value)s, now())
-ON CONFLICT (user_id, setting_key)
+-- Requires the conflict target to be a real unique constraint:
+--   CREATE TABLE app.member_setting (
+--     member_id bigint NOT NULL,          -- logical FK: app.member.member_id
+--     setting_key text NOT NULL,
+--     setting_value text NOT NULL,
+--     updated_at timestamptz NOT NULL DEFAULT now(),
+--     CONSTRAINT pk_member_setting PRIMARY KEY (member_id, setting_key)
+--   );
+INSERT INTO app.member_setting (member_id, setting_key, setting_value, updated_at)
+VALUES (%(member_id)s, %(key)s, %(value)s, now())
+ON CONFLICT (member_id, setting_key)
 DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 ```
 
@@ -79,9 +92,9 @@ DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = now();
 
 ```sql
 WITH recent AS (
-  SELECT conversation_id, user_id, created_at
+  SELECT conversation_id, member_id, created_at
   FROM log.chat_history
-  WHERE user_id = %(user_id)s AND created_at >= now() - interval '7 days'
+  WHERE member_id = %(member_id)s AND created_at >= now() - interval '7 days'
 ),
 stats AS (
   SELECT conversation_id, count(*) AS msg_count FROM recent GROUP BY conversation_id
@@ -96,9 +109,9 @@ ORDER BY r.created_at DESC;
 ```python
 with pool.connection() as conn:
     with conn.cursor() as cur:
-        with cur.copy("COPY log.chat_history (user_id, conversation_id, user_message, bot_response) FROM STDIN") as copy:
+        with cur.copy("COPY log.chat_history (member_id, conversation_id, user_message, bot_response) FROM STDIN") as copy:
             for r in records:
-                copy.write_row((r['user_id'], r['cid'], r['msg'], r['resp']))
+                copy.write_row((r['member_id'], r['cid'], r['msg'], r['resp']))
     conn.commit()
 ```
 

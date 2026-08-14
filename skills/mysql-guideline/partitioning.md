@@ -34,13 +34,13 @@ DDL readable, and avoid an expression that every query has to mirror.
 CREATE TABLE `chat_history` (
   `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `conversation_id` char(18) NOT NULL,
-  `user_id` int unsigned NOT NULL COMMENT 'logical FK: user.user_id',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: user.member_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`chat_history_id`, `created_at`),   -- partition key required in the PK
   KEY `idx_chat_history_conversation_id` (`conversation_id`),
-  KEY `idx_chat_history_user_id` (`user_id`)
+  KEY `idx_chat_history_user_id` (`member_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 PARTITION BY RANGE COLUMNS (created_at) (
   PARTITION p202608    VALUES LESS THAN ('2026-09-01'),
@@ -107,23 +107,24 @@ AND PARTITION_NAME IS NOT NULL;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(user_id: int, year: int, month: int):
+def get_monthly_chat_history(member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 
     return db.execute_raw_query("""
-        SELECT * FROM chat_history
-        WHERE user_id = %(user_id)s
+        SELECT chat_history_id, conversation_id, user_message, bot_response, created_at
+        FROM chat_history
+        WHERE member_id = %(member_id)s
         AND created_at >= %(start_date)s
         AND created_at < %(end_date)s
         ORDER BY created_at DESC
-    """, {"user_id": user_id, "start_date": start_date, "end_date": end_date})
+    """, {"member_id": member_id, "start_date": start_date, "end_date": end_date})
 ```
 
 ## Verify Partition Pruning
 
 ```sql
-EXPLAIN SELECT * FROM chat_history
-WHERE created_at >= '2024-03-01' AND created_at < '2024-04-01';
--- Check "partitions" column shows only p202403
+EXPLAIN SELECT chat_history_id, created_at FROM chat_history
+WHERE created_at >= '2026-09-01' AND created_at < '2026-10-01';
+-- Check the "partitions" column shows only p202609
 ```

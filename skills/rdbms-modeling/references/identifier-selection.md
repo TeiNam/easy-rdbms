@@ -51,12 +51,12 @@ Policy:
 6. When an externally visible ID is needed, separate the internal PK from the public UID.
 
 ```sql
-CREATE TABLE orders (
+CREATE TABLE purchase_order (
   id         bigint unsigned NOT NULL AUTO_INCREMENT,
   public_id  binary(16) NOT NULL COMMENT 'UUIDv7, app-generated; external-facing UID',
   created_at timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  CONSTRAINT pk_orders PRIMARY KEY (id),
-  CONSTRAINT uq_orders_public_id UNIQUE (public_id)
+  CONSTRAINT pk_purchase_order PRIMARY KEY (id),
+  CONSTRAINT uq_purchase_order_public_id UNIQUE (public_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
@@ -101,16 +101,16 @@ Policy:
 
 ```sql
 -- PostgreSQL 18+
-CREATE TABLE app.orders (
-  order_id   uuid PRIMARY KEY DEFAULT uuidv7(),
+CREATE TABLE app.purchase_order (
+  purchase_order_id   uuid PRIMARY KEY DEFAULT uuidv7(),
   created_at timestamptz NOT NULL DEFAULT current_timestamp
 );
 
 -- PostgreSQL 16 / 17: v7 supplied by the application
-CREATE TABLE app.orders (
-  order_id   uuid NOT NULL,   -- UUIDv7 generated in the application
+CREATE TABLE app.purchase_order (
+  purchase_order_id   uuid NOT NULL,   -- UUIDv7 generated in the application
   created_at timestamptz NOT NULL DEFAULT current_timestamp,
-  CONSTRAINT pk_orders PRIMARY KEY (order_id)
+  CONSTRAINT pk_purchase_order PRIMARY KEY (purchase_order_id)
 );
 ```
 

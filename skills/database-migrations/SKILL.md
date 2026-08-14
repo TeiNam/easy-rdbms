@@ -45,29 +45,37 @@ so set a `lock_timeout` and retry.
 
 ```sql
 -- GOOD: nullable column — brief lock, no rewrite
-ALTER TABLE users ADD COLUMN avatar_url TEXT;
+ALTER TABLE member ADD COLUMN avatar_url TEXT;
 
 -- GOOD: column with constant default (Postgres 11+ stores the default in the catalog, no rewrite)
-ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE member ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
 
 -- FAILS on a non-empty table: NOT NULL with no default has nothing to fill existing rows with
-ALTER TABLE users ADD COLUMN role TEXT NOT NULL;
--- ERROR: column "role" of relation "users" contains null values
+ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
+-- ERROR: column "role" of relation "member" contains null values
 
--- GOOD: the NOT NULL-without-default path is three steps
-ALTER TABLE users ADD COLUMN role TEXT;                       -- 1. nullable add
-UPDATE users SET role = 'member' WHERE role IS NULL;          -- 2. backfill (batched, below)
-ALTER TABLE users ALTER COLUMN role SET NOT NULL;             -- 3. scans once, then enforced
+-- GOOD: the NOT NULL-without-default path. Note step 4: a bare SET NOT NULL scans the whole
+-- table while holding ACCESS EXCLUSIVE. A pre-validated CHECK lets PostgreSQL (12+) skip that scan.
+ALTER TABLE member ADD COLUMN role TEXT;                              -- 1. nullable add
+ALTER TABLE member ADD CONSTRAINT chk_member_role_not_null
+  CHECK (role IS NOT NULL) NOT VALID;                                 -- 2. instant, no scan
+UPDATE member SET role = 'member' WHERE role IS NULL;                 -- 3. backfill (batched, below)
+ALTER TABLE member VALIDATE CONSTRAINT chk_member_role_not_null;      -- 4. scans under a weak lock
+ALTER TABLE member ALTER COLUMN role SET NOT NULL;                    -- 5. no scan — CHECK proves it
+ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- 6. helper no longer needed
 ```
 
 ### Adding an Index Without Downtime
 
+(Assumes the index is already justified — the query, the plan, and the write cost come from
+`rdbms-modeling/references/index-design.md`. This section is about *how* to build it safely.)
+
 ```sql
 -- BAD: Blocks writes on large tables
-CREATE INDEX idx_users_email ON users (email);
+CREATE INDEX idx_users_email ON member (email);
 
 -- GOOD: Non-blocking, allows concurrent writes
-CREATE INDEX CONCURRENTLY idx_users_email ON users (email);
+CREATE INDEX CONCURRENTLY idx_users_email ON member (email);
 
 -- Note: CONCURRENTLY cannot run inside a transaction block
 -- Most migration tools need special handling for this
@@ -78,7 +86,7 @@ build each child's index `CONCURRENTLY`, then create the parent index (metadata-
 children have one). On **MySQL** the equivalent is InnoDB online DDL:
 
 ```sql
-ALTER TABLE users ADD INDEX idx_users_email (email), ALGORITHM=INPLACE, LOCK=NONE;
+ALTER TABLE member ADD INDEX idx_users_email (email), ALGORITHM=INPLACE, LOCK=NONE;
 -- If the ALTER cannot run in-place MySQL errors instead of silently locking — that error is the signal
 ```
 
@@ -88,16 +96,16 @@ Never rename directly in production. Use the expand-contract pattern:
 
 ```sql
 -- Step 1: Add new column (migration 001)
-ALTER TABLE users ADD COLUMN display_name TEXT;
+ALTER TABLE member ADD COLUMN display_name TEXT;
 
 -- Step 2: Backfill data (migration 002, data migration)
-UPDATE users SET display_name = username WHERE display_name IS NULL;
+UPDATE member SET display_name = username WHERE display_name IS NULL;
 
 -- Step 3: Update application code to read/write both columns
 -- Deploy application changes
 
 -- Step 4: Stop writing to old column, drop it (migration 003)
-ALTER TABLE users DROP COLUMN username;
+ALTER TABLE member DROP COLUMN username;
 ```
 
 ### Removing a Column Safely
@@ -106,7 +114,7 @@ ALTER TABLE users DROP COLUMN username;
 -- Step 1: Remove all application references to the column
 -- Step 2: Deploy application without the column reference
 -- Step 3: Drop column in next migration
-ALTER TABLE orders DROP COLUMN legacy_status;
+ALTER TABLE purchase_order DROP COLUMN legacy_status;
 
 -- For Django: use SeparateDatabaseAndState to remove from model
 -- without generating DROP COLUMN (then drop in next migration)
@@ -116,7 +124,7 @@ ALTER TABLE orders DROP COLUMN legacy_status;
 
 ```sql
 -- BAD: Updates all rows in one transaction (locks table)
-UPDATE users SET normalized_email = LOWER(email);
+UPDATE member SET normalized_email = LOWER(email);
 
 -- GOOD: Batch update with progress
 -- CAUTION: a DO block cannot COMMIT between batches when the migration runner wraps it
@@ -128,10 +136,10 @@ DECLARE
   rows_updated INT;
 BEGIN
   LOOP
-    UPDATE users
+    UPDATE member
     SET normalized_email = LOWER(email)
     WHERE id IN (
-      SELECT id FROM users
+      SELECT id FROM member
       WHERE normalized_email IS NULL
       LIMIT batch_size
       FOR UPDATE SKIP LOCKED
@@ -172,9 +180,9 @@ model User {
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  orders    Order[]
+  # `purchase_order Order[]` would need a matching Order model — omitted here
 
-  @@map("users")
+  @@map("member")
 }
 ```
 
@@ -190,7 +198,7 @@ npx prisma migrate dev --create-only --name add_email_index
 ```sql
 -- migrations/20240115_add_email_index/migration.sql
 -- Prisma cannot generate CONCURRENTLY, so we write it manually
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users (email);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON member (email);
 ```
 
 ## Drizzle (TypeScript/Node.js)
@@ -213,7 +221,7 @@ npx drizzle-kit push
 ```typescript
 import { pgTable, text, timestamp, uuid, boolean } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
+export const member = pgTable("member", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   name: text("name"),
@@ -232,16 +240,16 @@ export const users = pgTable("users", {
 kysely init
 
 # Create a new migration file
-kysely migrate make add_user_avatar
+kysely migrate:make add_member_avatar
 
 # Apply all pending migrations
-kysely migrate latest
+kysely migrate:latest
 
 # Rollback last migration
-kysely migrate down
+kysely migrate:down
 
 # Show migration status
-kysely migrate list
+kysely migrate:list
 ```
 
 ### Migration File
@@ -256,7 +264,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('user_profile')
     .addColumn('id', 'bigint', (col) => col.generatedAlwaysAsIdentity().primaryKey())
-    .addColumn('email', 'varchar(255)', (col) => col.notNull().unique())
+    .addColumn('email', 'text', (col) => col.notNull().unique())
     .addColumn('avatar_url', 'text')
     .addColumn('created_at', 'timestamptz', (col) =>
       col.defaultTo(sql`now()`).notNull()
@@ -338,16 +346,22 @@ python manage.py makemigrations --empty app_name -n description
 ### Data Migration
 
 ```python
-from django.db import migrations
+from django.db import migrations, transaction
 
 def backfill_display_names(apps, schema_editor):
-    User = apps.get_model("accounts", "User")
+    Member = apps.get_model("accounts", "Member")
     batch_size = 5000
-    users = User.objects.filter(display_name="")
-    while users.exists():
-        batch = list(users[:batch_size])
-        for user in batch:
-            user.display_name = user.username
+    while True:
+        with transaction.atomic():          # commit per batch
+            ids = list(
+                Member.objects.filter(display_name="")
+                .values_list("pk", flat=True)[:batch_size]
+            )
+            if not ids:
+                break
+            batch = list(Member.objects.filter(pk__in=ids))
+            for member in batch:
+                member.display_name = member.username
         User.objects.bulk_update(batch, ["display_name"], batch_size=batch_size)
 
 def reverse_backfill(apps, schema_editor):
@@ -397,14 +411,25 @@ migrate -path migrations -database "$DATABASE_URL" force VERSION
 
 ### Migration Files
 
-```sql
--- migrations/000003_add_user_avatar.up.sql
-ALTER TABLE users ADD COLUMN avatar_url TEXT;
-CREATE INDEX CONCURRENTLY idx_users_avatar ON users (avatar_url) WHERE avatar_url IS NOT NULL;
+golang-migrate sends each file as one implicit transaction, and
+`CREATE INDEX CONCURRENTLY` **cannot run inside a transaction block**. Put it in its own migration
+file (golang-migrate skips the transaction wrapper when the file holds only that statement — verify
+with your driver, or use `-x` / a no-transaction runner).
 
--- migrations/000003_add_user_avatar.down.sql
-DROP INDEX IF EXISTS idx_users_avatar;
-ALTER TABLE users DROP COLUMN IF EXISTS avatar_url;
+```sql
+-- migrations/000003_add_member_avatar.up.sql   (transactional: DDL only)
+ALTER TABLE member ADD COLUMN avatar_url TEXT;
+
+-- migrations/000003_add_member_avatar.down.sql
+ALTER TABLE member DROP COLUMN IF EXISTS avatar_url;
+```
+
+```sql
+-- migrations/000004_index_member_avatar.up.sql   (must be alone in the file)
+CREATE INDEX CONCURRENTLY idx_member_avatar ON member (avatar_url) WHERE avatar_url IS NOT NULL;
+
+-- migrations/000004_index_member_avatar.down.sql
+DROP INDEX CONCURRENTLY IF EXISTS idx_member_avatar;
 ```
 
 ## Zero-Downtime Migration Strategy

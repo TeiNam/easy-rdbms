@@ -27,22 +27,35 @@ with pool.connection() as conn:
 ## Async Support
 
 ```python
+import asyncio
+from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-async_pool = AsyncConnectionPool(
-    conninfo="host=localhost port=5432 dbname=myapp user=app",
-    min_size=4, max_size=10,
-    kwargs={"row_factory": dict_row}
-)
-
-async def get_user(user_id: int):
-    async with async_pool.connection() as conn:
+async def get_member(pool, member_id: int):
+    async with pool.connection() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT user_id, email, is_active, created_at FROM app.user WHERE user_id = %(user_id)s",
-                {"user_id": user_id}
+                "SELECT member_id, email, is_active, created_at"
+                " FROM app.member WHERE member_id = %(member_id)s",
+                {"member_id": member_id},
             )
             return await cur.fetchone()
+
+async def main() -> None:
+    # open=False + explicit open/close: opening in the constructor is deprecated
+    pool = AsyncConnectionPool(
+        conninfo="host=localhost port=5432 dbname=myapp user=app",
+        min_size=4, max_size=10,
+        kwargs={"row_factory": dict_row},
+        open=False,
+    )
+    await pool.open()
+    try:
+        print(await get_member(pool, 1))
+    finally:
+        await pool.close()
+
+asyncio.run(main())
 ```
 
 ## Transaction Isolation — PostgreSQL Defaults to READ COMMITTED
@@ -83,8 +96,9 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 #   because it cannot be leaked into a pooled connection. Session-level is usable only if the
 #   unlock is guaranteed on every path (or the connection is reset before return)
 
-# PASS: Transaction-level: lock auto-released when with conn.transaction() ends, no finally needed
-async with async_pool.connection() as conn:
+# PASS: Transaction-level — the lock releases when conn.transaction() ends; no finally needed.
+# (All snippets below live inside an `async def`; see the pool example above.)
+async with pool.connection() as conn:
     async with conn.transaction():
         async with conn.cursor() as cur:
             await cur.execute("SELECT pg_advisory_xact_lock(%(id)s)", {"id": job_id})
@@ -96,8 +110,8 @@ async with async_pool.connection() as conn:
             )
         # Transaction commit + lock release handled atomically
 
-# PASS: Non-blocking (returns immediately on lock acquisition failure)
-async with async_pool.connection() as conn:
+# PASS: Non-blocking — returns immediately if the lock is unavailable
+async with pool.connection() as conn:
     async with conn.transaction():
         async with conn.cursor() as cur:
             await cur.execute("SELECT pg_try_advisory_xact_lock(%(id)s)", {"id": job_id})

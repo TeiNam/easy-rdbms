@@ -53,7 +53,7 @@ exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 CREATE TABLE log.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
   conversation_id char(18) NOT NULL,
-  user_id int NOT NULL,
+  member_id int NOT NULL,
   user_message text NOT NULL,
   bot_response text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
@@ -68,7 +68,7 @@ CREATE TABLE log.chat_history_2024_02 PARTITION OF log.chat_history
 CREATE TABLE log.chat_history_default PARTITION OF log.chat_history DEFAULT;
 
 -- Indexes automatically inherited by partitions
-CREATE INDEX idx_chat_history_user_id ON log.chat_history (user_id);
+CREATE INDEX idx_chat_history_user_id ON log.chat_history (member_id);
 CREATE INDEX idx_chat_history_created_at ON log.chat_history (created_at);
 ```
 
@@ -121,9 +121,9 @@ WITH moved AS (
   RETURNING *
 )
 INSERT INTO log.chat_history
-  (chat_history_id, conversation_id, user_id, user_message, bot_response, created_at)
+  (chat_history_id, conversation_id, member_id, user_message, bot_response, created_at)
 OVERRIDING SYSTEM VALUE
-SELECT chat_history_id, conversation_id, user_id, user_message, bot_response, created_at
+SELECT chat_history_id, conversation_id, member_id, user_message, bot_response, created_at
 FROM moved;
 
 -- 4. Re-attach default partition
@@ -165,16 +165,16 @@ ORDER BY c.relname;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(user_id: int, year: int, month: int):
+def get_monthly_chat_history(member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 
     return db.execute_query("""
         SELECT chat_history_id, conversation_id, user_message, bot_response, created_at
         FROM log.chat_history
-        WHERE user_id = %(user_id)s
+        WHERE member_id = %(member_id)s
           AND created_at >= %(start_date)s::timestamptz
           AND created_at < %(end_date)s::timestamptz
         ORDER BY created_at DESC
-    """, {"user_id": user_id, "start_date": start_date, "end_date": end_date})
+    """, {"member_id": member_id, "start_date": start_date, "end_date": end_date})
 ```

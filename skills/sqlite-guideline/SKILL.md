@@ -119,7 +119,7 @@ and no online-DDL tooling to break. **Declare physical FKs** — with two rules:
 2. Index the referencing column yourself. Like PostgreSQL, **SQLite never auto-creates the
    child index**, and an unindexed FK makes parent deletes scan the child table.
 
-`ON DELETE CASCADE` is acceptable for genuine lifecycle dependency (order → order_item), same
+`ON DELETE CASCADE` is acceptable for genuine lifecycle dependency (order → purchase_order_item), same
 rule as PostgreSQL. History tables still never take an FK from their entity — that rule is
 engine-independent (`rdbms-modeling/references/history-entities.md`).
 

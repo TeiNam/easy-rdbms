@@ -21,7 +21,7 @@ version-specific pattern.
 
 ```sql
 -- MySQL row-alias form (confirm target is MySQL first)
-INSERT INTO user_setting (user_id, setting_key, setting_value)
+INSERT INTO member_setting (member_id, setting_key, setting_value)
 VALUES (?, ?, ?) AS new
 ON DUPLICATE KEY UPDATE
   setting_value = new.setting_value,
@@ -164,7 +164,7 @@ const pool = mysql.createPool({
 });
 
 const [rows] = await pool.execute(
-  'SELECT id, total_amount FROM orders WHERE account_id = ? LIMIT 50',
+  'SELECT id, total_amount FROM purchase_order WHERE account_id = ? LIMIT 50',
   [accountId],
 );
 ```
@@ -236,7 +236,7 @@ Review points:
 - Never grant `ALL PRIVILEGES` or `*.*` to a runtime application user.
 - Require TLS for application users whenever traffic crosses hosts or networks.
 - Store credentials in the platform secret manager — not in scripts, examples, or the repo.
-- Keep migration/admin users separate from runtime application users.
+- Keep migration/admin accounts separate from the runtime application account.
 - Audit public network exposure and `bind_address` before tuning performance.
 - Use `CREATE USER` / `ALTER USER` / `DROP USER`. Direct DML against `mysql.user` risks
   corrupting the grant tables.

@@ -30,9 +30,9 @@ Order columns by:
 > handful of rows is cheap), equality → range wins instead — decide from the plan, not the mnemonic.
 
 ```sql
--- WHERE status='ACTIVE' AND created_at BETWEEN ... ORDER BY user_id
--- status(equality) → user_id(sort) → created_at(range)
-CREATE INDEX idx_orders_status_user_created ON orders (status, user_id, created_at);
+-- WHERE status='ACTIVE' AND created_at BETWEEN ... ORDER BY member_id
+-- status(equality) → member_id(sort) → created_at(range)
+CREATE INDEX idx_purchase_order_status_user_created ON purchase_order (status, member_id, created_at);
 ```
 
 > **Common mistake:** leading with a range column (`(created_at, status)`) — after `created_at` scans a wide
@@ -46,7 +46,7 @@ constant side may use functions freely (`WHERE created_at >= DATE_SUB(NOW(), INT
 
 ```sql
 -- Composite: equality → sort → range
-CREATE INDEX idx_chat_history_user_date ON chat_history (user_id, created_at);
+CREATE INDEX idx_chat_history_user_date ON chat_history (member_id, created_at);
 
 -- Unique index
 CREATE UNIQUE INDEX uq_user_email ON user (email);
@@ -55,9 +55,9 @@ CREATE UNIQUE INDEX uq_user_email ON user (email);
 CREATE FULLTEXT INDEX fts_small_talk_search
 ON small_talk (eng_sentence, kor_sentence) WITH PARSER ngram;
 
--- Covering index: WHERE(status) → ORDER BY(created_at) → SELECT additional columns(user_id, total_amount)
+-- Covering index: WHERE(status) → ORDER BY(created_at) → SELECT additional columns(member_id, total_amount)
 -- Place lookup-only columns at end to enable index-only scan
-CREATE INDEX idx_orders_status_covering ON orders (status, created_at, user_id, total_amount);
+CREATE INDEX idx_purchase_order_status_covering ON purchase_order (status, created_at, member_id, total_amount);
 ```
 
 ## Range-Column Pair Optimization (`start_date` / `end_date`)
@@ -68,7 +68,8 @@ scan widens as data grows:
 
 ```sql
 -- WRONG: start_date range has no lower bound → scans all past rows
-SELECT * FROM promotions WHERE start_date <= '2026-07-17' AND end_date >= '2026-07-17';
+SELECT promotion_id, name, start_date, end_date
+FROM promotions WHERE start_date <= '2026-07-17' AND end_date >= '2026-07-17';
 ```
 
 If the **maximum validity span N is guaranteed** by business rules (e.g. coupons ≤ 90 days), then
@@ -78,7 +79,8 @@ If the **maximum validity span N is guaranteed** by business rules (e.g. coupons
 ```sql
 SET @target := '2026-07-17';
 SET @max_days := 90;                     -- business-guaranteed max validity span
-SELECT * FROM promotions
+SELECT promotion_id, name, start_date, end_date
+FROM promotions
 WHERE start_date BETWEEN DATE_SUB(@target, INTERVAL @max_days DAY) AND @target
   AND end_date >= @target;               -- now just an ICP filter on the narrowed set
 -- backing index: KEY idx_promotions_start (start_date)  [or (start_date, end_date) for covering]
@@ -87,7 +89,8 @@ WHERE start_date BETWEEN DATE_SUB(@target, INTERVAL @max_days DAY) AND @target
 Scan volume becomes fixed at "last N days" instead of growing forever.
 
 > **Caution:** `N` must be the **truly guaranteed** max span — one longer-lived row and it silently drops from
-> results. Enforce with `CHECK (DATEDIFF(end_date, start_date) <= 90)` (8.0.16+) or app validation. If no max
+> results. Enforce with `CHECK (end_date >= start_date AND DATEDIFF(end_date, start_date) <= 90)` (8.0.16+) —
+> without the first clause a reversed period yields a negative `DATEDIFF` and passes or app validation. If no max
 > span can be guaranteed, use an interval-tree structure, a search engine, or split into a `UNION` instead.
 
 ## Query Patterns
@@ -96,11 +99,11 @@ Scan volume becomes fixed at "last N days" instead of growing forever.
 
 ```python
 db.execute_raw_query(
-    "SELECT user_id, email, is_active, created_at FROM user WHERE user_id = %(user_id)s",
-    {"user_id": user_id}
+    "SELECT member_id, email, is_active, created_at FROM user WHERE member_id = %(member_id)s",
+    {"member_id": member_id}
 )
 
-db.select("user", columns=["user_id", "email"], where={"is_active": 1})
+db.select("user", columns=["member_id", "email"], where={"is_active": 1})
 ```
 
 ### UPSERT (INSERT ... ON DUPLICATE KEY)
@@ -108,8 +111,8 @@ db.select("user", columns=["user_id", "email"], where={"is_active": 1})
 ```sql
 -- MySQL 8.0.19+ row-alias form (VALUES(col) is deprecated on MySQL; see operations.md
 -- for the MariaDB/mixed-fleet variant that still uses VALUES(col))
-INSERT INTO user_setting (user_id, setting_key, setting_value, updated_at)
-VALUES (%(user_id)s, %(key)s, %(value)s, NOW()) AS new
+INSERT INTO member_setting (member_id, setting_key, setting_value, updated_at)
+VALUES (%(member_id)s, %(key)s, %(value)s, NOW()) AS new
 ON DUPLICATE KEY UPDATE
   setting_value = new.setting_value,
   updated_at = NOW();
@@ -119,7 +122,7 @@ ON DUPLICATE KEY UPDATE
 
 ```python
 db.execute_raw_query("""
-    INSERT INTO chat_history (user_id, conversation_id, user_message, bot_response)
+    INSERT INTO chat_history (member_id, conversation_id, user_message, bot_response)
     VALUES
     (%(u1)s, %(c1)s, %(m1)s, %(r1)s),
     (%(u2)s, %(c2)s, %(m2)s, %(r2)s)
@@ -131,7 +134,7 @@ db.execute_raw_query("""
 ```sql
 -- SELECT * allowed for EXPLAIN analysis (execution plan verification purpose)
 EXPLAIN SELECT * FROM chat_history
-WHERE user_id = 1 AND created_at >= '2024-01-01' AND created_at < '2024-02-01';
+WHERE member_id = 1 AND created_at >= '2024-01-01' AND created_at < '2024-02-01';
 
 EXPLAIN FORMAT=JSON SELECT ...;
 ```

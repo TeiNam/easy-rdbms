@@ -13,11 +13,13 @@ The essence of relational DB is "split, store, join to output".
 - **Stuffing JSON/HTML into one column is an anti-pattern** (see 5.5).
 - Use the `rdbms-modeling` skill for normalization level and denormalization decisions.
 
-> **When is denormalization justified?** Normalization is the default. Denormalize only when reads
-> vastly outnumber writes **and** JOIN cost is a confirmed bottleneck — e.g. a cache column like
-> `orders.total_price`. Requirement: **explicitly define who owns re-syncing** the denormalized value with
-> its source (triggers are discouraged in §3 → sync in the application layer or a batch). Without a defined
-> sync owner, consistency breaks silently.
+> **When is denormalization justified?** Normalization is the default, and denormalization is a
+> physical-model decision that must clear **all seven conditions** in
+> `rdbms-modeling/references/denormalization.md` — measured bottleneck, cheaper alternatives ruled
+> out, read benefit exceeding write amplification, unambiguous source of truth, defined consistency
+> level, a consistency-check query plus rebuild path, and a load test confirming the gain. The
+> synchronization owner is named in the application layer or a batch (**never a trigger** — see §3),
+> and recorded in a `COMMENT`. Without that, consistency breaks silently.
 
 ## 2. Data Type Selection
 
@@ -65,8 +67,10 @@ used in search conditions → `TEXT`.
 
 ### 2.4 Space and Integrity via Functions
 
-- **`INET_ATON` / `INET_NTOA`** — Store IPv4 as `INT UNSIGNED`(4B). Space savings vs string
-  + blocks malformed IP (integrity). **IPv4-only** — returns `NULL` for IPv6.
+- **`INET_ATON` / `INET_NTOA`** — Store IPv4 as `INT UNSIGNED`(4B). Space savings vs string.
+  It **converts**, it does not validate — some abbreviated forms are accepted and malformed input
+  returns `NULL`, so validate canonical IP form at the trust boundary. **IPv4-only** — returns
+  `NULL` for IPv6.
   ```sql
   INSERT INTO ip_log (ip) VALUES (INET_ATON('192.168.0.1'));  -- 3232235521
   SELECT INET_NTOA(ip) FROM ip_log;
@@ -116,7 +120,7 @@ making updates costlier than single-column.
 
 - Create only needed indexes (DML cost <-> query benefit tradeoff).
 - Write-heavy LOG tables → single-column index on high-cardinality columns.
-- Read speed critical → composite index (ESR/order see `index-and-query`).
+- Read speed critical → composite index (ESR/order see `index-and-query.md`).
 - **Function in WHERE clause → index invalidated** (`WHERE DATE(col)=...` → index not used).
   Work around with generated column or functional index.
 - **`LIKE '%word'` (leading wildcard) → Full Table Scan** → load, failures. If text search
@@ -135,10 +139,10 @@ For an **existence check**, don't total everything — short-circuit:
 
 ```sql
 -- WRONG: existence via full count
-SELECT COUNT(*) FROM orders WHERE user_id = 42;
+SELECT COUNT(*) FROM purchase_order WHERE member_id = 42;
 -- OK: stop at first row
-SELECT EXISTS(SELECT 1 FROM orders WHERE user_id = 42);
-SELECT 1 FROM orders WHERE user_id = 42 LIMIT 1;
+SELECT EXISTS(SELECT 1 FROM purchase_order WHERE member_id = 42);
+SELECT 1 FROM purchase_order WHERE member_id = 42 LIMIT 1;
 ```
 
 For an **approximate total** on a big table, use `information_schema.TABLES.TABLE_ROWS` (InnoDB estimate) or
@@ -191,8 +195,8 @@ are possible.** Every logical FK therefore requires all four:
 -- Orphan detection — schedule this per logical FK
 SELECT c.chat_history_id
 FROM chat_history c
-LEFT JOIN user u ON u.user_id = c.user_id
-WHERE u.user_id IS NULL
+LEFT JOIN user u ON u.member_id = c.member_id
+WHERE u.member_id IS NULL
 LIMIT 100;
 ```
 
@@ -222,7 +226,9 @@ If you must use JSON (mitigations):
 - [ ] IPv4 → `INET_ATON`; IPv4/IPv6 → `INET6_ATON`+`VARBINARY(16)`; UUID → `BINARY(16)`, app-generated
       v7 with **no swap flag** (`UUID_TO_BIN(v,1)` is v1-only — swapping a v7 destroys its ordering)
 - [ ] Choose DATETIME (5B, >2038 safe) vs TIMESTAMP (4B, auto-UTC, ≤2038) by range + timezone need
-- [ ] No SP/Trigger/Event (session-local cache, no global share), logic in app layer
+- [ ] No SP/Trigger/Event carrying **business logic** — the three routine categories (sanctioned
+      operational utilities, the narrow audit-trigger exception, prohibited business logic) are in
+      `rdbms-modeling/references/db-internal-routines.md` (session-local cache, no global share), logic in app layer
 - [ ] Don't invalidate indexes with function conditions or `LIKE '%x'`
 - [ ] Existence check with `EXISTS`/`LIMIT 1` instead of `COUNT(*)` (InnoDB MVCC → COUNT scans)
 - [ ] PK is `INT`/`BIGINT`+`AUTO_INCREMENT` (avoid random v4; distributed → app UUID v7 BINARY(16); avoid composite PK)

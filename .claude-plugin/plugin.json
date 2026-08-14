@@ -1,6 +1,6 @@
 {
   "name": "easy-rdbms",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "RDBMS design companion. Picks the database for your scale, enforces naming conventions, models tables to 3NF, and reviews schemas and queries for MySQL, PostgreSQL, and SQLite.",
   "author": {
     "name": "TeiNam",

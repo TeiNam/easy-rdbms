@@ -195,7 +195,7 @@ are possible.** Every logical FK therefore requires all four:
 -- Orphan detection — schedule this per logical FK
 SELECT c.chat_history_id
 FROM chat_history c
-LEFT JOIN user u ON u.member_id = c.member_id
+LEFT JOIN member u ON u.member_id = c.member_id
 WHERE u.member_id IS NULL
 LIMIT 100;
 ```

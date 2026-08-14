@@ -68,7 +68,7 @@ Because nothing enforces the reference, every logical FK carries all four:
 ```sql
 SELECT c.chat_history_id
 FROM chat_history c
-LEFT JOIN user u ON u.member_id = c.member_id
+LEFT JOIN member u ON u.member_id = c.member_id
 WHERE u.member_id IS NULL
 LIMIT 100;
 ```

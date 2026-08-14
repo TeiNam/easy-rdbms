@@ -49,7 +49,7 @@ constant side may use functions freely (`WHERE created_at >= DATE_SUB(NOW(), INT
 CREATE INDEX idx_chat_history_user_date ON chat_history (member_id, created_at);
 
 -- Unique index
-CREATE UNIQUE INDEX uq_user_email ON user (email);
+CREATE UNIQUE INDEX uq_member_email ON member (email);
 
 -- Fulltext with ngram parser (Korean/CJK support)
 CREATE FULLTEXT INDEX fts_small_talk_search
@@ -99,11 +99,11 @@ Scan volume becomes fixed at "last N days" instead of growing forever.
 
 ```python
 db.execute_raw_query(
-    "SELECT member_id, email, is_active, created_at FROM user WHERE member_id = %(member_id)s",
+    "SELECT member_id, email, is_active, created_at FROM member WHERE member_id = %(member_id)s",
     {"member_id": member_id}
 )
 
-db.select("user", columns=["member_id", "email"], where={"is_active": 1})
+db.select("member", columns=["member_id", "email"], where={"is_active": 1})
 ```
 
 ### UPSERT (INSERT ... ON DUPLICATE KEY)

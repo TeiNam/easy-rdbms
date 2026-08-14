@@ -53,22 +53,22 @@ exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 CREATE TABLE log.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,
   conversation_id char(18) NOT NULL,
-  member_id int NOT NULL,
+  member_id bigint NOT NULL,      -- logical FK: app.member.member_id (type matches parent)
   user_message text NOT NULL,
   bot_response text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 ) PARTITION BY RANGE (created_at);
 
-CREATE TABLE log.chat_history_2024_01 PARTITION OF log.chat_history
-  FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-CREATE TABLE log.chat_history_2024_02 PARTITION OF log.chat_history
-  FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+CREATE TABLE log.chat_history_2026_08 PARTITION OF log.chat_history
+  FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+CREATE TABLE log.chat_history_2026_09 PARTITION OF log.chat_history
+  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
 
 -- Default partition (catches out-of-range data)
 CREATE TABLE log.chat_history_default PARTITION OF log.chat_history DEFAULT;
 
 -- Indexes automatically inherited by partitions
-CREATE INDEX idx_chat_history_user_id ON log.chat_history (member_id);
+CREATE INDEX idx_chat_history_member_id ON log.chat_history (member_id);
 CREATE INDEX idx_chat_history_created_at ON log.chat_history (created_at);
 ```
 
@@ -108,16 +108,16 @@ SELECT partman.run_maintenance();
 ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_default;
 
 -- 2. Create new monthly partition
-CREATE TABLE log.chat_history_2024_05 PARTITION OF log.chat_history
-  FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+CREATE TABLE log.chat_history_2026_10 PARTITION OF log.chat_history
+  FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 
 -- 3. Move rows for the new range OUT of the detached default — without this,
---    re-attach fails validation if any 2024-05 rows are present
+--    re-attach fails validation if any 2026-10 rows are present
 --    Note: chat_history_id is GENERATED ALWAYS, so re-inserting its value needs
 --    OVERRIDING SYSTEM VALUE and an explicit column list
 WITH moved AS (
   DELETE FROM log.chat_history_default
-  WHERE created_at >= '2024-05-01' AND created_at < '2024-06-01'
+  WHERE created_at >= '2026-10-01' AND created_at < '2026-11-01'
   RETURNING *
 )
 INSERT INTO log.chat_history
@@ -129,19 +129,19 @@ FROM moved;
 -- 4. Re-attach default partition
 ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;
 
--- FAIL: Incorrect approach: errors if default partition contains 2024-05 data
--- CREATE TABLE log.chat_history_2024_05 PARTITION OF log.chat_history
---   FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
+-- FAIL: Incorrect approach: errors if default partition contains 2026-10 data
+-- CREATE TABLE log.chat_history_2026_10 PARTITION OF log.chat_history
+--   FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 -- ERROR: updated partition constraint for default partition "chat_history_default" would be violated
 
 -- Detach old partition (preserves data, faster than DROP)
-ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_2024_01;
+ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_2026_08;
 
 -- Drop detached partition
-DROP TABLE log.chat_history_2024_01;
+DROP TABLE log.chat_history_2026_08;
 
 -- Or move to archive schema
-ALTER TABLE log.chat_history_2024_01 SET SCHEMA archive;
+ALTER TABLE log.chat_history_2026_08 SET SCHEMA archive;
 ```
 
 > Note: This process is automated when using pg_partman — manual operations only when needed.

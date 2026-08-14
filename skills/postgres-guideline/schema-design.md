@@ -114,7 +114,7 @@ A relationship left as a logical FK — a failed condition, a very hot parent, o
 -- Orphan detection — schedule one per logical FK
 SELECT c.chat_history_id
 FROM log.chat_history c
-LEFT JOIN app.user u ON u.member_id = c.member_id
+LEFT JOIN app.member u ON u.member_id = c.member_id
 WHERE u.member_id IS NULL
 LIMIT 100;
 ```
@@ -159,7 +159,7 @@ async def create_chat_history(member_id: int, conversation_id: str, message: str
     # the insert. Lock every parent row FOR UPDATE in the same transaction as the insert, and
     # validate EVERY logical reference — conversation_id needs the same treatment as member_id.
     user = await db.execute_query(
-        "SELECT member_id FROM app.user WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
+        "SELECT member_id FROM app.member WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
         {"member_id": member_id}
     )
     if not user:
@@ -198,7 +198,7 @@ is_active boolean NOT NULL DEFAULT true
 
 ```sql
 -- Partial index: index only active member (excludes deleted member)
-CREATE INDEX idx_user_active_email ON app.user (email) WHERE is_active = true;
+CREATE INDEX idx_member_active_email ON app.member (email) WHERE is_active = true;
 ```
 
 > WARNING: a standalone B-tree index on `is_active` is *usually* poor value — but low cardinality
@@ -243,7 +243,7 @@ CREATE TABLE app.member_setting (
   member_id int NOT NULL,
   setting_data jsonb NOT NULL DEFAULT '{}',
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT user_setting_pk PRIMARY KEY (member_id)
+  CONSTRAINT pk_member_setting PRIMARY KEY (member_id)
 );
 
 -- Query

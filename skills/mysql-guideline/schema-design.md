@@ -5,7 +5,7 @@
 - Choose type by expected row count: `tinyint` < `smallint` < `int` < `bigint`
 
 ```sql
-CREATE TABLE `user` (
+CREATE TABLE `member` (
   `member_id` int unsigned NOT NULL AUTO_INCREMENT,
   `email` varchar(255) NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
@@ -23,7 +23,7 @@ CREATE TABLE `user` (
 ```sql
 CREATE TABLE `chat_history` (
   `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `member_id` int unsigned NOT NULL COMMENT 'logical FK: user.member_id — same type as the parent PK, always',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id — same type as the parent PK, always',
   `conversation_id` char(18) NOT NULL COMMENT 'logical FK: conversation_session.conversation_id',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
@@ -44,7 +44,7 @@ One query per logical FK, on a schedule. Without it, violations accumulate unobs
 -- chat_history.member_id → user.member_id
 SELECT c.chat_history_id
 FROM chat_history c
-LEFT JOIN user u ON u.member_id = c.member_id
+LEFT JOIN member u ON u.member_id = c.member_id
 WHERE u.member_id IS NULL
 LIMIT 100;
 
@@ -63,7 +63,7 @@ async def create_chat_history(member_id: int, conversation_id: str, message: str
     # An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
     # and the insert. Lock each parent row FOR UPDATE inside the same transaction as the insert.
     # (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)
-    user = db.select_for_update("user", where={"member_id": member_id, "is_active": 1})
+    user = db.select_for_update("member", where={"member_id": member_id, "is_active": 1})
     if not user:
         raise ValueError("User does not exist")
 
@@ -99,7 +99,7 @@ Standardize tables requiring soft delete with the `is_active` column.
 
 ```sql
 -- Even with low selectivity, add to composite index if query pattern always includes it
-CREATE INDEX idx_user_active_email ON user (is_active, email);  -- lowercase idx_ prefix (see rdbms-naming)
+CREATE INDEX idx_member_active_email ON member (is_active, email);  -- lowercase idx_ prefix (see rdbms-naming)
 ```
 
 > WARNING: a standalone `is_active` index is *usually* wasted — but low cardinality alone does not

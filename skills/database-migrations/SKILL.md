@@ -255,14 +255,14 @@ kysely migrate:list
 ### Migration File
 
 ```typescript
-// migrations/2024_01_15_001_create_user_profile.ts
+// migrations/2024_01_15_001_create_member_profile.ts
 import { type Kysely, sql } from 'kysely'
 
 // IMPORTANT: Always use Kysely<any>, not your typed DB interface.
 // Migrations are frozen in time and must not depend on current schema types.
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
-    .createTable('user_profile')
+    .createTable('member_profile')
     .addColumn('id', 'bigint', (col) => col.generatedAlwaysAsIdentity().primaryKey())
     .addColumn('email', 'text', (col) => col.notNull().unique())
     .addColumn('avatar_url', 'text')
@@ -272,14 +272,14 @@ export async function up(db: Kysely<any>): Promise<void> {
     .execute()
 
   await db.schema
-    .createIndex('idx_user_profile_avatar')
-    .on('user_profile')
+    .createIndex('idx_member_profile_avatar')
+    .on('member_profile')
     .column('avatar_url')
     .execute()
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  await db.schema.dropTable('user_profile').execute()
+  await db.schema.dropTable('member_profile').execute()
 }
 ```
 

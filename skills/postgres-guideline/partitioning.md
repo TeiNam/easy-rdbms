@@ -1,5 +1,51 @@
 # Partitioning Strategy
 
+## Do Not Partition by Default
+
+Partitioning is **recommended from evidence in the code**, not applied because a table looks like it
+might grow. The analysis procedure, recommend/exclude conditions, and output format are in
+`rdbms-modeling/references/partitioning.md`. This file covers the PostgreSQL mechanics.
+
+## Scope: RANGE, LIST, or HASH
+
+Unlike the MySQL guideline (RANGE family only, by deliberate scope decision), PostgreSQL may use
+whichever method the code's access pattern calls for:
+
+| Method | Use when |
+|---|---|
+| `RANGE` | Time-range reads, retention, bulk deletion — the common case |
+| `LIST` | A small, fixed set of values: region, business line, tenant class |
+| `HASH` | High-cardinality equality lookups needing even distribution |
+
+## The Safety Partition: `DEFAULT`, Not `TO (MAXVALUE)`
+
+Both give you a trailing catch-all, but they are not equivalent:
+
+| | Catches future rows | Catches rows **below** the first partition |
+|---|---|---|
+| `FOR VALUES FROM (x) TO (MAXVALUE)` | Yes | **No** — insert fails |
+| `PARTITION OF … DEFAULT` | Yes | **Yes** |
+
+**Use `DEFAULT` on PostgreSQL.** A backfill or a corrected timestamp that predates the first
+partition is exactly the kind of row a safety partition should absorb, and `MAXVALUE` bounds reject
+it. Both share the same operational constraint — you must detach before creating a partition whose
+range it already covers — so `DEFAULT` costs nothing extra.
+
+### Operating Rules
+
+- **Alert when rows land in the default partition.** It means partition creation fell behind, or data
+  is arriving outside the expected window.
+- Pre-create the next **2–3 periods** of regular partitions.
+- Move default-partition rows into the correct regular partition once it exists.
+- **Never drop the default partition before that move completes** — it is holding real rows.
+- Monitor both the default-partition row count and the end date of the last regular partition.
+
+Without the alert, a stalled partition-creation job looks fine until every recent row sits in one
+unpruned partition.
+
+PostgreSQL 18 added `ALTER TABLE … SPLIT PARTITION`, which replaces the detach-and-move dance in one
+command. Check the target version before relying on it — on 16 and 17 use the detach sequence below.
+
 ## Log Tables: Monthly Declarative Partitioning
 
 ```sql

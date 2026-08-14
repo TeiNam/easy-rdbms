@@ -9,7 +9,9 @@ description: >
   connections, RLS policy review, GRANT audit, database security review, duplicate tables,
   over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status, type
   column holding a state, missing role table, foreign key constraint, ON DELETE CASCADE, orphan
-  rows, referential integrity, is this schema safe to deploy.
+  rows, referential integrity, partition pruning, partitions not pruned, MAXVALUE partition,
+  default partition filling up, partition key missing from WHERE, is this schema safe to
+  deploy.
 ---
 
 # RDBMS Review
@@ -195,6 +197,17 @@ What to read in the plan:
   `innodb_lock_wait_timeout` (MySQL)
 - Slow query logging disabled, so there is no evidence to review next time
 - Unbounded log or history table with no partitioning or retention plan
+- **Partitioning present but never pruned** — the partition key is absent from the main `WHERE`
+  predicates, so every query scans every partition. The worst case: all the management cost, none
+  of the benefit. Verify with `EXPLAIN` (MySQL: the `partitions` column; PostgreSQL: which
+  partitions appear in the plan)
+- **Partitioning applied with no evidence** — no time-range query and no retention/deletion code
+  in the repo. Report it as unjustified structure, not as a win
+- **Safety partition accumulating rows** — data in MySQL's `p_maxvalue` or PostgreSQL's `DEFAULT`
+  partition means partition creation fell behind. Check the runway of pre-created partitions;
+  fewer than 2 periods is a finding, zero is imminent breakage
+- **MySQL partitioned table where a PK or UNIQUE omits the partition key** — invalid on InnoDB;
+  if such DDL exists, either the partitioning or the key is wrong
 - Analytics queries running against the OLTP primary
 
 ## Output Format

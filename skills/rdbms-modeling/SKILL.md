@@ -4,22 +4,23 @@ description: >
   Turn business requirements into a data model through three staged steps — conceptual,
   logical, then physical — with a confirmation gate between each. Never converts requirements
   straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
-  BCNF violations, applies the IS-A test before generalizing entities into supertypes, applies an
-  engine-split foreign key policy (no physical FK on MySQL InnoDB; allowed on PostgreSQL when six
-  conditions hold), and permits denormalization only against a measurement. Triggers: design
-  tables from requirements, data model, conceptual model, logical
-  model, physical model, ERD, entity relationship diagram, domain model, business entities,
-  normalization, 1NF 2NF 3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant,
-  candidate key, overlapping candidate keys, update anomaly, generalization, specialization,
-  supertype, subtype, entity inheritance, single table inheritance, discriminator column, IS-A,
-  is-a relationship, substitutability, exclusive subtypes, overlapping subtypes, total partial
+  BCNF violations, applies the IS-A test before generalizing entities into supertypes, applies
+  an engine-split foreign key policy (no physical FK on MySQL InnoDB; allowed on PostgreSQL
+  when six conditions hold), and permits denormalization only against a measurement. Triggers:
+  design tables from requirements, data model, conceptual model, logical model, physical model,
+  ERD, entity relationship diagram, domain model, business entities, normalization, 1NF 2NF
+  3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant, candidate key,
+  overlapping candidate keys, update anomaly, generalization, specialization, supertype,
+  subtype, entity inheritance, single table inheritance, discriminator column, IS-A, is-a
+  relationship, substitutability, exclusive subtypes, overlapping subtypes, total partial
   classification, role table, type column vs subtype, status vs type, state machine or subtype,
   EAV, entity attribute value, similar tables, duplicate entities, denormalization,
   denormalize, table design, schema design from scratch, N:M relationship, junction table,
   surrogate key vs natural key, composite primary key, cardinality, logical FK, physical FK,
   foreign key constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete
-  design, which PK type, do I need a history table, design a schema for, migration SQL for a
-  new feature.
+  design, which PK type, do I need a history table, partitioning, should I partition this
+  table, RANGE COLUMNS, partition key, MAXVALUE partition, default partition, retention policy,
+  design a schema for, migration SQL for a new feature.
 ---
 
 # RDBMS Data Modeling
@@ -215,7 +216,12 @@ Then produce:
 - Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
 - Indexes driven by actual WHERE / JOIN / ORDER BY columns. Composite order is
   equality → sort → range (see `<engine>-guideline/index-and-query.md`)
-- Partitioning and retention for log and history tables — monthly is the default cadence
+- **Partitioning: recommend, do not create by default.** Analyse the queries and the retention /
+  deletion code first. No time-range query and no retention policy in the code means no
+  partitioning — emit it as a candidate needing volume figures instead. MySQL generates only
+  `RANGE`/`RANGE COLUMNS` (a deliberate scope limit, not a technical one); PostgreSQL may use
+  `RANGE`, `LIST`, or `HASH`. Always include the trailing safety partition. See
+  `references/partitioning.md`
 - Migration SQL, ordered, with the rollout considerations from `database-migrations`
 
 If Stage 2 produced a supertype/subtype structure, choose its physical mapping here — the
@@ -443,7 +449,11 @@ STAGE 3 — Physical model
       indexes/constraints, boolean `is_`/`has_`, time columns `created_at`/`updated_at`
 - [ ] Engine-correct types (MySQL: `datetime`, `json`, `tinyint(1)`; PostgreSQL:
       `timestamptz`, `jsonb`, `boolean`)
-- [ ] Partitioning decision made for log and history tables
+- [ ] Partitioning recommended from evidence in the code, not from expected growth — with
+      confidence stated and missing volume figures named
+- [ ] If partitioned: partition key `NOT NULL` and present in the main `WHERE` predicates;
+      every PK/UNIQUE contains it (MySQL); trailing safety partition created with its
+      alert-and-move rules stated
 - [ ] Composite index order: equality → sort → range
 - [ ] Sample data and constraint test proposed
 
@@ -485,8 +495,10 @@ STAGE 3 — Physical model
   type column vs role model vs supertype, identifier inheritance, physical mapping
 - `references/identifier-selection.md` — UID vs PK, per-engine storage model, UUIDv4/v7,
   the `UUID_TO_BIN` swap-flag trap, PG 18 `uuidv7()`
-- `references/foreign-keys.md` — engine differences, why the referencing index is mandatory once
-  the constraint is gone, reference-target rule, exception path for mandated FKs
+- `references/foreign-keys.md` — engine split, why the referencing index is mandatory on MySQL once
+  the constraint is gone, the six PostgreSQL conditions, reference-target rule
+- `references/partitioning.md` — code-based recommendation policy, recommend/exclude conditions,
+  MySQL RANGE-only scope decision, safety-partition operating rules
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

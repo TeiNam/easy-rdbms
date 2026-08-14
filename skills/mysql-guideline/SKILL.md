@@ -67,7 +67,11 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
   Oracle/PostgreSQL — connection-pool churn re-pays parse/compile cost; plus maintenance/portability/security)
 - Triggers: prohibited for business logic
 - Events: prohibited
-- Complex Views: discouraged, simple read-only only
+- Views: simple read-only views are fine for query reuse, security, and interface abstraction —
+  **complex or nested views are discouraged** (a view is not a performance cache; aggregates, window
+  functions, `DISTINCT`, `UNION`, `LIMIT` block `MERGE` and force internal materialization). MySQL has
+  no native materialized view — use a summary table. See
+  `rdbms-modeling/references/views-and-materialized-views.md`
 
 ## Reference Files
 - `schema-design.md` — PK/FK policy, checklists

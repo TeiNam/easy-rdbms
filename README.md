@@ -142,6 +142,14 @@ wide PK inflates all of them) and an invisible index still costs writes; Postgre
 when a churning column is indexed, and an `INCLUDE` column does not guarantee an index-only scan — Heap
 Fetches has to be checked.
 
+**A view is not a cache.** Plain views earn their place through query reuse, security, and interface
+abstraction — they do not make anything faster, they move where the SQL lives. Acceleration means a
+PostgreSQL materialized view or a MySQL summary table (MySQL 8.4 has no native materialized view), which
+the plugin treats as a denormalization: source of truth, synchronization, and rebuild path required.
+Neither ever becomes the source of truth for balances, inventory, or permissions. Nested views get
+special attention in review, because each layer looks reasonable while the composed query does something
+nobody intended.
+
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
 
@@ -250,6 +258,11 @@ codex plugin add easy-rdbms@easy-rdbms
   냅니다. 엔진 차이를 실제로 반영합니다 — InnoDB는 모든 보조 인덱스에 PK를 덧붙이므로 넓은 PK가 전부를
   부풀리고, invisible index도 쓰기 비용은 그대로입니다. PostgreSQL은 자주 바뀌는 컬럼에 인덱스를 걸면
   HOT update를 잃고, `INCLUDE`가 index-only scan을 보장하지 않아 Heap Fetches를 확인해야 합니다.
+- **View는 캐시가 아닙니다.** 일반 View의 값은 쿼리 재사용·보안·인터페이스 추상화이고, 무언가를 빠르게
+  만들지는 않습니다 — SQL이 어디 있는지만 옮깁니다. 가속은 PostgreSQL materialized view나 MySQL 집계
+  테이블이며(MySQL 8.4에는 네이티브 MView가 없습니다), 플러그인은 이를 비정규화로 취급해 원본·동기화·
+  재구축 경로를 요구합니다. 둘 중 무엇도 잔액·재고·권한의 원본이 되지 않습니다. 중첩 View는 리뷰에서
+  따로 봅니다 — 각 층은 그럴듯한데 합성된 쿼리가 아무도 의도하지 않은 일을 합니다.
 - **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

@@ -80,7 +80,10 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
 - Stored Procedures: prohibited
 - Triggers: prohibited for business logic (handle `updated_at` in the application)
 - Events/Schedulers: use external (cron, Airflow)
-- Complex Views: discouraged, simple read-only only
+- Views: simple read-only views are fine for query reuse, security, and interface abstraction —
+  **complex or nested views are discouraged** (a view is not a performance cache; PostgreSQL rewrites
+  it into a base-table query). Materialized views **are** available for repeated joins and aggregation.
+  See `rdbms-modeling/references/views-and-materialized-views.md`
 - RULE: prohibited (unpredictable behavior)
 - SERIAL type: discouraged — use `GENERATED ALWAYS AS IDENTITY` (SQL standard, prevents accidental override; SERIAL still works but is proprietary). PostgreSQL wiki: "Don't use serial."
 

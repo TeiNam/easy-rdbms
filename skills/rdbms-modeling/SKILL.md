@@ -244,6 +244,11 @@ Then produce:
   rollback with each one. With no plan or metrics available, say `needs measurement` rather than
   estimating an improvement. See `references/index-design.md` and
   `<engine>-guideline/index-and-query.md`
+- **Views and materialized views** — a plain view is reuse, security, and abstraction; it is **not** a
+  performance cache. Acceleration means a PostgreSQL materialized view or a MySQL summary table, which
+  is a denormalization and inherits its requirements (source of truth, sync, rebuild). Never make one
+  the source of truth for balances, inventory, or permissions. See
+  `references/views-and-materialized-views.md`
 - **Partitioning: recommend, do not create by default.** Analyse the queries and the retention /
   deletion code first. No time-range query and no retention policy in the code means no
   partitioning — emit it as a candidate needing volume figures instead. MySQL generates only
@@ -513,6 +518,10 @@ STAGE 3 — Physical model
 - [ ] If history exists: `(entity_id, version)` unique, append-only, written in the same
       transaction as the current row, no FK or `CASCADE` from the entity, retention period named
 - [ ] Personal data in snapshots has a stated retention period and purge path
+- [ ] Any view justified by reuse/security/abstraction — not proposed as a performance fix
+- [ ] Any materialized view or summary table carries its refresh interval, staleness tolerance,
+      consistency check, and rebuild path; `CONCURRENTLY` has its UNIQUE index and a non-concurrent
+      first refresh
 - [ ] Sample data and constraint test proposed
 
 ## Anti-Patterns (Fix on Sight)
@@ -568,6 +577,8 @@ STAGE 3 — Physical model
   try first, synchronization mechanisms, the seven apply-conditions, consistency check and rebuild
 - `references/db-internal-routines.md` — procedures/triggers/events: sanctioned operational
   utilities, the narrow audit-trigger exception, and business logic that stays in the application
+- `references/views-and-materialized-views.md` — view vs materialized view vs summary table, why a
+  view is not a cache, indexing the base tables vs the MView, `REFRESH CONCURRENTLY` constraints
 - `references/index-design.md` — evidence required before recommending, write-heavy tables (InnoDB
   index extensions and invisible indexes; PostgreSQL HOT updates, fillfactor, BRIN), covering indexes
   and Heap Fetches, ORDER BY/GROUP BY, pattern matching, FTS per engine, search-engine migration signals

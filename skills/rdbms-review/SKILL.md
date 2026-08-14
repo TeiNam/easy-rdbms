@@ -15,8 +15,9 @@ description: >
   query, stored procedure, trigger audit, database event, denormalized column out of sync,
   aggregate table stale, write amplification, unused index, redundant index, invisible index,
   covering index, heap fetches, index only scan, filesort, LIKE wildcard slow, full text
-  search, FULLTEXT ngram, pg_trgm, tsvector, search engine migration, is this schema safe to
-  deploy.
+  search, FULLTEXT ngram, pg_trgm, tsvector, search engine migration, view performance, nested
+  views, materialized view, REFRESH MATERIALIZED VIEW, CONCURRENTLY, summary table stale, is
+  this schema safe to deploy.
 ---
 
 # RDBMS Review
@@ -194,6 +195,23 @@ What to read in the plan:
   a missing `text_pattern_ops`
 - **A full-text index whose search configuration differs between index and query (PostgreSQL)** — the
   index is silently unused. On MySQL, check that CJK content uses `WITH PARSER ngram`
+- **A view presented as a performance fix** — a plain view does the same work, it just moves where the
+  SQL lives. Check the plan of the *actual usage query*, not the view definition. Nested views are the
+  common case: each layer looks reasonable and the composed query does something nobody intended
+- **MySQL view blocked from `MERGE`** — aggregates, window functions, `DISTINCT`, `UNION`, or `LIMIT`
+  force internal materialization, and no permanent index can be defined on a view. Check whether the
+  outer predicates can still reach base-table indexes
+- **Code relying on `ORDER BY` inside a view or materialized view** — neither guarantees row order.
+  A finding wherever the application assumes it
+- **Materialized view read as if current** — check the refresh interval against what the feature
+  actually needs, and confirm nothing requiring immediate consistency (balance, inventory, permissions)
+  reads it
+- **`REFRESH CONCURRENTLY` without its prerequisites** — needs a UNIQUE index on plain columns covering
+  all rows, cannot run on a never-populated MView, and only one refresh per MView at a time. Check the
+  job has a lock or skip-if-running guard; overlapping schedules queue or fail
+- **Materialized view or summary table with no consistency check and no rebuild path** — same finding as
+  any denormalization. For an incrementally-refreshed summary table, verify deletes are handled; an
+  ignored delete leaves a permanently wrong aggregate
 - **Search workload outgrowing in-database FTS** — signal a dedicated search engine when tuned FTS
   misses the latency target, the index pressures memory or replication, or the product needs typo
   tolerance, synonyms, autocomplete, or complex ranking. Do not use a fixed row-count threshold

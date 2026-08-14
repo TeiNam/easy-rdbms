@@ -105,8 +105,8 @@ an order, not subtypes of it — modeling them as subtypes turns every transitio
 cross-table move. `rdbms-review` flags the same confusion in existing schemas.
 
 **Foreign keys are an engine-split policy, not one rule.** On MySQL/InnoDB no physical
-`FOREIGN KEY` is created — InnoDB cannot put one on a partitioned table, and this plugin partitions
-log and history tables by default, so an FK today is a blocked partition tomorrow. On PostgreSQL they
+`FOREIGN KEY` is created — InnoDB cannot put one on a partitioned table, and log and history tables
+are the usual partitioning candidates, so an FK today is a blocked partition tomorrow. On PostgreSQL they
 are allowed by default but created only when six conditions hold (PK/UNIQUE target, referencing
 column indexed, no redundant index, `CASCADE` justified by lifecycle dependency, `NOT DEFERRABLE`,
 `NOT VALID`+`VALIDATE` on large tables).
@@ -208,8 +208,8 @@ codex plugin add easy-rdbms@easy-rdbms
   더 싼 대안을 먼저 시도한 기록, 그리고 동기화 방식이 명시돼야 합니다. ACID와 정규화는 역할이
   다른 별개 원칙으로 다룹니다 — 하나는 트랜잭션 안전성, 하나는 스키마 정합성입니다.
 - **FK는 하나의 규칙이 아니라 엔진별 정책입니다.** MySQL/InnoDB에서는 물리 FK를 만들지 않습니다 —
-  InnoDB는 파티션 테이블에 FK를 걸 수 없고, 이 플러그인은 로그·이력 테이블을 기본적으로 파티셔닝
-  대상으로 보기 때문에 오늘의 FK가 내일의 막힌 파티션이 됩니다. PostgreSQL은 기본 허용하되 6개 조건을
+  InnoDB는 파티션 테이블에 FK를 걸 수 없고, 로그·이력 테이블이 대표적인 파티셔닝 후보이므로
+  오늘의 FK가 내일의 막힌 파티션이 됩니다. PostgreSQL은 기본 허용하되 6개 조건을
   충족할 때 생성합니다(PK/UNIQUE 대상, 자식 컬럼 인덱스, 중복 인덱스 금지, 생명주기 종속일 때만
   `CASCADE`, `NOT DEFERRABLE`, 대용량은 `NOT VALID`→`VALIDATE`).
 - **놓치기 쉬운 귀결**: InnoDB의 자식 인덱스 자동 생성은 **FK 제약에서 나옵니다.** 제약을 제거하면

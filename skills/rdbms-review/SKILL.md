@@ -17,7 +17,8 @@ description: >
   redundant index, invisible index, covering index, heap fetches, index only scan, filesort,
   LIKE wildcard slow, full text search, FULLTEXT ngram, pg_trgm, tsvector, search engine
   migration, view performance, nested views, materialized view, REFRESH MATERIALIZED VIEW,
-  CONCURRENTLY, summary table stale, is this schema safe to deploy.
+  CONCURRENTLY, summary table stale, IN subquery slow, DEPENDENT SUBQUERY, Index Merge, OR
+  condition slow, deep pagination, OFFSET slow, is this schema safe to deploy.
 ---
 
 # RDBMS Review
@@ -133,7 +134,21 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
   the middle silently disables seek and ordering for everything after it
 - A column wrapped in a function is not seekable (`WHERE YEAR(created_at) = 2026`) — needs a
   functional index or generated column
-- `OFFSET` pagination on a large table → keyset/cursor pagination
+- `OFFSET` pagination on a large table → keyset/cursor pagination. When the UI needs clickable page
+  numbers and a cursor is impossible, a **deferred join** (fetch PKs through a covering index, then
+  join the wide columns) cuts the random I/O — but the offset scan remains, so say so
+- **`IN (subquery)` running as a `DEPENDENT SUBQUERY`** — `EXPLAIN`'s `select_type` is the tell. A
+  `GROUP BY`/`HAVING`/aggregate, `UNION`, or `LIMIT` in the subquery, or an `IN` sitting under `OR`,
+  disables semi-join optimization and the subquery can re-execute per outer row. Rewrite as an
+  explicit derived-table join
+- **`IN` with a very long literal list** — past `eq_range_index_dive_limit` (default 200) the
+  optimizer stops per-value index dives and estimates from coarse statistics, which makes a wrong
+  full-scan choice more likely. Load the values into a temporary table and join
+- **Type mismatch between an `IN` list and its column** — an integer list against a `varchar` column
+  (or the reverse) forces implicit conversion on the column side and defeats the index, exactly like
+  wrapping it in a function
+- **`OR` across different columns** — pushes the optimizer onto Index Merge, often slower than a
+  `UNION` rewrite or a redesigned composite index
 - Individual inserts in a loop → multi-row `INSERT` (MySQL) or `COPY` (PostgreSQL)
 
 What to read in the plan:

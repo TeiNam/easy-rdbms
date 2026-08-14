@@ -1,16 +1,18 @@
 ---
 name: mysql-guideline
 description: >
-  MySQL 8.0+ schema design, table/index creation, query optimization, partitioning,
-  connection management, development principles and anti-patterns, JDBC driver selection.
-  Triggers: CREATE TABLE, ALTER TABLE, slow query analysis, index design, RANGE partition,
-  MySQL migration, utf8mb4, InnoDB, transaction management, UPSERT, Covering Index,
-  composite index, normalization, data type selection, INET_ATON, UUID_TO_BIN,
-  DATETIME TIMESTAMP, stored procedure, COUNT(*), random PK, JSON column,
-  JDBC, Connector/J, AWS Advanced JDBC Wrapper, Aurora failover, keyset pagination,
-  SKIP LOCKED queue, deadlock, replica lag, read-after-write, GRANT least privilege,
-  my.cnf tuning, slow query log, SHOW ENGINE INNODB STATUS, MariaDB divergence,
-  FULLTEXT MATCH AGAINST, connection pool sizing related tasks.
+  MySQL 8.0+ schema design, table/index creation, query optimization, partitioning, connection
+  management, development principles and anti-patterns, JDBC driver selection. Triggers: CREATE
+  TABLE, ALTER TABLE, slow query analysis, index design, RANGE partition, MySQL migration,
+  utf8mb4, InnoDB, transaction management, UPSERT, Covering Index, composite index,
+  normalization, data type selection, INET_ATON, UUID_TO_BIN, DATETIME TIMESTAMP, stored
+  procedure, COUNT(*), random PK, JSON column, JDBC, Connector/J, AWS Advanced JDBC Wrapper,
+  Aurora failover, keyset pagination, SKIP LOCKED queue, deadlock, replica lag,
+  read-after-write, GRANT least privilege, my.cnf tuning, slow query log, SHOW ENGINE INNODB
+  STATUS, MariaDB divergence, FULLTEXT MATCH AGAINST, connection pool sizing, integer type
+  ranges, IN subquery slow, DEPENDENT SUBQUERY, semi-join optimization,
+  eq_range_index_dive_limit, Index Merge, OR condition slow, deep pagination, OFFSET slow,
+  deferred join related tasks.
 ---
 
 # MySQL Database Guideline
@@ -44,6 +46,29 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 
 ## Data Type Guide
 
+### Integer Ranges — pick from the real value range
+
+Smaller types mean less storage, smaller indexes (so more of the index stays in the buffer pool),
+and less network traffic. `TINYINT` vs `INT` is 1B vs 4B — at 100 million rows, 100 MB vs 400 MB.
+
+| Type | Size | Signed range | Unsigned range |
+|------|------|--------------|----------------|
+| `tinyint` | 1B | −128 ~ 127 | 0 ~ 255 |
+| `smallint` | 2B | −32,768 ~ 32,767 | 0 ~ 65,535 |
+| `mediumint` | 3B | −8,388,608 ~ 8,388,607 | 0 ~ 16,777,215 |
+| `int` | 4B | ≈ −2.1B ~ 2.1B | 0 ~ ≈ 4.2B |
+| `bigint` | 8B | ≈ −9.2×10¹⁸ ~ 9.2×10¹⁸ | 0 ~ ≈ 1.8×10¹⁹ |
+
+**Widening a column later is comparatively easy (online DDL); narrowing it risks data loss and in
+practice means a rebuild.** So do not pad "just in case" — size to the observed value range and
+monitor growth. The surrogate PK is the exception: default it to `bigint unsigned` because
+exhausting an `int` PK on a large table is a migration nobody wants.
+
+`decimal` follows the same principle: money that needs no fractional part is cheaper and simpler as
+an integer in the minor unit than as a `decimal`.
+
+### Type Selection
+
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
 | Tiny PK/flag | `tinyint unsigned` | 0~255 |
@@ -76,7 +101,9 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 
 ## Reference Files
 - `schema-design.md` — PK/FK policy, checklists
-- `index-and-query.md` — Index strategy (composite ESR order, range-column optimization), query patterns
+- `index-and-query.md` — Index strategy (composite ESR order, range-column optimization), when an
+  index helps vs hurts (skew, NULL ratio, `OR`/Index Merge), the two ways `IN` loses the index
+  (semi-join breakdown, `eq_range_index_dive_limit`), query patterns
 - `partitioning.md` — Partitioning strategy, management
 - `connection-and-features.md` — Connection management, transactions
 - `dev-practices.md` — Development principles and anti-patterns: normalization + denormalization criteria,
@@ -87,7 +114,8 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 - `jdbc-driver.md` — Java driver selection (2026-07): AWS Advanced JDBC Wrapper (top choice) vs Connector/J
   9.x; MariaDB Connector/J Aurora EOL, Aurora JDBC Driver EOL; failover tuning
 - `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 Innovation; production = LTS
-- `operations.md` — MySQL vs MariaDB SQL divergence, keyset pagination, FULLTEXT query, deadlock
+- `operations.md` — MySQL vs MariaDB SQL divergence, the `OFFSET` trap with keyset pagination and
+  the deferred-join fallback, FULLTEXT query, deadlock
   checklist + `SKIP LOCKED` queue claims, Node.js pool sizing and the `wait_timeout` rule, diagnostics,
   replica lag / read-after-write routing, GRANT least privilege + TLS, `my.cnf` baseline, ops anti-patterns
 

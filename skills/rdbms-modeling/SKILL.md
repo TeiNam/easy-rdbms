@@ -20,7 +20,9 @@ description: >
   foreign key constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete
   design, which PK type, do I need a history table, partitioning, should I partition this
   table, RANGE COLUMNS, partition key, MAXVALUE partition, default partition, retention policy,
-  design a schema for, migration SQL for a new feature.
+  history table, audit table, audit trail, versioning, temporal table, bi-temporal, valid_from
+  valid_to, state transition history, event sourcing, CDC, point-in-time query, restore past
+  data, design a schema for, migration SQL for a new feature.
 ---
 
 # RDBMS Data Modeling
@@ -108,6 +110,7 @@ Produce:
 - Required (`NOT NULL`) and unique attributes
 - **3NF normalization, then the BCNF check on every entity**
 - **The generalization check** — IS-A, exclusivity, totality, and type vs state
+- **The history question** — does anything here need its past retained, and for which purpose?
 
 Exclude: engine-specific data types, indexes, partitioning, storage.
 
@@ -177,6 +180,27 @@ altogether. Neither is flexibility.
 
 Record per candidate group: the outcome (type column / role model / supertype+subtypes / kept
 separate), plus exclusivity and totality when you built subtypes.
+
+### History — Identify the Purpose Before the Structure
+
+Three different questions get called "history", and a design answering one answers neither other:
+
+| Kind | Answers | Structure |
+|---|---|---|
+| **Audit** | Who changed what, when | Audit columns, or a history table |
+| **Business** | Which state changed, and **why** | State-transition history with actor + reason |
+| **Valid-time** | What was in effect at a point in time | `valid_from`/`valid_to` period model |
+
+`updated_at` answers none of them. Default for ordinary business entities is **current + history
+table with full snapshots**; escalate to a valid-period model for scheduled or retroactive changes,
+and to bi-temporal or event sourcing only where audit or regulatory requirements demand it.
+
+Two rules that hold regardless of method: the current-row change and its history row are written in
+**one transaction**, and there is **no physical FK (and never a `CASCADE`) from an entity to its
+history** — history must survive the parent's deletion, which is exactly what an FK prevents.
+
+Full method table, code-analysis signals, flows, and the trigger-audit exception:
+`references/history-entities.md`.
 
 **→ Confirmation gate.** Present the ERD, the normalization steps, the BCNF results, and any
 generalization decisions. Ask whether the keys, cardinalities, and subtype structure match the
@@ -455,6 +479,11 @@ STAGE 3 — Physical model
       every PK/UNIQUE contains it (MySQL); trailing safety partition created with its
       alert-and-move rules stated
 - [ ] Composite index order: equality → sort → range
+- [ ] History purpose identified (audit / business / valid-time) before any history structure, or
+      stated that none is needed
+- [ ] If history exists: `(entity_id, version)` unique, append-only, written in the same
+      transaction as the current row, no FK or `CASCADE` from the entity, retention period named
+- [ ] Personal data in snapshots has a stated retention period and purge path
 - [ ] Sample data and constraint test proposed
 
 ## Anti-Patterns (Fix on Sight)
@@ -482,6 +511,11 @@ STAGE 3 — Physical model
 | PostgreSQL constraint left `NOT VALID` | `VALIDATE CONSTRAINT`; until then it is a logical FK |
 | Reference to a non-unique column | Target a PK or UNIQUE — otherwise the reference is ambiguous |
 | Logical FK with no orphan check | Violations accumulate silently — schedule the detection query |
+| `updated_at` used as history | Pick a real method — audit columns answer nothing about what changed |
+| Current row and history written in separate transactions | One transaction, or the history lies |
+| `ON DELETE CASCADE` from entity to its history | History must outlive the row it describes |
+| Generic JSON audit log replacing a business history entity | No schema, no reason code, unplannable queries |
+| PII in snapshots with no retention limit | Name the retention period and the purge path |
 | Standalone `is_active` index | Composite index (MySQL) / partial index (PostgreSQL) |
 | `OFFSET` pagination on large log tables | Cursor / keyset pagination |
 | An index on every column | Minimal indexes driven by real query patterns |
@@ -499,6 +533,8 @@ STAGE 3 — Physical model
   the constraint is gone, the six PostgreSQL conditions, reference-target rule
 - `references/partitioning.md` — code-based recommendation policy, recommend/exclude conditions,
   MySQL RANGE-only scope decision, safety-partition operating rules
+- `references/history-entities.md` — audit vs business vs valid-time history, the eight methods and
+  when each applies, standard history entity, transaction flows, the trigger-audit exception
 - `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
   `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
   `mysql-guideline/operations.md`

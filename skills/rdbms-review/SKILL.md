@@ -10,8 +10,9 @@ description: >
   over-generalized schema, EAV anti-pattern, nullable everything, subtype vs status, type
   column holding a state, missing role table, foreign key constraint, ON DELETE CASCADE, orphan
   rows, referential integrity, partition pruning, partitions not pruned, MAXVALUE partition,
-  default partition filling up, partition key missing from WHERE, is this schema safe to
-  deploy.
+  default partition filling up, partition key missing from WHERE, history table, audit table,
+  audit trail, versioning, temporal table, valid_from valid_to, event sourcing, point-in-time
+  query, is this schema safe to deploy.
 ---
 
 # RDBMS Review
@@ -208,6 +209,19 @@ What to read in the plan:
   fewer than 2 periods is a finding, zero is imminent breakage
 - **MySQL partitioned table where a PK or UNIQUE omits the partition key** — invalid on InnoDB;
   if such DDL exists, either the partitioning or the key is wrong
+- **History written outside the transaction that changed the current row** — CRITICAL. A failure
+  between the two leaves history that contradicts the data. Check that both writes share one
+  transaction boundary
+- **`CASCADE` or a physical FK from an entity to its history table** — history must outlive the row
+  it describes; the constraint deletes the evidence along with the record
+- **`updated_at` presented as history** — it says something changed, not what or why. If the code has
+  audit screens, restore features, or point-in-time queries, the structure does not support them
+- **State changes recorded without an actor and a reason** — an approval or cancellation row that
+  cannot say who or why is not usable as business history
+- **PII in history snapshots with no retention limit** — history is where personal data quietly
+  becomes permanent. Look for a purge path, not just a retention constant
+- **A trigger doing anything beyond writing an audit row** — the audit-trigger exception is narrow;
+  business logic in a trigger is a finding
 - Analytics queries running against the OLTP primary
 
 ## Output Format

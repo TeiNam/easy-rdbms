@@ -117,6 +117,14 @@ referencing-column index is mandatory and manual. Anything left as a logical FK 
 compensating controls: a `COMMENT`, that index, a named integrity owner, and a scheduled
 orphan-detection query.
 
+**History has a purpose before it has a structure.** "History" conflates three different questions —
+who changed what (audit), which state changed and why (business), and what was in effect at a point in
+time (valid-time). A design answering one answers neither other, and `updated_at` answers none. The
+plugin identifies the purpose from the code, defaults ordinary entities to current + history snapshots,
+and escalates to valid-period, bi-temporal, or event sourcing only where the requirement is real. Two
+rules hold regardless: the current row and its history are written in one transaction, and no FK or
+`CASCADE` links an entity to its history — history must outlive the row it describes.
+
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
 
@@ -207,6 +215,12 @@ codex plugin add easy-rdbms@easy-rdbms
 - **놓치기 쉬운 귀결**: InnoDB의 자식 인덱스 자동 생성은 **FK 제약에서 나옵니다.** 제약을 제거하면
   인덱스도 조용히 사라지므로, MySQL에서는 참조 컬럼 인덱스가 필수이고 수동입니다. 논리 FK로 남긴
   관계는 4개 보상 통제를 함께 갖습니다 — `COMMENT`, 인덱스, 명시된 무결성 책임자, 예약된 고아 탐지 쿼리.
+- **이력은 구조보다 목적이 먼저입니다.** "이력"은 세 가지 다른 질문을 뭉쳐 부르는 말입니다 — 누가 무엇을
+  바꿨나(감사), 어떤 상태가 왜 바뀌었나(비즈니스), 특정 시점에 무엇이 유효했나(유효시간). 하나에 답하는
+  설계가 나머지에 답하지 않고, `updated_at`은 셋 다 답하지 못합니다. 플러그인은 코드에서 목적을 식별하고
+  일반 엔터티는 현재+이력 스냅샷을 기본으로, 유효기간·이중시간·이벤트 소싱은 요구가 실재할 때만 올립니다.
+  방식과 무관하게 두 규칙은 고정입니다: 현재 행과 이력은 한 트랜잭션에서 쓰고, 엔터티와 이력 사이에 FK나
+  `CASCADE`를 두지 않습니다 — 이력은 그것이 기술하는 행보다 오래 살아야 합니다.
 - **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

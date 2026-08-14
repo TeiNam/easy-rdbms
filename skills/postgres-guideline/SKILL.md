@@ -79,7 +79,10 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
 
 ## Prohibited Items
 - Stored Procedures: prohibited
-- Triggers: prohibited (handle `updated_at` in application)
+- Triggers: prohibited (handle `updated_at` in application) — **one exception**: an audit trigger that
+  writes only to an audit table, used when a real write path bypasses the application (admin SQL,
+  batch, migrations). No business logic in it. See
+  `rdbms-modeling/references/history-entities.md`
 - Events/Schedulers: use external (cron, Airflow)
 - Complex Views: discouraged, simple read-only only
 - RULE: prohibited (unpredictable behavior)

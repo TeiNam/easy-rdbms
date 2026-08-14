@@ -20,9 +20,11 @@ stopping at each confirmation gate:
    structure match the business rules and wait.
 3. **Physical** — only after the target RDBMS is confirmed. If it is undecided, use
    `db-select` at this point. Then produce DDL in the correct dialect, constraints, indexes,
-   partitioning, ordered migration SQL, and a sample-data constraint test. **Emit no physical
-   `FOREIGN KEY` constraints** — every logical FK instead carries a `COMMENT`, an index on the
-   referencing column, a named integrity owner, and an orphan-detection query.
+   partitioning, ordered migration SQL, and a sample-data constraint test. **FK policy splits by
+   engine**: on MySQL emit no physical `FOREIGN KEY` (and create the referencing-column index
+   explicitly — InnoDB's auto-created one disappears with the constraint); on PostgreSQL physical
+   FKs are allowed but only when all six conditions hold. Anything left logical carries a
+   `COMMENT`, an index, a named integrity owner, and an orphan-detection query.
 
 First state the rigor level: payments, inventory, permissions, and contracts get all three
 stages in full; a personal tool may compress stages 1 and 2 into one short pass — but say so

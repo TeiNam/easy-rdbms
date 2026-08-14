@@ -104,6 +104,19 @@ The single highest-value check is type-vs-state. `pending` / `paid` / `cancelled
 an order, not subtypes of it — modeling them as subtypes turns every transition into a
 cross-table move. `rdbms-review` flags the same confusion in existing schemas.
 
+**Foreign keys are an engine-split policy, not one rule.** On MySQL/InnoDB no physical
+`FOREIGN KEY` is created — InnoDB cannot put one on a partitioned table, and this plugin partitions
+log and history tables by default, so an FK today is a blocked partition tomorrow. On PostgreSQL they
+are allowed by default but created only when six conditions hold (PK/UNIQUE target, referencing
+column indexed, no redundant index, `CASCADE` justified by lifecycle dependency, `NOT DEFERRABLE`,
+`NOT VALID`+`VALIDATE` on large tables).
+
+The consequence that is easy to miss: **InnoDB's automatic child index comes from the FK
+constraint.** Drop the constraint and the index goes with it, silently — so on MySQL the
+referencing-column index is mandatory and manual. Anything left as a logical FK carries four
+compensating controls: a `COMMENT`, that index, a named integrity owner, and a scheduled
+orphan-detection query.
+
 **MySQL and PostgreSQL only.** Other relational engines are out of scope; the plugin says so
 rather than pretending to advise on them.
 
@@ -186,6 +199,14 @@ codex plugin add easy-rdbms@easy-rdbms
   과도해지면 3NF 유지를 허용하되 그 이유를 반드시 남깁니다. 비정규화는 **측정된** 성능 문제와
   더 싼 대안을 먼저 시도한 기록, 그리고 동기화 방식이 명시돼야 합니다. ACID와 정규화는 역할이
   다른 별개 원칙으로 다룹니다 — 하나는 트랜잭션 안전성, 하나는 스키마 정합성입니다.
+- **FK는 하나의 규칙이 아니라 엔진별 정책입니다.** MySQL/InnoDB에서는 물리 FK를 만들지 않습니다 —
+  InnoDB는 파티션 테이블에 FK를 걸 수 없고, 이 플러그인은 로그·이력 테이블을 기본적으로 파티셔닝
+  대상으로 보기 때문에 오늘의 FK가 내일의 막힌 파티션이 됩니다. PostgreSQL은 기본 허용하되 6개 조건을
+  충족할 때 생성합니다(PK/UNIQUE 대상, 자식 컬럼 인덱스, 중복 인덱스 금지, 생명주기 종속일 때만
+  `CASCADE`, `NOT DEFERRABLE`, 대용량은 `NOT VALID`→`VALIDATE`).
+- **놓치기 쉬운 귀결**: InnoDB의 자식 인덱스 자동 생성은 **FK 제약에서 나옵니다.** 제약을 제거하면
+  인덱스도 조용히 사라지므로, MySQL에서는 참조 컬럼 인덱스가 필수이고 수동입니다. 논리 FK로 남긴
+  관계는 4개 보상 통제를 함께 갖습니다 — `COMMENT`, 인덱스, 명시된 무결성 책임자, 예약된 고아 탐지 쿼리.
 - **MySQL과 PostgreSQL만** 다룹니다. 다른 엔진은 범위 밖이라고 말하고 조언하지 않습니다.
 - **Codex는 플러그인이 이름 붙은 서브에이전트를 등록할 수 없습니다.** 그래서 모델링·리뷰 절차를
   스킬 본문에 넣고, Claude Code 쪽에만 같은 스킬을 가리키는 얇은 에이전트 래퍼를 둡니다.

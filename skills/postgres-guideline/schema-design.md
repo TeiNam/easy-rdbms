@@ -47,29 +47,73 @@ CREATE TABLE app.user (
 );
 ```
 
-## Foreign Key Policy — No Physical FK Constraints
+## Foreign Key Policy — Allowed by Default, Created When Conditions Are Met
 
-**Do not create `FOREIGN KEY` constraints in the physical model.** Referential integrity is
-managed at the application layer with the relationship documented via `COMMENT`.
+Physical `FOREIGN KEY` constraints **are permitted on PostgreSQL**. This differs from the MySQL
+guideline, which prohibits them — PostgreSQL has no clustering-index penalty, supports FKs on
+partitioned tables, and can validate a large table without holding a long exclusive lock.
 
-Why, on PostgreSQL specifically:
+**"Allowed by default" is not "always create."** Create the constraint when all six conditions hold.
+A failing condition means fix it first, or fall back to a logical FK with the compensating controls
+below and state why.
 
-| Cost | What actually happens |
-|---|---|
-| **Extra I/O on every write** | Each child `INSERT`/`UPDATE` does a parent lookup the query never asked for; the cost is invisible in the statement and hard to attribute in `pg_stat_statements` |
-| **Parent-row lock contention** | FK validation takes a `FOR KEY SHARE` lock on the parent row. It does not block ordinary parent reads, but it **does** conflict with parent-key updates and deletes — a hot parent row serializes unrelated child writes |
-| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction: long-running locks, replication lag, and bloat from the mass delete |
-| **No auto-index on the referencing side** | PostgreSQL indexes the *referenced* column (it must be unique) but **not** the referencing one. An unindexed child column makes every parent delete a sequential scan of the child — a common production surprise |
-| **Partitioning and attach complexity** | FKs referencing a partitioned table are supported only from PG 12+, and `ATTACH PARTITION` must validate constraints, which takes stronger locks and lengthens the maintenance window |
-| **Restore and bulk-load ordering** | `pg_restore` and backfills must order operations to satisfy constraints, or run with them disabled — meaning the guarantee is absent during the operations most likely to corrupt data |
+| # | Condition | If it fails |
+|---|---|---|
+| 1 | Parent column is a **PK or UNIQUE** | Fix the parent model — a non-unique target is a modeling error |
+| 2 | Referencing column is **indexed** (PostgreSQL never auto-creates this) | Create the index in the same migration, or every parent delete/key update sequentially scans the child |
+| 3 | No **redundant** index introduced | Reuse an index that already leads with the column |
+| 4 | If `CASCADE`: the child's **lifecycle genuinely depends** on the parent (order → order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
+| 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if used |
+| 6 | Large existing table: **`NOT VALID`** first, then `VALIDATE CONSTRAINT` | Do the two-step; a single-step add holds a strong lock for the whole validation scan |
 
-The trade-off must be paid for, not ignored: **without a physical FK, orphan rows are possible.**
-Every logical FK requires all four:
+```sql
+-- Condition 2 first, in the same migration
+CREATE INDEX idx_orders_customer_id ON app.orders (customer_id);
+
+ALTER TABLE app.orders
+  ADD CONSTRAINT fk_orders_customer
+  FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
+  ON DELETE RESTRICT;
+```
+
+```sql
+-- Condition 6: two-step add on a large existing table
+ALTER TABLE app.orders
+  ADD CONSTRAINT fk_orders_customer
+  FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
+  ON DELETE RESTRICT
+  NOT VALID;
+
+ALTER TABLE app.orders VALIDATE CONSTRAINT fk_orders_customer;
+```
+
+`RESTRICT` blocks immediately; `NO ACTION` can defer its check to the end of the transaction. On
+MySQL InnoDB the two are effectively identical — a schema relying on the difference is not portable.
+
+### Costs That Remain
+
+Permitting FKs does not make them free. Each of these is a reason to choose a logical FK for a
+*specific* relationship:
+
+- **Extra write I/O** — every child write does a parent lookup the statement never shows, hard to
+  attribute in `pg_stat_statements`
+- **Parent-row lock contention** — validation takes a `FOR KEY SHARE` lock. It does not block
+  ordinary parent reads but **does** conflict with parent-key updates and deletes, so a hot parent
+  row serializes unrelated child writes
+- **Cascade scope** — `ON DELETE CASCADE` on a high-fan-out parent turns one statement into a long
+  transaction, with lock and bloat consequences
+- **Restore and bulk-load ordering** — `pg_restore` and backfills must order operations or run with
+  constraints disabled, so the guarantee is absent during the operations most likely to corrupt data
+
+### When Using a Logical FK Instead
+
+A relationship left as a logical FK — a failed condition, a very hot parent, or extreme write volume
+— carries all four compensating controls:
 
 1. The reference documented in a `COMMENT` (`logical FK: schema.parent_table.parent_column`)
-2. An index on the referencing column — needed for joins and parent-side lookups regardless
-3. Application-level validation on the write path, with the **integrity owner named**
-4. A scheduled orphan check, so violations surface instead of accumulating silently
+2. An index on the referencing column
+3. Application-level validation, with the **integrity owner named**
+4. A scheduled orphan check
 
 ```sql
 -- Orphan detection — schedule one per logical FK
@@ -80,10 +124,11 @@ WHERE u.user_id IS NULL
 LIMIT 100;
 ```
 
-If several writers exist (batch jobs, admin tooling, external integrations), the integrity owner
-must be a layer they all pass through — not one application's validation code. If no such layer
-can exist, state that in the design rather than quietly relying on a constraint this policy
-forbids.
+A constraint left `NOT VALID` never checked the existing rows. Until `VALIDATE CONSTRAINT` succeeds,
+treat the reference as a logical FK and keep running the orphan query.
+
+If several writers exist (batch jobs, admin tooling, external integrations), the integrity owner must
+be a layer they all pass through — not one application's validation code.
 
 ```sql
 CREATE TABLE app.chat_history (
@@ -182,7 +227,12 @@ SELECT * FROM app.user_setting WHERE setting_data ? 'theme';
 
 ## Table Creation Checklist
 - [ ] PK uses `GENERATED ALWAYS AS IDENTITY` (not SERIAL)
-- [ ] No physical FK constraints (logical only, documented with COMMENT)
+- [ ] FK: physical constraint only where all six conditions hold (PK/UNIQUE target, referencing
+      column indexed, no redundant index, `CASCADE` justified by lifecycle dependency,
+      `NOT DEFERRABLE`, `NOT VALID`+`VALIDATE` on large tables)
+- [ ] Any relationship left as a logical FK carries all four compensating controls (`COMMENT`,
+      index, named integrity owner, scheduled orphan check)
+- [ ] No constraint left `NOT VALID` without a validation step — it never checked existing rows
 - [ ] `timestamptz` used (never `timestamp`)
 - [ ] `boolean` type used (never 'Y'/'N' strings)
 - [ ] `created_at` included (required for all tables)

@@ -4,9 +4,10 @@ description: >
   Turn business requirements into a data model through three staged steps — conceptual,
   logical, then physical — with a confirmation gate between each. Never converts requirements
   straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
-  BCNF violations, applies the IS-A test before generalizing entities into supertypes, never
-  emits physical FOREIGN KEY constraints, and permits denormalization only against a
-  measurement. Triggers: design tables from requirements, data model, conceptual model, logical
+  BCNF violations, applies the IS-A test before generalizing entities into supertypes, applies an
+  engine-split foreign key policy (no physical FK on MySQL InnoDB; allowed on PostgreSQL when six
+  conditions hold), and permits denormalization only against a measurement. Triggers: design
+  tables from requirements, data model, conceptual model, logical
   model, physical model, ERD, entity relationship diagram, domain model, business entities,
   normalization, 1NF 2NF 3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant,
   candidate key, overlapping candidate keys, update anomaly, generalization, specialization,
@@ -273,36 +274,55 @@ Two engine specifics that are easy to get wrong:
 - PostgreSQL: `uuidv7()` is built in from **PG 18**. On 16/17 generate v7 in the application;
   `gen_random_uuid()` is **v4**.
 
-### Hard Rule: No Physical FK Constraints
+### Foreign Keys — The Policy Splits by Engine
 
-**`FOREIGN KEY` constraints do not go into the physical model.** This is not a preference to
-weigh per table — the logical model carries the relationships, and the physical model implements
-them as documented references plus application-enforced integrity.
+Full criteria in `references/foreign-keys.md`.
 
-The reasons are operational, not stylistic: an FK adds parent-index I/O to every child write that
-never appears in the statement, takes locks on the parent row that serialize unrelated writes and
-surface as hard-to-diagnose incidents, gives cascades unbounded transaction scope, and blocks
-routine maintenance — on MySQL, InnoDB cannot put a foreign key on a partitioned table at all, so
-an FK today is a blocked partition tomorrow. Engine-specific detail in
-`mysql-guideline/dev-practices.md` §5.4 and `postgres-guideline/schema-design.md`.
+| | MySQL / InnoDB | PostgreSQL |
+|---|---|---|
+| Physical `FOREIGN KEY` | **Not created** | **Allowed by default — created when the six conditions are met** |
+| Integrity owner | The application | The database, once the constraint is valid |
+| Referencing-column index | **Mandatory, by hand** | Created unless an existing index already leads with it |
 
-**The trade-off is real and must be paid for.** Without the constraint, orphan rows are possible.
-Every logical FK in the deliverable therefore carries all four:
+**Why they differ.** InnoDB cannot put a foreign key on a partitioned table in either direction —
+and this plugin treats log and history tables as partitioning candidates by default, so an FK today
+is a blocked partition tomorrow. Add the parent-index I/O on every child write, shared locks on the
+parent row that serialize unrelated child writes, and the special handling `pt-online-schema-change`
+and `gh-ost` need, and the constraint costs more than it provides. PostgreSQL has none of the
+clustering penalty, supports FKs on partitioned tables, and can validate a large table without
+holding a long exclusive lock.
+
+**MySQL — the index consequence is the trap.** InnoDB's automatic child index comes *from* the FK
+constraint. Remove the constraint and the index goes with it, silently. So an explicit index on the
+referencing column is **mandatory and manual** — skip only when an existing composite index already
+**leads** with that column.
+
+Every **logical** FK (all of MySQL, and PostgreSQL relationships where a gate failed) carries four
+compensating controls:
 
 1. The reference in a `COMMENT` — `logical FK: parent_table.parent_column`
-2. **An index on the referencing column — mandatory on both engines.** On MySQL this is easy to
-   miss: InnoDB's automatic child index came *from* the FK constraint, so removing the constraint
-   removes the index and nothing warns you. PostgreSQL never created it automatically. Skip only if
-   an existing composite index already **leads** with that column
+2. The index above
 3. A named **integrity owner** — which service or module guarantees it on the write path
 4. A scheduled orphan-detection query
 
-The reference must target a **PK or UNIQUE** column. This holds for a logical FK too: a documented
-reference to a non-unique column is ambiguous by construction, and the orphan query cannot be
-written correctly against it.
+**PostgreSQL — six gates.** Allowed by default is not always create. Create the constraint only when
+all six hold; a failing gate means fix it first, or fall back to a logical FK and say why.
 
-Engine differences, the index consequence, and the exception path for schemas where a physical FK
-already exists or is mandated: `references/foreign-keys.md`.
+| # | Gate |
+|---|---|
+| 1 | Parent column is a **PK or UNIQUE** |
+| 2 | Referencing column is **indexed** — create it in the same migration |
+| 3 | No **redundant** index introduced (reuse an existing leading-column index) |
+| 4 | `CASCADE` only where the child's **lifecycle genuinely depends** on the parent |
+| 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction |
+| 6 | Large existing table: **`NOT VALID`** first, then `VALIDATE CONSTRAINT` separately |
+
+A constraint left `NOT VALID` never checked the existing rows — until `VALIDATE CONSTRAINT` succeeds,
+treat the reference as a logical FK and run the orphan query.
+
+**Both engines**: the reference must target a **PK or UNIQUE** column. This holds for a logical FK
+too — a documented reference to a non-unique column is ambiguous by construction, and the orphan
+query cannot be written correctly against it.
 
 If multiple writers exist (batch, admin, external integrations), the integrity owner must be a
 shared layer all of them pass through. If no such layer can exist, say so in the design — do not
@@ -376,7 +396,8 @@ STAGE 3 — Physical model
   DDL:            <CREATE TABLE + constraints in the correct dialect>
   Indexes:        <with the query each one serves>
   Partitioning:   <decision for log/history tables>
-  Logical FKs:    <per reference — COMMENT, index, integrity owner, orphan check query>
+  FK decisions:   <per reference — physical (PG, six conditions verified) | logical (COMMENT,
+                  index, integrity owner, orphan check query)>
   Migration:      <ordered SQL + rollout notes>
   Sample data:    <smallest inserts that exercise the constraints>
   Checklist:      <verified below>
@@ -410,9 +431,12 @@ STAGE 3 — Physical model
       synchronization mechanism
 - [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
 - [ ] PK type matches expected row count (tinyint / smallint / int / bigint)
-- [ ] **No `FOREIGN KEY` constraints anywhere in the DDL**
+- [ ] MySQL: **no `FOREIGN KEY` constraints in the DDL**; PostgreSQL: each physical FK satisfies
+      all six conditions, or was deliberately left logical with the reason stated
 - [ ] Every logical FK has all four: `COMMENT`, index on the referencing column, named integrity
       owner, scheduled orphan check
+- [ ] Every reference targets a PK or UNIQUE column — logical ones included
+- [ ] No PostgreSQL constraint left `NOT VALID` without a validation step
 - [ ] `created_at` on every table; `updated_at` on every mutable table
 - [ ] Soft-delete tables use `is_active` with the right index strategy per engine
 - [ ] Naming follows `rdbms-naming`: snake_case, singular tables, lowercase-prefix
@@ -441,8 +465,12 @@ STAGE 3 — Physical model
 | `timestamp` without timezone (PostgreSQL) | `timestamptz` |
 | Habitual `varchar(255)` (PostgreSQL) | `text` |
 | Natural key as PK when the key changes | Surrogate PK + `UNIQUE` constraint |
-| `FOREIGN KEY` constraint in the DDL | Logical FK: `COMMENT` + index + named integrity owner + orphan check |
-| `ON DELETE CASCADE` | Explicit application-side deletion, or a bounded batch job |
+| `FOREIGN KEY` constraint on MySQL/InnoDB | Logical FK: `COMMENT` + index + named integrity owner + orphan check |
+| Dropping a MySQL FK without first creating the index | The auto-created child index goes with it — create the explicit index first |
+| `ON DELETE CASCADE` on a high-fan-out parent | `RESTRICT` + explicit deletion, or a bounded batch job |
+| PostgreSQL FK with an unindexed referencing column | Create the index — PostgreSQL never auto-creates it |
+| PostgreSQL constraint left `NOT VALID` | `VALIDATE CONSTRAINT`; until then it is a logical FK |
+| Reference to a non-unique column | Target a PK or UNIQUE — otherwise the reference is ambiguous |
 | Logical FK with no orphan check | Violations accumulate silently — schedule the detection query |
 | Standalone `is_active` index | Composite index (MySQL) / partial index (PostgreSQL) |
 | `OFFSET` pagination on large log tables | Cursor / keyset pagination |

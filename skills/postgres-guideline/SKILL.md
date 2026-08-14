@@ -69,6 +69,14 @@ Summary + PostgreSQL-specific:
 | Arrays | `type[]` | Simple lists (e.g. `text[]`) |
 | IDs (external) | `uuid` via `gen_random_uuid()` | |
 
+## Foreign Keys — Differs from MySQL
+
+Physical `FOREIGN KEY` constraints **are allowed here**, unlike in `mysql-guideline` (InnoDB cannot
+put an FK on a partitioned table, and this plugin partitions log/history tables by default).
+Allowed by default is not always create — `schema-design.md` has the six conditions, the costs that
+remain, and the compensating controls for relationships left as logical FKs. PostgreSQL never
+auto-creates the referencing-column index, so condition 2 is the one most often missed.
+
 ## Prohibited Items
 - Stored Procedures: prohibited
 - Triggers: prohibited (handle `updated_at` in application)

@@ -16,6 +16,8 @@ Supporting skills, in the order you will usually need them:
 | Naming and data types (stage 3) | `rdbms-naming` |
 | Per-normal-form rules and the BCNF procedure | `rdbms-modeling/references/normalization.md` |
 | IS-A criteria, role vs type vs subtype, subtype mapping | `rdbms-modeling/references/generalization.md` |
+| UID vs PK, per-engine storage model, UUIDv7 | `rdbms-modeling/references/identifier-selection.md` |
+| FK engine split, six PostgreSQL conditions | `rdbms-modeling/references/foreign-keys.md` |
 | Target DB not decided at the stage 3 gate | `db-select` |
 | MySQL / Aurora MySQL specifics | `mysql-guideline` |
 | PostgreSQL / Aurora PostgreSQL specifics | `postgres-guideline` |
@@ -36,8 +38,12 @@ Six rules override any urge to move faster:
 - **3NF is required; BCNF is checked on every entity.** Emit the check result per entity even
   when it is "none". Decompose where a non-superkey determinant causes a real anomaly;
   otherwise name the exception that keeps it at 3NF.
-- **Never emit a physical `FOREIGN KEY` constraint.** The physical model uses logical FKs, each
-  carrying four compensating controls: `COMMENT`, index on the referencing column, named
-  integrity owner, scheduled orphan check. No `ON DELETE CASCADE`, ever.
+- **FK policy splits by engine.** MySQL/InnoDB: emit **no** physical `FOREIGN KEY` — and note that
+  removing it also removes InnoDB's auto-created child index, so the explicit index on the
+  referencing column is mandatory. PostgreSQL: physical FKs are allowed by default but created
+  only when all six conditions hold (PK/UNIQUE target, referencing column indexed, no redundant
+  index, `CASCADE` justified by lifecycle dependency, `NOT DEFERRABLE`, `NOT VALID`+`VALIDATE`
+  on large tables). Any relationship left logical carries four compensating controls: `COMMENT`,
+  index, named integrity owner, scheduled orphan check.
 - **Do not denormalize.** No measurement means the deliverable is the normalized design. When
   it is justified, record the evidence and the synchronization mechanism in a `COMMENT`.

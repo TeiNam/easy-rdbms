@@ -121,16 +121,29 @@ What to read in the plan:
 
 ### 3. Schema Design (HIGH)
 
-- **Physical `FOREIGN KEY` constraint present** — a policy violation and an operational finding.
-  It adds parent-index I/O to every child write that the statement does not show, takes locks on
-  the parent row that serialize unrelated child writes, and blocks routine maintenance (InnoDB
-  cannot put an FK on a partitioned table at all). Report the constraint, the drop statement, and
-  the four compensating controls that must land with it: `COMMENT`, index on the referencing
-  column, named integrity owner, scheduled orphan check. Flag `ON DELETE CASCADE` as CRITICAL —
-  one statement becoming an unbounded transaction
-- **Logical FK with no compensating controls** — the mirror finding. A documented reference with
-  no orphan check and no named integrity owner means violations are accumulating unobserved. Run
-  the orphan query during the review and report the count
+- **Foreign keys — the policy splits by engine, so establish the engine before judging.**
+
+  **MySQL / InnoDB — a physical `FOREIGN KEY` is a finding.** It adds parent-index I/O to every child
+  write the statement does not show, takes shared locks on the parent row that serialize unrelated
+  child writes, needs special handling in `pt-online-schema-change`/`gh-ost`, and **blocks
+  partitioning outright** — InnoDB cannot have an FK on a partitioned table in either direction.
+  Report the drop, but note the ordering trap: dropping the FK also drops the auto-created child
+  index, so the explicit index must be created **first**. Then the four compensating controls.
+
+  **PostgreSQL — a physical FK is fine; audit its six conditions instead.** Flag any that fail:
+  non-unique parent target; **referencing column unindexed** (PostgreSQL never auto-creates it — the
+  most common defect); a redundant index duplicating an existing leading-column one; `CASCADE` where
+  the child's lifecycle is not genuinely dependent on the parent; `DEFERRABLE` without a circular
+  reference to justify it; a constraint left **`NOT VALID`** with no validation step — it never
+  checked the existing rows, so treat that reference as a logical FK and run the orphan query.
+
+  `ON DELETE CASCADE` on a **high-fan-out parent** is CRITICAL on either engine — one statement
+  becomes an unbounded transaction.
+
+- **Logical FK with no compensating controls** — a documented reference with no orphan check and no
+  named integrity owner means violations are accumulating unobserved. Run the orphan query during the
+  review and report the count. On MySQL this applies to every relationship; on PostgreSQL, to the
+  ones deliberately left without a constraint
 - **Normalization**: 3NF is the baseline. Flag transitive dependencies and partial dependencies
   on composite PKs. Then check for a **determinant that is not a superkey** (BCNF violation) —
   usually a table with overlapping candidate keys — and flag it only when it can produce a real

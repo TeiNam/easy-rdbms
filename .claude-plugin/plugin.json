@@ -1,0 +1,23 @@
+{
+  "name": "easy-rdbms",
+  "version": "0.1.0",
+  "description": "RDBMS design companion. Picks the database for your scale, enforces naming conventions, models tables to 3NF, and reviews schemas and queries for MySQL and PostgreSQL.",
+  "author": {
+    "name": "TeiNam",
+    "url": "https://github.com/TeiNam"
+  },
+  "homepage": "https://github.com/TeiNam/easy-rdbms",
+  "repository": "https://github.com/TeiNam/easy-rdbms",
+  "license": "MIT",
+  "keywords": [
+    "rdbms",
+    "database",
+    "mysql",
+    "postgresql",
+    "schema-design",
+    "naming-conventions",
+    "normalization",
+    "migrations",
+    "database-selection"
+  ]
+}

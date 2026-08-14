@@ -1,0 +1,208 @@
+---
+name: rdbms-naming
+description: >
+  Common RDBMS naming and data type conventions (single source for MySQL and PostgreSQL).
+  Table/column snake_case, singular, past-participle time columns, prefix/postfix, abbreviation
+  dictionary, column prefix/suffix system, index/constraint naming (lowercase prefix pk_/fk_/uq_/chk_/idx_/ftx_),
+  identifier case-folding, 63-char limit, data type selection. Triggers: table/column/index design,
+  DDL authoring, schema review, naming conventions, snake_case, abbreviations, PK/FK naming,
+  boolean columns, DECIMAL, settlement amount columns.
+origin: custom
+---
+
+# RDBMS Naming Conventions
+
+**Naming governance** (snake_case, singular, time-column standard, prefix/postfix, abbreviations,
+index/constraint naming, case-folding) is common across MySQL and PostgreSQL, making this skill the
+**single source**. **Data types** differ by engine, so apply only the target DB column from the
+"Data Types (by DB)" table below; see `mysql-guideline` / `postgres-guideline` for deeper details.
+
+## When to Activate
+
+When creating tables, columns, or indexes; authoring or reviewing DDL; or deciding naming conventions.
+Target: RDBMS (MySQL 8.x / PostgreSQL).
+
+## 0. Case Folding — the portability rule to understand first
+
+Each engine auto-transforms **unquoted identifiers**, so a name that "works" on one engine can silently
+change on another.
+
+| Engine | Unquoted identifier handling | Example |
+|--------|------------------------------|---------|
+| PostgreSQL | folds to **lowercase** | `Book_IDX` → actually `book_idx` |
+| MySQL | depends on `lower_case_table_names` | easy to assume case is preserved |
+| (Oracle, for reference) | folds to **uppercase** | mind this if you ever port |
+
+**Conclusions:**
+
+1. **Write every identifier in lowercase snake_case.** Rules that assign meaning to uppercase
+   (e.g. an uppercase suffix) break automatically on PostgreSQL — do not use them.
+2. **Keep identifiers ≤ 63 bytes** (PostgreSQL 63, MySQL 64 → safe floor is 63).
+3. Name things so you never need quotes (`"..."`, `` `...` ``). Quotes hurt both portability and readability.
+
+## 1. Common Rules
+
+- **snake_case, all lowercase**: `authUser` → `auth_user`, `Book_IDX` → `book_idx`.
+- **Descriptive and intuitive**: Names should be self-explanatory. Use `delivery_log` / `order_log`
+  instead of vague `log`. Prefer simple words.
+- **Time columns use the industry-standard past-participle form**: `created_at` / `updated_at` /
+  `deleted_at`. Most ORMs (Django, Rails, JPA, Prisma, TypeORM) default to these names, so they win on
+  portability and collaboration. Other time/date columns use `<purpose>_at` / `<purpose>_date`
+  (e.g. `publish_at`, `expire_at`, `open_date`).
+  - **Note — the old "active voice" rule is retired.** A prior version forced `create_date`-style active
+    voice, but that collides with the `created_at` industry standard. Time columns now follow the
+    past-participle standard for portability.
+- **No reserved words**: Avoid words reserved in **either** MySQL or PostgreSQL — a word reserved in only
+  one engine is still off-limits. Common traps: `user`, `order`, `group`, `table`, `column`, `type`,
+  `default`, `check`, `limit`, `offset`, `desc`, `role`.
+  ([MySQL keywords](https://dev.mysql.com/doc/refman/8.0/en/keywords.html) ·
+  [PostgreSQL keywords](https://www.postgresql.org/docs/current/sql-keywords-appendix.html))
+
+## 2. Table / Column
+
+- **Singular form**: Table names are singular (entity = 1 row, aligns with the `member_id` PK convention).
+  `users` → `user`.
+- **No postfix / limited prefix**: `tb_user`, `user_tbl` → `member`. Use a prefix only to group attribute
+  tables subordinate to a master table: `member_auth` (child of `member`), `book_like` (child of `book`).
+- **Reserved-word collision**: when the singular name is reserved (e.g. `user` in PostgreSQL), **rename
+  rather than quote**: `user` → `member`, `order` → `purchase_order` / `order_info`, `group` → `user_group`.
+- **M:N join tables**: name as `<table_a>_<table_b>` in **alphabetical order** to prevent duplicate tables
+  across the team (`book` × `tag` → `book_tag`). If the relationship has a clear domain meaning, prefer the
+  domain name (`book_like`, `member_role`).
+- **Lookup (code) tables instead of ENUM**: MySQL `ENUM` / PostgreSQL `enum type` are painful to extend and
+  port. Use a **lookup table + FK** named `<domain>_code` or `<domain>_type` (e.g. `order_status_code`).
+- **Limited abbreviations**: Avoid abbreviations; if unavoidable, use lowercase and register them in the
+  **abbreviation dictionary** (§4) for team-wide use. `create_dt` → `created_date`, `user_cd` → `member_code`.
+
+### Column Prefix/Suffix System
+
+| Purpose | Rule | Example |
+|---------|------|---------|
+| PK | `<table>_id` | `member_id` |
+| FK | `<parent_table>_id` | `member_id` |
+| Date (DATE) | `<purpose>_date` | `open_date` |
+| Date+Time (DATETIME) | `<purpose>_at` | `publish_at` (create/update/delete → `created_at`/`updated_at`/`deleted_at`) |
+| Code | `<purpose>_code` | `member_code` |
+| Number | `<purpose>_no` | `order_no` |
+| **Boolean** | **`is_` / `has_` prefix** | `is_active`, `is_deleted`, `has_coupon` |
+
+> **Boolean policy.** Use an `is_`/`has_` prefix + a native boolean, **not** the old `use_yn` CHAR(1)
+> 'Y'/'N' pattern. Rename `use_yn` → `is_used`, `del_yn` → `is_deleted`. Storage type by engine: PostgreSQL
+> `BOOLEAN`, MySQL `TINYINT(1)` 0/1. Legacy Y/N data with heavy app coupling may stay for migration-cost
+> reasons, but **new designs must follow the standard.** Do not encode a type in a suffix (`_yn`); name by
+> domain meaning.
+
+## 3. Constraint / Index Naming — lowercase prefix
+
+> A prior version used an uppercase postfix (`_IDX`). That **breaks under PostgreSQL case-folding** and blows
+> past the 63-char limit on composite indexes. Use a **lowercase prefix** instead — prefixes also sort by type,
+> which helps management. **Always name constraints/indexes explicitly**: engine-generated names (`SYS_C00…`,
+> random `fk_…`) are the worst for debugging and portability.
+
+| Type | Rule | Example |
+|------|------|---------|
+| Primary Key | `pk_<table>` | `pk_member` |
+| Foreign Key | `fk_<child>_<parent>` | `fk_order_member` |
+| Unique | `uq_<table>_<col…>` | `uq_member_email` |
+| Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
+| General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |
+| Composite index | `idx_<table>_<col1>_<col2>…` | `idx_actor_first_name_last_name` |
+| Fulltext index | `ftx_<table>_<col…>` | `ftx_book_name` |
+
+**63-char overflow** — when listing every column exceeds 63 chars, shorten in this order:
+1. Apply an abbreviation registered in the dictionary (§4) (e.g. `authentication` → `auth`).
+2. If still too long, keep the key columns and end with a meaningful suffix
+   (`idx_order_member_created_at` → `idx_order_member_created`).
+3. Record which rule you applied in a migration-script comment.
+
+## 4. Abbreviation Dictionary
+
+Principle: abbreviate only long words where the abbreviation loses no meaning and is agreed upon. Keep the
+list **minimal**.
+
+| Full Term | Abbreviation |
+|-----------|--------------|
+| number | `no` |
+| address | `addr` |
+| episode | `ep` |
+| transaction | `tx` |
+| count | `cnt` |
+| authentication | `auth` |
+| introduce | `intro` |
+
+## 5. Data Types (by DB)
+
+Type selection varies by DB engine. Follow the **common principles** below, but use the target DB column for
+concrete types. See `mysql-guideline` / `postgres-guideline` for deeper type tables.
+
+### Common Principles (DB-agnostic)
+
+- **PK is integer-based (avoid UUID)**: the first-column PK should be an auto-increment integer. **Default the
+  surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion on large tables). Ordering, index locality, and
+  storage favor integers over UUIDs. Use UUID **only when distributed generation across DBs/shards** is
+  required (no central sequence) — and prefer **UUID v7** (time-sortable) stored as `BINARY(16)` over random v4.
+  - **MySQL**: `BIGINT ... AUTO_INCREMENT`
+  - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`)
+- **Amounts / settlement**: Floating-point (`float`/`double`/`real`) is **absolutely prohibited** → use
+  fixed-point (`DECIMAL` = standard `NUMERIC`). **Size precision/scale per currency and use — never a blanket
+  `(10,2)`:**
+
+  | Use | Recommended | Note |
+  |-----|-------------|------|
+  | KRW amount | `DECIMAL(15, 0)` | KRW has no minor unit → **scale 0** |
+  | Multinational amount | `DECIMAL(19, 4)` | covers most currencies (2–4 dp), safe for large sums |
+  | Exchange rate / unit price | `DECIMAL(19, 6)` | match to required precision |
+  | Ratio (0.1234 = 12.34%) | `DECIMAL(5, 4)` | |
+
+- **JOIN keys**: integer types, and **both sides of a join must have identical types**.
+- **Strings**: bounded → `VARCHAR(n)` (`n` sized to real max length); unbounded long text → engine-specific
+  large type. `CHAR(n)` only for truly fixed widths (e.g. country code `CHAR(2)`); PostgreSQL gives `CHAR` no
+  performance benefit, so do not overuse it.
+- **Positive-only columns**: enforce with **`CHECK (col >= 0)`** (portable). MySQL `UNSIGNED` is not portable
+  → prefer `CHECK` for cross-engine columns (see appendix in `mysql-guideline`).
+- **Avoid NULL**: for indexed columns prefer `NOT NULL` and normalize optional attributes into a joined table.
+  Allow NULL only when the data is small or rarely used.
+- **Charset**: standardize on UTF-8 — MySQL `utf8mb4`, PostgreSQL `UTF8`.
+
+### Type Mapping
+
+| Purpose | MySQL | PostgreSQL |
+|---------|-------|------------|
+| Boolean | `TINYINT(1)` 0/1 (`BOOLEAN`/`BOOL` is an alias). No native boolean. Name `is_`/`has_` | **native `boolean`**. 'Y'/'N' strings prohibited |
+| PK (auto, integer) | **`AUTO_INCREMENT`** — `bigint unsigned` default (standard method) | **`GENERATED ALWAYS AS IDENTITY`** — `bigint` (SQL standard). Do not use `SERIAL` |
+| Amount | `DECIMAL(p,s)` | `numeric(p,s)` |
+| Date+Time | `datetime` (+`DEFAULT CURRENT_TIMESTAMP`); `TIMESTAMP` only for auto-UTC ≤ 2038 | `timestamptz` (timezone required) |
+| Date | `date` | `date` |
+| Long text | `TINYTEXT`(256B)/`TEXT`(64KB)/`MEDIUMTEXT`(16MB)/`LONGTEXT`(4GB) 4 tiers | Variable `text` **single** (no length distinction) |
+| JSON | `json` (8.0+ native) | `jsonb` (indexing support, not `json`) |
+| Positive-only | `UNSIGNED` (MySQL-only) or `CHECK (col >= 0)` (portable) | `CHECK (col >= 0)` (no UNSIGNED) |
+| Fixed display width | (avoid) `ZEROFILL` deprecated 8.0.17 → pad in app/`LPAD` | No display width → app or `LPAD` |
+| External ID (not PK) | `binary(16)` (UUID v7 via `UUID_TO_BIN`) | `uuid` (`gen_random_uuid()`) |
+| IPv4 / IPv6 | `int unsigned` via `INET_ATON` / `varbinary(16)` via `INET6_ATON` | `inet` (native) |
+| Array | (none → normalize or JSON) | `type[]` (e.g., `text[]`) |
+
+> MySQL-specific: `UNSIGNED`, TEXT 4 tiers, `AUTO_INCREMENT`, `INET6_ATON`/`UUID_TO_BIN`.
+> `ZEROFILL` + display width are deprecated (8.0.17); `DECIMAL/FLOAT/DOUBLE UNSIGNED` also deprecated (8.0.17).
+> PostgreSQL-specific: native `boolean`, `timestamptz`, `jsonb`, `inet`, arrays, `IDENTITY`, `numeric`.
+> Do not mix; apply only the target DB column.
+
+## Bad / Good Summary
+
+| Bad | Good | Reason |
+|-----|------|--------|
+| `authUser` | `auth_user` | snake_case |
+| `Book_IDX` | `idx_book` | lowercase (PG folds uppercase) |
+| `users` | `member` | singular + reserved-word rename |
+| `tb_user` | `member` | unnecessary prefix |
+| `create_date` (as create time) | `created_at` | past-participle time-column standard |
+| `create_dt` | `created_date` | abbreviation overuse |
+| `use_yn` CHAR(1) | `is_used` TINYINT(1) / BOOLEAN | boolean prefix + native type |
+| `book_user_id_IDX` | `idx_book_user_id` | lowercase prefix, not uppercase suffix |
+| `DECIMAL(10,2)` for KRW | `DECIMAL(15,0)` | KRW has no minor unit |
+
+## Related
+
+- `mysql-guideline` — MySQL-specific defaults, types, prohibitions, JDBC, release policy. Based on these rules.
+- `postgres-guideline` — PostgreSQL-specific differences (single text type, IDENTITY, no UNSIGNED, etc.).
+- `rdbms-modeling` — Applies these conventions for normalization and table design.
+- `db-select` — Picks the engine in the first place (RDBMS vs not, MySQL vs PostgreSQL, scale tier).

@@ -1,0 +1,15 @@
+description = "Pick the right database for this project's scale, then route to its guideline"
+prompt = """
+Use the `db-select` skill to recommend a database for what the user describes.
+
+Follow the skill exactly:
+
+1. Collect the facts in its gate table. Ask for everything missing in one message - do not guess at data volume, QPS, or who operates the database.
+2. Decide whether an RDBMS fits at all before comparing engines.
+3. Place the workload in a scale tier using the 12-month projection.
+4. Name one recommendation. Not three options with tradeoffs.
+5. Give every deferred item a measurable trigger.
+6. Route to `mysql-guideline` or `postgres-guideline` for the follow-up design work.
+
+If the project already has a database, do not re-litigate the choice unless asked. Review whether the current tier still fits instead.
+"""

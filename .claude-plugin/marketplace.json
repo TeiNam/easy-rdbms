@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "easy-rdbms",
+  "description": "RDBMS design companion for AI coding agents: choose the database, name it consistently, model it to 3NF, review it before it ships.",
+  "owner": {
+    "name": "TeiNam",
+    "url": "https://github.com/TeiNam"
+  },
+  "plugins": [
+    {
+      "name": "easy-rdbms",
+      "description": "From database selection to schema design. Scale-aware engine choice, naming conventions, 3NF modeling, and schema/query review for MySQL and PostgreSQL.",
+      "source": "./",
+      "category": "database"
+    }
+  ]
+}

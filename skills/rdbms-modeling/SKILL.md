@@ -1,0 +1,273 @@
+---
+name: rdbms-modeling
+description: >
+  Turn business requirements into a data model through three staged steps — conceptual,
+  logical, then physical — with a confirmation gate between each. Never converts requirements
+  straight into DDL. Normalizes to Third Normal Form as the baseline, checks every table for
+  BCNF violations, and permits denormalization only against a measurement. Triggers: design
+  tables from requirements, data model, conceptual model, logical model, physical model, ERD,
+  entity relationship diagram, domain model, business entities, normalization, 1NF 2NF 3NF,
+  BCNF, Boyce-Codd normal form, functional dependency, determinant, candidate key,
+  overlapping candidate keys, update anomaly, denormalization, denormalize, table design,
+  schema design from scratch, N:M relationship, junction table, surrogate key vs natural key,
+  composite primary key, cardinality, soft delete design, which PK type, do I need a history
+  table, design a schema for, migration SQL for a new feature.
+---
+
+# RDBMS Data Modeling
+
+**Requirements do not become DDL in one step.** Build the conceptual model, get it confirmed,
+derive the logical model and normalize it, then — once the RDBMS is chosen — produce the
+physical model and migration SQL.
+
+Skipping the early stages is what produces schemas that churn: business concepts get missed,
+and every missed concept becomes a migration later.
+
+## When to Activate
+
+- Designing tables for a new feature or service
+- Authoring or reviewing an ERD
+- Deciding a normalization or denormalization tradeoff
+- Planning a schema migration's target shape
+- Choosing PK type, relationship cardinality, or soft-delete strategy
+
+## Gate: How Much Rigor Does This Need?
+
+Judge by the cost of a data error, then say which stages you are running.
+
+| Domain | Stages |
+|---|---|
+| **Payments, inventory, permissions, contracts, ledgers, audit** | All three, with confirmation between each. Data errors here are expensive and often irreversible |
+| Ordinary product features (content, profiles, settings, tracking) | All three, but conceptual and logical can be brief — a few lines and a compact ERD |
+| Personal tool, throwaway script, single-user utility | Conceptual and logical may collapse into one short pass. Say that you compressed them |
+
+Never skip a stage silently. If you compress, state it in one line so the user can object.
+
+## Stage 1 — Conceptual Model
+
+**Question: what does this system manage?**
+
+Produce:
+
+- The core business concepts
+- The relationships between them
+- The terms the *users* use, not database terms
+
+Exclude entirely: columns, data types, keys, indexes, and the DB product.
+
+Keep it to a few sentences or a small Mermaid diagram:
+
+```
+A customer places orders. An order contains one or more products.
+A product belongs to a category.
+```
+
+```mermaid
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ ORDER_ITEM : contains
+    PRODUCT ||--o{ ORDER_ITEM : "appears in"
+    CATEGORY ||--o{ PRODUCT : classifies
+```
+
+**→ Confirmation gate.** Present the concepts and the vocabulary, then ask whether anything is
+missing or named wrong. Wait for the answer. Terminology corrections are cheapest here and
+most expensive after the DDL exists.
+
+Ask specifically about what tends to be missed: lifecycle states, who owns what, whether
+history must be retained, and any concept the user mentioned in passing but you did not model.
+
+## Stage 2 — Logical Model
+
+**Question: what is the data structure?** Still no DB product.
+
+Produce:
+
+- Entities and their attributes
+- Primary keys and foreign keys
+- Relationships with cardinality (1:1, 1:N, N:M — resolve N:M into a junction entity)
+- Required (`NOT NULL`) and unique attributes
+- **3NF normalization, then the BCNF check on every entity**
+
+Exclude: engine-specific data types, indexes, partitioning, storage.
+
+Use generic types at this stage — *integer*, *text*, *decimal*, *timestamp*, *boolean* — not
+`bigint unsigned` or `timestamptz`. Those belong to Stage 3.
+
+Read `references/normalization.md` for the per-normal-form rules, the BCNF check procedure,
+and the denormalization bar. Emit the BCNF check block for every entity, including the ones
+where the answer is "none".
+
+**→ Confirmation gate.** Present the ERD, the normalization steps, and the BCNF results. Ask
+whether the keys and cardinalities match the business rules. Wait for the answer.
+
+## Stage 3 — Physical Model
+
+**Gate: the target RDBMS must be confirmed before any DDL.** The dialect and the applicable
+guideline both depend on it.
+
+The logical model is what makes this choice answerable — you now know the entity count, the
+relationships, and the expected volumes. If the engine is undecided, use `db-select` now (it
+also covers scale tier and three-year cost). Do not pick on the user's behalf.
+
+If the engine is decided but unstated, ask:
+
+> The logical model is ready. Which RDBMS is this targeting?
+> 1. **Aurora MySQL** (AWS, MySQL-compatible)
+> 2. **MySQL Community** (8.4 LTS+)
+> 3. **Aurora PostgreSQL** (AWS, PostgreSQL-compatible)
+> 4. **PostgreSQL Community** (16.7+)
+
+If repo files already answer it (`docker-compose.yml`, `alembic.ini`, `flyway.conf`,
+`prisma/schema.prisma`, `DATABASE_URL` in `.env`), confirm instead of asking cold: "The repo
+looks like `<DB>`. Correct?"
+
+Then produce:
+
+- Table and column names per `rdbms-naming` — `snake_case`, singular tables, lowercase-prefix
+  constraints and indexes (`pk_` / `fk_` / `uq_` / `chk_` / `idx_` / `ftx_`). The uppercase
+  `_IDX` suffix is retired; it breaks under PostgreSQL case-folding
+- Engine-specific data types, with PK type sized to the expected row count
+- Constraints: PK, UNIQUE, CHECK, and NOT NULL. Logical FKs only — document the reference
+  target in a `COMMENT`
+- `created_at` on every table; `updated_at` on every mutable table (skip for append-only logs)
+- Soft delete via `is_active` plus a composite index (MySQL) or partial index (PostgreSQL)
+- Indexes driven by actual WHERE / JOIN / ORDER BY columns. Composite order is
+  equality → sort → range (see `<engine>-guideline/index-and-query.md`)
+- Partitioning and retention for log and history tables — monthly is the default cadence
+- Migration SQL, ordered, with the rollout considerations from `database-migrations`
+
+Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
+uniqueness, and check constraints behave as intended.
+
+### DB-to-Guideline Mapping
+
+| Target | Apply | Key rules |
+|---|---|---|
+| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
+| Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
+
+Aurora variants follow the base guideline plus:
+
+- **Aurora MySQL** — Writer/Reader split; avoid excessive indexes that slow writes; assume
+  `FOR UPDATE` runs against the Writer endpoint
+- **Aurora PostgreSQL** — Extension availability is limited (`pg_partman`, `pg_cron` may be
+  restricted); plan scripted partitioning as a fallback
+- **Both** — Size pools against RDS Proxy or app-side pools; account for IAM authentication
+  when designing DB users; treat log tables as candidates for S3 Export or partition-and-drop
+
+## Normalization Policy
+
+**3NF is the requirement. BCNF is a check, then an option. Denormalization needs a
+measurement.** Full rules in `references/normalization.md`.
+
+| Level | Status | Rule |
+|---|---|---|
+| 1NF → 3NF | **Required** | The baseline for any OLTP schema. Not negotiable |
+| BCNF | **Checked, then optional** | Test every table for a determinant that is not a superkey. Decompose when that determinant can actually produce an update, insert, or delete anomaly |
+| Stay at 3NF | **Permitted exception** | When BCNF decomposition cannot preserve functional dependencies, or explodes the join count for normal queries. Record which one applied |
+| Denormalization | **Requires evidence** | Only after a performance problem has been *measured*. Record the evidence and the synchronization mechanism |
+
+Normalization and ACID solve different problems and neither substitutes for the other:
+
+- **ACID** is how a transaction handles data safely — atomicity, consistency, isolation, durability.
+- **Normalization** is how the schema avoids redundancy and update anomalies.
+
+A fully normalized schema on a non-transactional store still corrupts under concurrent writes;
+a transactional store with a denormalized schema still drifts out of sync. Assume an
+ACID-capable engine (both MySQL/InnoDB and PostgreSQL are) and normalize on top of it.
+
+Do not denormalize while designing something new. Denormalization answers a measured problem
+in a running system — with no measurement, the deliverable is the normalized design.
+
+## Deliverable Format
+
+One section per stage, delivered in order, each stopping at its gate.
+
+```
+STAGE 1 — Conceptual model
+  Rigor:      all three stages | compressed (and why)
+  Concepts:   <business concepts and the user-facing terms>
+  Relations:  <text or Mermaid>
+  → Confirm: anything missing or misnamed?
+
+STAGE 2 — Logical model
+  ERD:            <entities, attributes, keys, cardinality>
+  Required/unique: <NOT NULL and UNIQUE attributes>
+  Normalization:  1NF result / 2NF violations + resolution / 3NF violations + resolution
+  BCNF check:     one block per entity — FDs, violation or "none", decision, reason
+  → Confirm: do the keys and cardinalities match the business rules?
+
+STAGE 3 — Physical model
+  Target DB:      <name and version, and how it was confirmed>
+  DDL:            <CREATE TABLE + constraints in the correct dialect>
+  Indexes:        <with the query each one serves>
+  Partitioning:   <decision for log/history tables>
+  Migration:      <ordered SQL + rollout notes>
+  Sample data:    <smallest inserts that exercise the constraints>
+  Checklist:      <verified below>
+```
+
+## Checklist
+
+- [ ] Rigor level stated; any compressed stage called out explicitly
+- [ ] Stage 1 confirmed by the user before Stage 2 began
+- [ ] Stage 2 confirmed by the user before any DDL was written
+- [ ] Target DB confirmed before Stage 3
+- [ ] Logical model used generic types, not engine-specific ones
+- [ ] 1NF: no repeating groups, no multi-value columns
+- [ ] 2NF: no partial dependencies on composite PKs
+- [ ] 3NF: no transitive dependencies between non-key columns
+- [ ] BCNF check run on **every** entity, with the result stated (including "none")
+- [ ] Each BCNF violation either decomposed, or kept at 3NF with the exception named
+      (dependency preservation or join cost)
+- [ ] No denormalization without a measurement, the alternatives already tried, and a stated
+      synchronization mechanism
+- [ ] Every denormalized column carries its rationale and sync mechanism in a `COMMENT`
+- [ ] PK type matches expected row count (tinyint / smallint / int / bigint)
+- [ ] No physical FK constraints; logical FKs documented in `COMMENT`
+- [ ] `created_at` on every table; `updated_at` on every mutable table
+- [ ] Soft-delete tables use `is_active` with the right index strategy per engine
+- [ ] Naming follows `rdbms-naming`: snake_case, singular tables, lowercase-prefix
+      indexes/constraints, boolean `is_`/`has_`, time columns `created_at`/`updated_at`
+- [ ] Engine-correct types (MySQL: `datetime`, `json`, `tinyint(1)`; PostgreSQL:
+      `timestamptz`, `jsonb`, `boolean`)
+- [ ] Partitioning decision made for log and history tables
+- [ ] Composite index order: equality → sort → range
+- [ ] Sample data and constraint test proposed
+
+## Anti-Patterns (Fix on Sight)
+
+| Anti-pattern | Replacement |
+|---|---|
+| Requirements straight to `CREATE TABLE` | Conceptual → logical → physical, with gates |
+| Engine types in the logical model | Generic types until Stage 3 |
+| Multi-value storage via CSV or pipe delimiters | Separate N:M table |
+| `'Y'` / `'N'` string flags | MySQL `tinyint(1)` / PostgreSQL `boolean` |
+| `timestamp` without timezone (PostgreSQL) | `timestamptz` |
+| Habitual `varchar(255)` (PostgreSQL) | `text` |
+| Natural key as PK when the key changes | Surrogate PK + `UNIQUE` constraint |
+| Physical FK constraints | Logical FKs + application-level validation |
+| Standalone `is_active` index | Composite index (MySQL) / partial index (PostgreSQL) |
+| `OFFSET` pagination on large log tables | Cursor / keyset pagination |
+| An index on every column | Minimal indexes driven by real query patterns |
+
+## Related
+
+- `db-select` — pick the engine, scale tier, and cost position at the Stage 3 gate
+- `rdbms-naming` — naming and data-type conventions (single source of truth)
+- `references/normalization.md` — per-normal-form rules, BCNF procedure, denormalization bar
+- `mysql-guideline` — and its `mysql-guideline/schema-design.md`,
+  `mysql-guideline/index-and-query.md`, `mysql-guideline/partitioning.md`,
+  `mysql-guideline/operations.md`
+- `postgres-guideline` — and its `postgres-guideline/schema-design.md`,
+  `postgres-guideline/index-and-query.md`, `postgres-guideline/partitioning.md`
+- `rdbms-review` — review an existing schema or query rather than designing a new one
+- `database-migrations` — rolling the design out safely against a live database
+
+---
+
+**Remember**: conceptual model first and confirmed, then the logical model normalized to 3NF
+with the BCNF check run on every entity, and only then the physical model in a confirmed
+dialect. Denormalize only against a measurement, with the synchronization mechanism written
+down.

@@ -83,7 +83,9 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
   operational-utility and audit-trigger exceptions are in
   `rdbms-modeling/references/db-internal-routines.md`
 - Triggers: prohibited for business logic (handle `updated_at` in the application)
-- Events/Schedulers: use external (cron, Airflow)
+- Events/Schedulers: prefer external (cron, Airflow, an operator job). `pg_cron` is acceptable for
+  the sanctioned operational-utility category only (partition rotation, retention) — categories and
+  limits in `rdbms-modeling/references/db-internal-routines.md`, which is authoritative
 - Views: simple read-only views are fine for query reuse, security, and interface abstraction —
   **complex or nested views are discouraged** (a view is not a performance cache; PostgreSQL rewrites
   it into a base-table query). Materialized views **are** available for repeated joins and aggregation.

@@ -59,6 +59,13 @@ If every write goes through the application, do not add it. See `history-entitie
 |---|---|
 | Trigger maintaining a denormalized column or aggregate | The application transaction that changed the source (see `denormalization.md`) |
 | Trigger setting `updated_at` | Set it in the application write path |
+
+> **Named exception: MySQL's `ON UPDATE CURRENT_TIMESTAMP`.** It is a *column attribute*, not a
+> routine — no stored program, no hidden branch, nothing to version separately — so it is outside
+> this policy and the MySQL examples use it. Two consequences to accept knowingly: the **database
+> clock** stamps the row rather than the application's, and it fires only when the `UPDATE` actually
+> changes a value. PostgreSQL has no equivalent, so there the application owns `updated_at`; a
+> trigger to emulate it is still prohibited.
 | Trigger enforcing a business rule or state transition | Application validation; `CHECK` for structural invariants |
 | Stored procedure holding a business workflow | Application service code |
 | Event running business processing on a timer | Application job or external scheduler |

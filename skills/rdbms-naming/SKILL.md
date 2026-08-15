@@ -47,10 +47,16 @@ change on another.
 - **Time columns use the industry-standard past-participle form**: `created_at` / `updated_at` /
   `deleted_at`. These are the prevailing convention across the Django, Rails, JPA, Prisma, and TypeORM ecosystems
   (not every framework generates them automatically), so they win on portability and collaboration. Other time/date columns use `<purpose>_at` / `<purpose>_date`
-  (e.g. `publish_at`, `expire_at`, `open_date`).
+  — using the past participle for what happened (`published_at`, `expired_at`) and the base form for
+  what is scheduled (`publish_at`, `expire_at`).
   - **Note — the old "active voice" rule is retired.** A prior version forced `create_date`-style active
     voice, but that collides with the `created_at` industry standard. Time columns now follow the
     past-participle standard for portability.
+  - **Completed vs scheduled is the distinction that decides the form.** A column recording that
+    something *happened* takes the past participle (`created_at`, `published_at`, `expired_at`,
+    `opened_at`). A column holding a time something is *supposed to* happen is not a past event, so it
+    stays in the base form (`publish_at`, `expire_at`, `open_at`) — and if a table has both, that is
+    two columns (`publish_at` scheduled, `published_at` actual), not one.
 - **No reserved words**: Avoid words reserved in **either** MySQL or PostgreSQL — a word reserved in only
   one engine is still off-limits. Common traps: `user`, `order`, `group`, `table`, `column`, `type`,
   `default`, `check`, `limit`, `offset`, `desc`, `role`.
@@ -79,8 +85,8 @@ change on another.
 |---------|------|---------|
 | PK | `<table>_id` | `member_id` |
 | FK | `<parent_table>_id` | `member_id` |
-| Date (DATE) | `<purpose>_date` | `open_date` |
-| Date+Time (DATETIME) | `<purpose>_at` | `publish_at` (create/update/delete → `created_at`/`updated_at`/`deleted_at`) |
+| Date (DATE) | `<purpose>_date` | `opened_date` (happened) / `open_date` (scheduled) |
+| Date+Time (DATETIME) | `<purpose>_at` | `published_at` (happened) / `publish_at` (scheduled); create/update/delete → `created_at`/`updated_at`/`deleted_at` |
 | Code | `<purpose>_code` | `member_code` |
 | Number | `<purpose>_no` | `order_no` |
 | **Boolean** | **`is_` / `has_` prefix** | `is_active`, `is_deleted`, `has_coupon` |

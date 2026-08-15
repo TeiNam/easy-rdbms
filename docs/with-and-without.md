@@ -94,10 +94,9 @@ CREATE TABLE app.member (
   email         text NOT NULL,            -- text + CHECK, not varchar(255): the 255 is arbitrary
   display_name  text,
   password_hash text NOT NULL,
-  is_active     boolean NOT NULL DEFAULT true,
+  is_active     boolean NOT NULL DEFAULT true,   -- the plugin's soft-delete standard
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
-  deleted_at    timestamptz,              -- nullable timestamp, not a boolean flag
   CONSTRAINT pk_member PRIMARY KEY (member_id),
   CONSTRAINT uq_member_public_id UNIQUE (public_id),
   CONSTRAINT uq_member_email UNIQUE (email),
@@ -190,7 +189,7 @@ Sorted by how expensive the fix gets, not by how clever the point is.
 | 6 | `month VARCHAR(7)` | `'2026-9'` and `'2026-09'` both insert. Range queries do string comparison. No date arithmetic | First aggregation bug nobody can reproduce | Data cleanup with no reliable source of truth |
 | 7 | No index on `messages.conversation_id` | The plugin's naming rule and PostgreSQL both leave the referencing column unindexed unless you say so. Loading a conversation sequentially scans the message table | ~100k messages | Cheap to add — **`CREATE INDEX CONCURRENTLY` on a table that is now huge**, and the slow queries were shipping the whole time |
 | 8 | `settings JSONB` for everything | Fine until a query needs "all members whose notification setting is X". Now it needs an expression index per key, or a migration to columns | First feature that filters on a setting | Medium — an expression index buys time, normalization is the real fix |
-| 9 | `is_deleted BOOLEAN` | Records the current flag, not who deleted the row, when, or why. It is not an audit trail | First dispute or compliance question | Unrecoverable — **the history was never written** |
+| 9 | A delete flag and nothing else | `is_deleted` records the current state, not who deleted the row, when, or why — and neither does `is_active`. A flag is a soft delete, **not an audit trail**; that needs a separate history table written at the time of the change | First dispute or compliance question | Unrecoverable — **the history was never written** |
 | 10 | `messages.user_id` duplicated alongside `conversation_id` | `user_id` is determined by `conversation_id`, not by the message key — a transitive dependency, so 3NF is violated. Two sources of truth for one fact: reassign a conversation and the copies disagree | First time the two are compared | Cheap to drop, but every report already built on the stale copy has to be re-verified |
 | 11 | No partitioning on `messages` | Retention means `DELETE` over millions of rows, generating bloat and vacuum pressure, instead of `DROP PARTITION` | First retention policy | Partitioning an existing large table requires a full data migration |
 

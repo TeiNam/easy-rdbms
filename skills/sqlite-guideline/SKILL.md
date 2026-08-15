@@ -132,7 +132,9 @@ B-tree only — no GIN/BRIN/hash. What carries over and what replaces them:
 - Composite order follows the same conditional rule as the server engines — equality first,
   then sort-or-range by what the query needs (see `rdbms-modeling/references/index-design.md`;
   evidence rules apply unchanged).
-- **Partial indexes** (`WHERE deleted_at IS NULL`) work and are the soft-delete strategy here.
+- **Partial indexes** work, and are how the plugin-wide soft-delete standard is indexed here:
+  `CREATE INDEX idx_member_active_email ON member (email) WHERE is_active = 1`. Use `is_active`,
+  not a `deleted_at` of your own — the standard is set in `rdbms-modeling` and applies unchanged.
 - **Expression indexes** work: `CREATE INDEX idx_member_email_lower ON member (lower(email))`.
 - Covering: put the extra columns at the end of the composite index (no `INCLUDE`).
 - Verify with `EXPLAIN QUERY PLAN` — look for `SCAN` on large tables where you expected

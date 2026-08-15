@@ -41,7 +41,7 @@ CREATE TABLE `chat_history` (
 One query per logical FK, on a schedule. Without it, violations accumulate unobserved.
 
 ```sql
--- chat_history.member_id → user.member_id
+-- chat_history.member_id → member.member_id
 SELECT c.chat_history_id
 FROM chat_history c
 LEFT JOIN member u ON u.member_id = c.member_id

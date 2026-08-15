@@ -110,7 +110,7 @@ WHERE member_id = 1;
 ### Generated Columns
 
 ```sql
-ALTER TABLE user ADD COLUMN full_name varchar(200)
+ALTER TABLE member ADD COLUMN full_name varchar(200)
   GENERATED ALWAYS AS (CONCAT(first_name, ' ', last_name)) VIRTUAL;
 ```
 
@@ -118,7 +118,7 @@ ALTER TABLE user ADD COLUMN full_name varchar(200)
 
 ```sql
 SELECT member_id, message_count,
-  ROW_NUMBER() OVER (ORDER BY message_count DESC) AS rank
+  ROW_NUMBER() OVER (ORDER BY message_count DESC) AS row_rank   -- `rank` is reserved in MySQL 8
 FROM (
   SELECT member_id, COUNT(*) AS message_count
   FROM chat_history GROUP BY member_id

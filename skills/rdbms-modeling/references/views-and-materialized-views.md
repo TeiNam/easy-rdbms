@@ -80,11 +80,11 @@ intermediate result at execution time, but **you cannot define a permanent index
 CREATE ALGORITHM = MERGE VIEW active_order AS
 SELECT purchase_order_id, customer_id, created_at, total_amount
 FROM purchase_order
-WHERE deleted_at IS NULL;
+WHERE is_active = 1;          -- plugin-wide soft-delete standard
 
 -- The index that actually matters lives on the base table
 CREATE INDEX idx_purchase_order_active_customer_created
-ON purchase_order (deleted_at, customer_id, created_at DESC);
+ON purchase_order (is_active, customer_id, created_at DESC);
 ```
 
 An `ORDER BY` inside a view can be ignored when the outer query has its own. **Never assume a view
@@ -112,7 +112,7 @@ Two different index sets, serving two different queries:
 Build the MView's indexes from the queries that read it — not from the source's access patterns.
 
 ```sql
-CREATE MATERIALIZED VIEW customer_monthly_sales AS
+CREATE MATERIALIZED VIEW app.customer_monthly_sales AS
 SELECT customer_id,
        date_trunc('month', ordered_at) AS month,
        sum(total_amount) AS total_amount
@@ -122,10 +122,10 @@ WITH NO DATA;
 
 -- Required for REFRESH ... CONCURRENTLY (plain columns, covers all rows)
 CREATE UNIQUE INDEX uq_customer_monthly_sales
-ON customer_monthly_sales (customer_id, month);
+ON app.customer_monthly_sales (customer_id, month);
 
 CREATE INDEX idx_customer_monthly_sales_month
-ON customer_monthly_sales (month DESC, total_amount DESC);
+ON app.customer_monthly_sales (month DESC, total_amount DESC);
 ```
 
 **`WITH NO DATA` leaves the MView unscannable** — any query against it errors until the first
@@ -142,8 +142,8 @@ A plain `REFRESH MATERIALIZED VIEW` **replaces the contents entirely** and block
 duration. `CONCURRENTLY` avoids blocking reads, at the cost of being slower.
 
 ```sql
-REFRESH MATERIALIZED VIEW customer_monthly_sales;
-REFRESH MATERIALIZED VIEW CONCURRENTLY customer_monthly_sales;
+REFRESH MATERIALIZED VIEW app.customer_monthly_sales;
+REFRESH MATERIALIZED VIEW CONCURRENTLY app.customer_monthly_sales;
 ```
 
 Constraints on `CONCURRENTLY`:

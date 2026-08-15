@@ -20,7 +20,7 @@ that shows the improvement, its write cost, and a rollback (see
 
 ```sql
 -- Composite: equality first, then range
-CREATE INDEX idx_chat_history_user_created
+CREATE INDEX idx_chat_history_member_created
   ON log.chat_history (member_id, created_at DESC);
 
 -- Covering index: enables an index-only scan (does NOT guarantee it — the visibility map

@@ -53,8 +53,8 @@ ALTER TABLE member ADD COLUMN avatar_url TEXT;
 ALTER TABLE member ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
 
 -- FAILS on a non-empty table: NOT NULL with no default has nothing to fill existing rows with
-ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
--- ERROR: column "role" of relation "member" contains null values
+ALTER TABLE member ADD COLUMN access_level TEXT NOT NULL;
+-- ERROR: column "access_level" of relation "member" contains null values
 
 -- GOOD: the NOT NULL-without-default path. Order matters: a `NOT VALID` CHECK still enforces on
 -- NEW writes, so adding it before every writer populates the column breaks running inserts.
@@ -62,19 +62,19 @@ ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
 -- lets PostgreSQL (12+) skip that scan.
 
 -- 1. nullable add (migration)
-ALTER TABLE member ADD COLUMN role TEXT;
+ALTER TABLE member ADD COLUMN access_level TEXT;
 
--- 2. DEPLOY application code that always writes `role`  ← before any constraint exists
+-- 2. DEPLOY application code that always writes `access_level`  <- before any constraint exists
 
 -- 3. backfill existing rows (separate migration, batched — see Large Data Migrations)
-UPDATE member SET role = 'member' WHERE role IS NULL;
+UPDATE member SET access_level = 'member' WHERE access_level IS NULL;
 
 -- 4. now that no writer produces NULL and no row holds one:
-ALTER TABLE member ADD CONSTRAINT chk_member_role_not_null
-  CHECK (role IS NOT NULL) NOT VALID;                                 -- instant, no scan
-ALTER TABLE member VALIDATE CONSTRAINT chk_member_role_not_null;      -- scans under a weak lock
-ALTER TABLE member ALTER COLUMN role SET NOT NULL;                    -- no scan — the CHECK proves it
-ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- helper no longer needed
+ALTER TABLE member ADD CONSTRAINT chk_member_access_level_not_null
+  CHECK (access_level IS NOT NULL) NOT VALID;                                 -- instant, no scan
+ALTER TABLE member VALIDATE CONSTRAINT chk_member_access_level_not_null;      -- scans under a weak lock
+ALTER TABLE member ALTER COLUMN access_level SET NOT NULL;                    -- no scan — the CHECK proves it
+ALTER TABLE member DROP CONSTRAINT chk_member_access_level_not_null;          -- helper no longer needed
 ```
 
 ### Adding an Index Without Downtime
@@ -193,8 +193,8 @@ BEGIN
   LOOP
     UPDATE member
     SET normalized_email = LOWER(email)
-    WHERE id IN (
-      SELECT id FROM member
+    WHERE member_id IN (
+      SELECT member_id FROM member
       WHERE normalized_email IS NULL
       LIMIT batch_size
       FOR UPDATE SKIP LOCKED
@@ -542,8 +542,8 @@ Day 7: Migration drops old status column
 
 ## Related
 
-- `rdbms-modeling` — Designs the target schema in the first place; its `references/index-design.md`
-  justifies an index before this skill builds it safely.
+- `rdbms-modeling` — Designs the target schema in the first place;
+  `rdbms-modeling/references/index-design.md` justifies an index before this skill builds it safely.
 - `mysql-guideline` / `postgres-guideline` / `sqlite-guideline` — Engine-specific DDL semantics: which
   `ALTER` is in-place, which locks it takes, and the type rules the new column has to satisfy.
 - `rdbms-review` — Review the resulting schema, not just the migration mechanics.

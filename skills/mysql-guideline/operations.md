@@ -88,7 +88,7 @@ Index creation (with the `ngram` parser for Korean/CJK) is in `index-and-query.m
 The query side:
 
 ```sql
-SELECT id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
+SELECT article_id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
 FROM article
 WHERE MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE)
 ORDER BY score DESC
@@ -141,14 +141,14 @@ Lock rows in a deterministic order across every code path:
 ```sql
 START TRANSACTION;
 
-SELECT id, balance
+SELECT account_id, balance
 FROM account
-WHERE id IN (?, ?)
-ORDER BY id            -- deterministic order prevents lock-cycle deadlocks
+WHERE account_id IN (?, ?)
+ORDER BY account_id    -- deterministic order prevents lock-cycle deadlocks
 FOR UPDATE;
 
-UPDATE account SET balance = balance - ? WHERE id = ?;
-UPDATE account SET balance = balance + ? WHERE id = ?;
+UPDATE account SET balance = balance - ? WHERE account_id = ?;
+UPDATE account SET balance = balance + ? WHERE account_id = ?;
 
 COMMIT;
 ```
@@ -168,7 +168,7 @@ Queue-style worker claim:
 ```sql
 START TRANSACTION;
 
-SELECT id
+SELECT job_id
 FROM job
 WHERE status = 'pending'
 ORDER BY created_at
@@ -177,7 +177,7 @@ FOR UPDATE SKIP LOCKED;
 
 UPDATE job
 SET status = 'processing', started_at = NOW()
-WHERE id = ?;
+WHERE job_id = ? AND status = 'pending';   -- state check in the UPDATE, not just the lock
 
 COMMIT;
 ```

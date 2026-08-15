@@ -161,8 +161,12 @@ Two things to keep straight:
 | Money | `decimal(p,s)` | Never float. **Per-currency:** KRW `(15,0)` (no minor unit), multinational `(19,4)`, rate `(19,6)`, ratio `(5,4)`. No blanket `(10,2)` |
 
 ## Prohibited Items
-- Stored Procedures: discouraged (stored-program cache is **per-session**, not a global shared cache
-  like Oracle's — connection-pool churn re-pays parse/compile cost; plus maintenance/portability/security)
+- Stored Procedures / Triggers / Events: **default off** — the three-category policy in
+  `rdbms-modeling/references/db-internal-routines.md` is authoritative (business logic prohibited;
+  infrequent operational utilities and audit triggers are the named exceptions). MySQL-specific
+  reason to avoid procedures even where a routine is sanctioned: the stored-program cache is
+  **per-session**, not a global shared cache like Oracle's, so connection-pool churn re-pays the
+  parse/compile cost every time
 - Triggers: prohibited for business logic
 - Events: prohibited for business processing — the operational-utility exception (partition
   rotation etc. when no external scheduler exists) follows `rdbms-modeling/references/db-internal-routines.md`

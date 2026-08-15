@@ -90,7 +90,7 @@ engines.
 
 ```sql
 WHERE tenant_id = ? AND status = ?
-ORDER BY created_at DESC, id DESC
+ORDER BY created_at DESC, purchase_order_id DESC
 LIMIT 50
 ```
 
@@ -132,7 +132,7 @@ committing.
 ```sql
 ALTER TABLE article ADD FULLTEXT KEY fts_article_title_body (title, body) WITH PARSER ngram;
 
-SELECT id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
+SELECT article_id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
 FROM article
 WHERE MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE)
 ORDER BY score DESC LIMIT 20;
@@ -148,7 +148,7 @@ ALTER TABLE article ADD COLUMN search_vector tsvector
 
 CREATE INDEX fts_article_search_vector ON article USING gin (search_vector);
 
-SELECT id, title FROM article
+SELECT article_id, title FROM article
 WHERE search_vector @@ to_tsquery('simple', %(q)s);  -- same configuration as the index
 ```
 

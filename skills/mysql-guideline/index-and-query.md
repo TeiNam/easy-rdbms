@@ -32,7 +32,7 @@ Order columns by:
 ```sql
 -- WHERE status='ACTIVE' AND created_at BETWEEN ... ORDER BY member_id
 -- status(equality) → member_id(sort) → created_at(range)
-CREATE INDEX idx_purchase_order_status_user_created ON purchase_order (status, member_id, created_at);
+CREATE INDEX idx_purchase_order_status_member_created ON purchase_order (status, member_id, created_at);
 ```
 
 > **Common mistake:** leading with a range column (`(created_at, status)`) — after `created_at` scans a wide
@@ -46,7 +46,7 @@ constant side may use functions freely (`WHERE created_at >= DATE_SUB(NOW(), INT
 
 ```sql
 -- Composite: equality → sort → range
-CREATE INDEX idx_chat_history_user_date ON chat_history (member_id, created_at);
+CREATE INDEX idx_chat_history_member_created ON chat_history (member_id, created_at);
 
 -- Unique index
 CREATE UNIQUE INDEX uq_member_email ON member (email);

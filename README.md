@@ -6,6 +6,28 @@
 
 ## Overview
 
+**A database plugin for vibe coders.** Ship at the speed you are used to, and get the schema a
+database engineer would have designed — at the beginning, while it still costs nothing.
+
+AI agents write good application code. Where they quietly fall short is the database, because a
+schema is the one part of a codebase you cannot refactor in an afternoon. A function is a rewrite.
+A primary key on a billion-row table is a multi-week migration project with production deploys in
+the middle. Agents default to what *looks* right — `SERIAL` keys, `users` as a table name, `FLOAT`
+for money, `CASCADE` everywhere — and every one of those is correct on day one and expensive at
+month twelve.
+
+This plugin front-loads exactly those decisions. **[The same app, designed twice →](docs/with-and-without.md)**
+walks one realistic schema through both paths, side by side:
+
+| Without the plugin | What happens | With the plugin |
+|---|---|---|
+| `messages.id SERIAL` | An event table grows as rate × time. At 10k inserts/s the `int` range is gone in **~5 days** — and deleting old rows does not give it back | `bigint`, because rows have no cap |
+| `CREATE TABLE users` | `user` is reserved in PostgreSQL. Quote it forever, or rename it later and touch every query | `member`, decided once |
+| `ON DELETE CASCADE` to messages | One account deletion walks your largest table in a single transaction | Deletion is an explicit, batched path |
+| `cost FLOAT` | Rounding error accumulates until the invoice and the ledger disagree | `numeric`, sized per currency |
+
+None of those fail a test. None get caught in review. They surface when the table is already full.
+
 **18 years of production DBRE practice, packaged as a plugin.** Not textbook normal forms — the
 things you only learn by running databases:
 
@@ -411,6 +433,28 @@ MIT
 ---
 
 ## 한국어
+
+**바이브 코더를 위한 데이터베이스 플러그인입니다.** 지금 속도 그대로 만들면서, 데이터베이스
+엔지니어가 설계했을 스키마를 얻습니다 — 아직 아무 비용도 들지 않는 맨 처음에.
+
+AI 에이전트는 애플리케이션 코드를 잘 씁니다. 조용히 부족한 쪽은 데이터베이스입니다. 스키마는
+코드베이스에서 하루 만에 되돌릴 수 없는 유일한 부분이기 때문입니다. 함수는 다시 쓰면 됩니다.
+10억 행 테이블의 기본키는 중간에 배포까지 끼는 몇 주짜리 마이그레이션 프로젝트입니다.
+에이전트는 *그럴듯해 보이는* 기본값을 고릅니다 — `SERIAL` 키, `users` 라는 테이블 이름,
+금액에 `FLOAT`, 곳곳에 `CASCADE`. 하나같이 첫날에는 맞고 열두 달 뒤에 비쌉니다.
+
+이 플러그인은 바로 그 결정들을 앞으로 당겨옵니다. **[같은 앱을 두 번 설계하기 →](docs/with-and-without.md)**
+에서 현실적인 스키마 하나를 두 경로로 나란히 따라갑니다.
+
+| 플러그인 없이 | 무슨 일이 생기나 | 플러그인과 함께 |
+|---|---|---|
+| `messages.id SERIAL` | 이벤트 테이블은 속도 × 시간으로 자랍니다. 초당 1만 건이면 `int` 범위가 **약 5일**에 소진되고, 오래된 행을 지워도 범위는 돌아오지 않습니다 | 상한이 없는 테이블이므로 `bigint` |
+| `CREATE TABLE users` | `user` 는 PostgreSQL 예약어입니다. 영원히 따옴표를 붙이거나, 나중에 바꾸면서 모든 쿼리를 건드려야 합니다 | 한 번에 정한 `member` |
+| messages 로 걸린 `ON DELETE CASCADE` | 계정 하나 삭제가 가장 큰 테이블을 단일 트랜잭션으로 훑습니다 | 삭제는 명시적·배치 경로로 |
+| `cost FLOAT` | 반올림 오차가 쌓여 청구서와 원장이 어긋납니다 | 통화별로 크기를 정한 `numeric` |
+
+어느 것도 테스트에서 실패하지 않고, 코드 리뷰에서도 걸리지 않습니다. 테이블이 이미 다 찬 뒤에
+드러납니다.
 
 **18년 현업 DBRE 경험을 플러그인으로 옮겼습니다.** 교과서에 나오는 정규형이 아니라, 데이터베이스를
 직접 운영해봐야 알게 되는 것들입니다.

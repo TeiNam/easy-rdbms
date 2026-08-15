@@ -1,8 +1,0 @@
-description = "Review a schema, query, or migration for performance, security, and lock risk"
-prompt = """
-Use the `rdbms-review` skill to review what the user specifies, and follow its procedure and output
-format exactly.
-
-If they specify nothing, review the uncommitted database changes in this repo - migrations, DDL,
-and SQL in the working tree. That default is this command's only addition to the skill.
-"""

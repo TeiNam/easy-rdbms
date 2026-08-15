@@ -1,18 +1,14 @@
 ---
 name: db-select
 description: >
-  Pick the database before designing the schema. Decides whether an RDBMS is the right fit at
-  all, which engine (MySQL vs PostgreSQL), which deployment form and topology the current scale
-  justifies, and which candidate has the lowest three-year total cost of ownership — then
-  routes to the matching guideline skill. Triggers: which database should I use, MySQL or
-  PostgreSQL, do I need NoSQL, DynamoDB vs RDBMS, MongoDB or Postgres, is Postgres enough, do I
-  need sharding, do I need read replicas, Aurora vs RDS, RDS vs self-managed, managed vs
-  self-hosted database, Supabase Neon PlanetScale, serverless database, SQLite in production,
-  distributed SQL, CockroachDB TiDB, choosing a DB for a new project, database cost, TCO, how
-  much will the database cost, is this database too expensive, database budget, do we need a
-  DBA, multi-tenant, multi-tenancy, tenant isolation, schema per tenant, database per tenant,
-  SaaS tenancy, scaling the database, database for a prototype, separate analytics database,
-  OLTP vs OLAP separation.
+  Choose a database before schema design. Decide whether an RDBMS fits; compare MySQL,
+  PostgreSQL, SQLite, NoSQL, and managed, serverless, or distributed options; select a topology
+  for the current scale and three-year TCO; then route to the engine guideline. Use for: which
+  database should I use, MySQL vs PostgreSQL, MongoDB or DynamoDB vs RDBMS, is Postgres enough,
+  prototype database, SQLite in production, Aurora vs RDS or self-managed, Supabase, Neon,
+  PlanetScale, CockroachDB, TiDB, sharding, read replicas, multi-tenant isolation, schema or
+  database per tenant, OLTP vs OLAP, analytics separation, database cost, budget, TCO, DBA need,
+  or scaling an existing database.
 ---
 
 # Database Selection

@@ -1,28 +1,15 @@
 ---
 name: rdbms-modeling
 description: >
-  Turn business requirements into a data model through three staged steps — conceptual,
-  logical, then physical — with a confirmation gate between each. Never converts requirements
-  straight into DDL. Normalizes to Third Normal Form as the baseline, checks every entity for
-  BCNF violations, applies the IS-A test before generalizing entities into supertypes, applies
-  an engine-split foreign key policy (no physical FK on MySQL InnoDB; allowed on PostgreSQL
-  when six conditions hold), and permits denormalization only against a measurement. Triggers:
-  design tables from requirements, data model, conceptual model, logical model, physical model,
-  ERD, entity relationship diagram, domain model, business entities, normalization, 1NF 2NF
-  3NF, BCNF, Boyce-Codd normal form, functional dependency, determinant, candidate key,
-  overlapping candidate keys, update anomaly, generalization, specialization, supertype,
-  subtype, entity inheritance, single table inheritance, discriminator column, IS-A
-  relationship, substitutability, exclusive subtypes, overlapping subtypes, total partial
-  classification, role table, type column vs subtype, status vs type, state machine or subtype,
-  EAV entity attribute value, similar tables, duplicate entities, denormalization, table
-  design, schema design from scratch, N:M relationship, junction table, surrogate key vs
-  natural key, composite primary key, cardinality, logical FK, physical FK, foreign key
-  constraint, orphan rows, referential integrity, ON DELETE CASCADE, soft delete design, which
-  PK type, do I need a history table, partitioning, should I partition this table, partition
-  key, MAXVALUE or default partition, retention policy, history table, audit trail, versioning,
-  temporal table, bi-temporal, valid_from valid_to, state transition history, event sourcing,
-  CDC, point-in-time query, restore past data, design a schema for, migration SQL for a new
-  feature.
+  Design relational data models from business requirements in conceptual, logical, then physical
+  stages, with confirmation between stages; do not jump straight to DDL. Normalize to 3NF and
+  check BCNF, subtype IS-A validity, engine-specific foreign-key policy, and evidence for
+  denormalization. Use for data, domain, conceptual, logical, physical, or ERD modeling; table or
+  schema design from scratch; entities, relationships, cardinality, N:M and junction tables;
+  functional dependencies, candidate, natural, surrogate, or composite keys; generalization,
+  subtype, role, status, or state modeling; EAV or duplicate tables; logical or physical FKs,
+  cascade, orphans, and soft delete; history, audit, temporal, event-sourcing, CDC, or
+  point-in-time models; partition and retention design; or migration SQL for a new feature.
 ---
 
 # RDBMS Data Modeling

@@ -16,7 +16,7 @@ version-specific pattern.
 
 | Feature | MySQL 8.0+ | MariaDB |
 |---|---|---|
-| Referencing inserted values in `ON DUPLICATE KEY UPDATE` | Row alias `AS new` (`VALUES(col)` deprecated) | `VALUES(col)` is the documented form |
+| Referencing inserted values in `ON DUPLICATE KEY UPDATE` | Row alias `AS new` — **8.0.19+**; `VALUES(col)` deprecated from **8.0.20** (so on 8.0.0-8.0.18, `VALUES(col)` is the only form) | `VALUES(col)` is the documented form |
 | Cross-engine safe choice | — | Use `VALUES(col)` for mixed fleets |
 
 ```sql
@@ -204,10 +204,13 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 30000,
 });
 
-const [rows] = await pool.execute(
-  'SELECT id, total_amount FROM purchase_order WHERE account_id = ? LIMIT 50',
-  [accountId],
-);
+export async function listOrders(accountId) {
+  const [rows] = await pool.execute(
+    'SELECT purchase_order_id, total_amount FROM purchase_order WHERE account_id = ? LIMIT 50',
+    [accountId],
+  );
+  return rows;
+}
 ```
 
 **Recycle below the server timeout.** If the server has `wait_timeout = 300`, set client
@@ -234,7 +237,7 @@ SET GLOBAL long_query_time = 1;
 SET GLOBAL log_queries_not_using_indexes = 'ON';
 ```
 
-`EXPLAIN ANALYZE` **executes** the statement. Use it only when running the query is safe;
+`EXPLAIN ANALYZE` is **8.0.18+** (earlier 8.0 releases reject the syntax) and it **executes** the statement. Use it only when running the query is safe;
 on production-sized data it can be expensive. Prefer plain `EXPLAIN` / `EXPLAIN FORMAT=JSON`
 for plan inspection.
 

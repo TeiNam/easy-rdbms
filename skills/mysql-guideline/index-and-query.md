@@ -139,17 +139,23 @@ SELECT member_id, email FROM member WHERE phone = ?;
 
 ### 1. `IN (subquery)` — when semi-join optimization does not apply
 
-From MySQL 5.6, `IN (subquery)` normally gets **semi-join** treatment: the subquery is
-materialized (temporary table plus an index) or run with a `FirstMatch` strategy, so it behaves
-like a join. Any of the following disables that and falls back to a **dependent subquery**, which
-can re-execute per outer row:
+From MySQL 5.6, `IN (subquery)` normally gets **semi-join** treatment — `FirstMatch`, `LooseScan`,
+duplicate-weedout or materialization — so it behaves like a join. The documented semi-join
+conditions exclude the shapes below. Note what that does **not** mean: losing semi-join eligibility
+does not automatically produce a `DEPENDENT SUBQUERY`. Subquery materialization is a *separate*
+optimization that can still run an uncorrelated subquery once. So treat these as "check the plan",
+not "it is now per-row":
 
 | In the subquery | Effect |
 |---|---|
-| `GROUP BY` / `HAVING` / an aggregate | Materialization unavailable |
+| `GROUP BY` / `HAVING` / an implicit grouping (aggregate) | Not a semi-join candidate |
 | `UNION` | Not a semi-join candidate |
-| `LIMIT` | Not a semi-join candidate |
-| The `IN` is under `OR`/`NOT` rather than at the top of the `WHERE` tree | Optimization not applied |
+| `ORDER BY` with `LIMIT` | Not a semi-join candidate |
+| The `IN` is under `OR` rather than in a top-level `AND` of the `WHERE` | Semi-join needs the top-level `AND` shape |
+
+`NOT IN` / `NOT EXISTS` is a different case: from **8.0.17** MySQL transforms eligible ones into an
+**antijoin**, so `NOT` is not automatically a problem (nullable expressions are the main
+restriction).
 
 ```sql
 -- Aggregate in the subquery — semi-join may not apply
@@ -174,16 +180,20 @@ JOIN (
 ### 2. `IN (many literals)` — when the row estimate stops being accurate
 
 The optimizer normally performs an **index dive** per `IN` value — it peeks at the index to
-estimate how many rows that value matches. Once the list exceeds `eq_range_index_dive_limit`
-(default **200** on MySQL 8.0), it stops diving and falls back to coarse index statistics. The
+estimate how many rows that value matches. When the number of equality ranges **reaches** the
+nonzero `eq_range_index_dive_limit` (default **200** on MySQL 8.0) it stops diving and falls back to
+coarse index statistics. It is a threshold, not an inclusive maximum: to keep diving for up to N
+values the limit has to be N+1, so at the default a 200-value list already uses statistics. The
 estimate degrades, and the optimizer becomes more likely to decide a full scan is cheaper.
 
 Also, with thousands of values the statement's own parse and plan cost grows — and if the matched
 rows really are a large fraction of the table, the full scan may genuinely be faster.
 
-**A type mismatch is the worse failure**: an integer list against a `varchar` column (or the
-reverse) triggers implicit conversion on the *column* side, which defeats the index exactly like
-wrapping it in a function.
+**A type mismatch is the worse failure, and it is not symmetric.** Numeric values against an
+indexed **string** column convert the *column* to a number, which defeats the index exactly like
+wrapping it in a function. The reverse — numeric-looking string literals against an indexed
+**numeric** column — usually converts the *constants* instead and can still use the index. Do not
+rely on which way it falls: make the parameter type match the indexed column.
 
 For large value sets, load them into a temporary table and join — the optimizer plans that far
 better than a long literal list:
@@ -223,8 +233,8 @@ def list_active_members(db):
 ### UPSERT (INSERT ... ON DUPLICATE KEY)
 
 ```sql
--- MySQL 8.0.19+ row-alias form (VALUES(col) is deprecated on MySQL; see operations.md
--- for the MariaDB/mixed-fleet variant that still uses VALUES(col))
+-- Row aliases after VALUES are 8.0.19+; VALUES(col) is deprecated separately from 8.0.20.
+-- On 8.0.0-8.0.18 use VALUES(col) — see operations.md for the MariaDB/mixed-fleet variant.
 INSERT INTO member_setting (member_id, setting_key, setting_value, updated_at)
 VALUES (%(member_id)s, %(key)s, %(value)s, NOW()) AS new
 ON DUPLICATE KEY UPDATE
@@ -246,8 +256,9 @@ db.execute_raw_query("""
 ### EXPLAIN for Query Analysis
 
 ```sql
--- SELECT * allowed for EXPLAIN analysis (execution plan verification purpose)
-EXPLAIN SELECT * FROM chat_history
+-- List columns even in EXPLAIN: the plan depends on them (a covering index only shows up if the
+-- select list actually fits the index).
+EXPLAIN SELECT chat_history_id, member_id, created_at FROM chat_history
 WHERE member_id = 1 AND created_at >= '2024-01-01' AND created_at < '2024-02-01';
 
 EXPLAIN FORMAT=JSON SELECT ...;

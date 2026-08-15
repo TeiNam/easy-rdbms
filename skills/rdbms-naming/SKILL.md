@@ -111,13 +111,20 @@ change on another.
 
 | Type | Rule | Example |
 |------|------|---------|
-| Primary Key | `pk_<table>` | `pk_member` |
+| Primary Key | `pk_<table>` — **PostgreSQL only**, see the exception below | `pk_member` |
 | Foreign Key | `fk_<child>_<parent>` | `fk_order_member` — PostgreSQL only; MySQL creates no physical FK |
 | Unique | `uq_<table>_<col…>` | `uq_member_email` |
 | Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
 | General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |
 | Composite index | `idx_<table>_<col1>_<col2>…` | `idx_actor_first_name_last_name` |
 | Fulltext index | `fts_<table>_<col…>` | `fts_book_name` |
+
+> **`pk_<table>` has two engine exceptions — "always name it explicitly" cannot be satisfied there.**
+> On **MySQL/InnoDB** the primary key's index is always named `PRIMARY`; `CONSTRAINT pk_member PRIMARY
+> KEY (...)` parses but the name is discarded, so a bare `PRIMARY KEY (...)` is correct MySQL, not a
+> lapse. On **SQLite** an `INTEGER PRIMARY KEY` has to be written inline to *be* the rowid — naming it
+> turns it into an ordinary key. **PostgreSQL honours the name, so use `pk_<table>` there.** Every other
+> prefix (`fk_`/`uq_`/`chk_`/`idx_`/`fts_`) is nameable on all three engines and must be named.
 
 **63-char overflow** — when listing every column exceeds 63 chars, shorten in this order:
 1. Apply an abbreviation registered in the dictionary (§4) (e.g. `authentication` → `auth`).

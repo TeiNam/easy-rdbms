@@ -28,9 +28,19 @@ Both give you a trailing catch-all, but they are not equivalent:
 
 **Use `DEFAULT` on PostgreSQL.** A backfill or a corrected timestamp that predates the first
 partition is exactly the kind of row a safety partition should absorb, and `MAXVALUE` bounds reject
-it. Both share the same operational constraint — creating a partition whose range the catch-all
-already covers makes PostgreSQL scan it (see Partition Management below) — so `DEFAULT` costs
-nothing extra.
+it.
+
+They both make adding the next partition harder, but **not in the same way**, and the difference
+decides how you operate them:
+
+- **`DEFAULT`** — the new partition's range overlaps nothing, so it can be created while the default
+  stays attached. What it costs is a **validation scan of the default** to prove no row belongs in
+  the new range (skippable with an exclusion `CHECK` — see Partition Management below). If the
+  default really is empty, this is cheap.
+- **Explicit `TO (MAXVALUE)`** — the range itself **overlaps** every future partition, so no scan can
+  fix it. The catch-all has to be detached and replaced whatever its contents, empty or not.
+
+That asymmetry is the reason for the rule, not just the rejected-insert behaviour.
 
 ### Operating Rules
 
@@ -53,10 +63,17 @@ exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 CREATE TABLE log.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,  -- event table: rows = rate x time, unbounded
   conversation_id char(18) NOT NULL,
-  member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent)
+  member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent).
+                                  -- Full four controls (COMMENT, index, named owner, orphan
+                                  -- check) in postgres-guideline/schema-design.md; a partition
+                                  -- example is not the place to repeat them, but they are
+                                  -- mandatory -- do not ship this DDL without them.
   user_message text NOT NULL,
   bot_response text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- PostgreSQL requires the partition key in every unique constraint on a partitioned table,
+  -- so the PK is (id, created_at) rather than id alone.
+  CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id, created_at)
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE log.chat_history_2026_08 PARTITION OF log.chat_history
@@ -105,7 +122,15 @@ Check the installed version — the `create_parent` signature changed between 4.
 > range. On an empty or clean default the direct create succeeds — but on a fallen-behind one it
 > fails, so the safe sequence is detach → create → **move** → re-attach.
 
+> **Wrap the whole sequence in one transaction.** Between the `DETACH` and the re-`ATTACH` the table
+> has no default partition, so any insert whose `created_at` falls outside the existing regular bounds
+> fails with `no partition of relation ... found for row`. Statement-by-statement (autocommit) this is
+> a write outage of however long the row move takes. One transaction holds the locks throughout —
+> which blocks writers instead of failing them — so run it off peak with a `lock_timeout`, or use the
+> low-lock variant below that avoids the detach entirely.
+
 ```sql
+BEGIN;
 -- PASS: Correct sequence when DEFAULT partition exists
 -- 1. Detach default partition
 ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_default;
@@ -131,6 +156,16 @@ FROM moved;
 
 -- 4. Re-attach default partition
 ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;
+COMMIT;
+
+-- LOW-LOCK VARIANT: no detach at all. If the default partition carries a valid CHECK proving it
+-- holds no rows in the new range, PostgreSQL can skip scanning it, so the plain CREATE succeeds:
+--   ALTER TABLE log.chat_history_default ADD CONSTRAINT chk_chat_history_default_excl_2026_10
+--     CHECK (created_at < '2026-10-01' OR created_at >= '2026-11-01') NOT VALID;
+--   ALTER TABLE log.chat_history_default VALIDATE CONSTRAINT chk_chat_history_default_excl_2026_10;
+--   -- now CREATE TABLE ... PARTITION OF ... FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+--   -- then drop the helper constraint.
+-- This only works when the default really holds no such rows; if it does, move them first.
 
 -- FAIL: Incorrect approach: errors if default partition contains 2026-10 data
 -- CREATE TABLE log.chat_history_2026_10 PARTITION OF log.chat_history
@@ -169,7 +204,7 @@ ORDER BY c.relname;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(member_id: int, year: int, month: int):
+def get_monthly_chat_history(db, member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 

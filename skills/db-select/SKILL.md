@@ -90,7 +90,7 @@ Leave the RDBMS only when a row below matches the workload **as stated** — not
 | "Our schema will change a lot" | Postgres `jsonb` with a generated column + index handles variable fields. `ALTER TABLE ADD COLUMN` with a **non-volatile** default is metadata-only on PostgreSQL 11+, and MySQL `ALGORITHM=INSTANT` covers many (not all) cases — verify per change rather than assuming |
 | "We need to scale to millions of users" | A single well-indexed Postgres or MySQL instance serves thousands of QPS. Reach the ceiling before designing for beyond it |
 | "SQL doesn't scale" | Reads scale with replicas, writes with partitioning then sharding. Both are well-trodden |
-| "We need a queue" | `SELECT ... FOR UPDATE SKIP LOCKED` is a correct queue up to meaningful throughput. Add a broker when it actually binds |
+| "We need a queue" | `SELECT ... FOR UPDATE SKIP LOCKED` is a correct queue. Move to a broker when one of these is true, not before: **measured** claim latency or lock waits exceed your job SLA at peak; the queue's write volume is a visible share of the primary's load; or you need something the database does not provide — fan-out to multiple independent consumer groups, at-least-once delivery across systems, retention/replay, or scaling consumers independently of the DB |
 | "We need full-text search" | Postgres `tsvector` + GIN, or MySQL `FULLTEXT` with the `ngram` parser, covers a lot before a search cluster earns its keep |
 | "We need to store events/JSON" | `jsonb` / `json` columns exist. Keep tenancy, ownership, and lifecycle fields relational |
 
@@ -107,7 +107,7 @@ constrain the **deployment form** (Step 4): a team with no operator picks manage
 |---|---|---|---|---|
 | **0 — Prototype** | < 10 GB | < 50 | SQLite (single writer — see `sqlite-guideline`) or one Postgres container | No replicas, no pooler, no partitioning, no separate analytics DB |
 | **1 — Early production** | < 100 GB | < 500 | One managed instance (RDS / Cloud SQL / Neon / Supabase). Automated backups + PITR. Pooling in the app | No read replicas, no sharding. Add a replica only when a measured read path needs it |
-| **2 — Growth** | < 1 TB | < 5,000 | Managed primary + 1–2 read replicas. External pooler (PgBouncer / ProxySQL / RDS Proxy) once connection count exceeds the server's comfort. Evaluate partitioning on the largest append-only tables **when query and retention evidence supports it**. Analytics moved off the primary | No application-level sharding |
+| **2 — Growth** | < 1 TB | < 5,000 | Managed primary. Add 1–2 read replicas **when a measured read path saturates the primary, or availability requires a standby** — the tier does not justify them by itself. External pooler (PgBouncer / ProxySQL / RDS Proxy) when `instance_count × pool_max` approaches `max_connections` minus a reserve for admin and migrations (keep ~20% headroom); that comparison is the criterion, not a feeling. Evaluate partitioning on the largest append-only tables **when query and retention evidence supports it**. Analytics moved off the primary | No application-level sharding |
 | **3 — Large** | 1–10 TB | 5,000–50,000 | Aurora (or equivalent) for storage/failover decoupling. Partitioning becomes routine — still per the evidence rules. Dedicated analytical store. Cross-region replica if the RTO requires it | Sharding only after partitioning, replicas, and query work are exhausted |
 | **4 — Very large** | > 10 TB | > 50,000 | Shard by tenant or entity, or adopt distributed SQL (Vitess, Citus, CockroachDB, TiDB, Aurora Limitless). Requires dedicated data engineering staffing | — |
 
@@ -247,14 +247,18 @@ Every re-evaluation trigger must be **measurable**. "When we get bigger" is not 
 
 ## Next Step
 
-| Decision | Go to |
+**Designing new tables or relationships? Go to `rdbms-modeling` first, not to the engine guideline.**
+The engine skill produces DDL, and jumping straight there skips the conceptual and logical stages —
+which is where entity-vs-event growth class, keys, cardinality, and normalization get decided.
+`rdbms-modeling` loads the engine guideline itself at Stage 3, once the logical model is confirmed.
+
+| What you need next | Go to |
 |---|---|
-| MySQL or Aurora MySQL | `mysql-guideline` |
-| PostgreSQL or Aurora PostgreSQL | `postgres-guideline` |
-| SQLite (Tier 0, embedded, local tools) | `sqlite-guideline` |
-| Naming and data types (either engine) | `rdbms-naming` |
-| Table and relationship design | `rdbms-modeling` |
-| Migrating off the current database | `database-migrations` |
+| **New tables or relationships** | **`rdbms-modeling`** — it routes to the engine guideline at Stage 3 |
+| Naming or data types for an existing design | `rdbms-naming` |
+| Engine mechanics on an already-designed schema (tuning, locking, config, an `ALTER`) | `mysql-guideline` / `postgres-guideline` / `sqlite-guideline` |
+| Changing a schema that already holds data | `database-migrations` |
+| Reviewing a schema you did not design | `rdbms-review` |
 | Not an RDBMS after all | Say so plainly, name the store, and stop — this plugin does not cover it |
 
 ## Reference Files

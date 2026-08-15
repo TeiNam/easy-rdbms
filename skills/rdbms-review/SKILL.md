@@ -86,7 +86,7 @@ SHOW FULL PROCESSLIST;
 SHOW ENGINE INNODB STATUS\G;           -- capture immediately after a deadlock
 
 -- Unused indexes (requires sys schema)
-SELECT * FROM sys.schema_unused_indexes;
+SELECT object_schema, object_name, index_name FROM sys.schema_unused_indexes;
 
 -- Statement digests by total latency
 SELECT digest_text, count_star, avg_timer_wait
@@ -180,8 +180,24 @@ What to read in the plan:
   reference to justify it; a constraint left **`NOT VALID`** with no validation step — it never
   checked the existing rows, so treat that reference as a logical FK and run the orphan query.
 
+  **SQLite — a physical FK is allowed, but enforcement is opt-in per connection.** So the finding is
+  rarely the constraint; it is that nothing turns it on. Check three things: `PRAGMA foreign_keys`
+  is set to `ON` **on every connection** (it is off in default builds and does not persist in the
+  file, so a pool that misses one connection silently accepts orphans — and a connection opened by a
+  migration tool or a CLI counts); the **referencing column is indexed** (SQLite does not create one,
+  so every parent delete scans the child); and any `DEFERRABLE INITIALLY DEFERRED` constraint has a
+  circular reference actually justifying it. A schema with `FOREIGN KEY` clauses and no verified
+  pragma is **HIGH** — it reads as protected and is not.
+
   `ON DELETE CASCADE` on a **high-fan-out parent** is CRITICAL on either engine — one statement
-  becomes an unbounded transaction.
+  becomes an unbounded transaction. **Do not guess the severity: get the number.** Query the maximum
+  and typical child count per parent
+  (`SELECT max(c), avg(c) FROM (SELECT count(*) c FROM child GROUP BY parent_id) t`), then compare the
+  maximum against whatever bound the project puts on a single transaction — statement timeout, lock
+  duration budget, replication-lag tolerance. Over that bound, or unbounded because the child grows
+  with time (an event/log table), it is CRITICAL and the fix is an explicit batched delete. Comfortably
+  under it and stable, it is a MEDIUM note about a limit to watch. Report the counts you measured;
+  "high fan-out" without a number is not a finding.
 
 - **Logical FK with no compensating controls** — a documented reference with no orphan check and no
   named integrity owner means violations are accumulating unobserved. Run the orphan query during the
@@ -211,11 +227,13 @@ What to read in the plan:
   `attr_value`) has discarded typing, constraints, and the planner. Where a single-table subtype
   strategy is used, check that conditional `CHECK` constraints recover the `NOT NULL` guarantees
   it gave up, and that a separate surrogate key was not minted on subtype rows
-- Types: `bigint` for growing IDs, `numeric`/`decimal` for money (never float), timezone-aware
-  timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
+- Types: integer ID width **by growth class** (entity `int` when bounded, event/log `bigint`) —
+  detail below; `numeric`/`decimal` for money (never float); timezone-aware timestamps
+  (`timestamptz` on PostgreSQL); native boolean over `'Y'`/`'N'`
 - **An `int` surrogate PK on an event/log table** (`*_log`, `*_history`, IoT readings, audit trails,
   message history, metering, outbox) — this is the failure case, not entity tables. Rows grow as
-  insert rate × time with no bound: 10k/s exhausts `int unsigned` in ~5 days, and because sequences
+  insert rate × time with no bound: 10k/s exhausts MySQL `int unsigned` in ~5 days and PostgreSQL's
+  signed `int` in ~2.5 days, and because sequences
   and `AUTO_INCREMENT` never reuse values, retention policies and partition drops reclaim storage but
   **not** ID range. `int` on an *entity* table (`member`, `product`) is fine — ask what bounds the
   entity count and confirm it is not machine-generated rows wearing an entity name.

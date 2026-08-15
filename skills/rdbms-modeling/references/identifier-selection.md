@@ -45,7 +45,8 @@ Policy:
 1. For single-database generation, size the integer by **growth class**: an **entity** table (one row
    per real thing) is capped by the real world, so `int unsigned` (4.2B) is defensible if you record
    what bounds it; an **event/log** table grows as rate × time with no bound, so `bigint unsigned`
-   with no exceptions — at 10k inserts/s `int unsigned` is gone in ~5 days, and `AUTO_INCREMENT`
+   with no exceptions — at 10k inserts/s MySQL `int unsigned` is gone in ~5 days and PostgreSQL's
+   signed `int` in ~2.5 days, and `AUTO_INCREMENT`
    never reuses values, so retention and partition drops reclaim storage but not ID range.
    **This is a one-way decision.** Changing a PK's integer type later requires `ALGORITHM=COPY` on
    MySQL — a full table rebuild plus every secondary index, since InnoDB appends the PK to all of
@@ -63,10 +64,10 @@ Policy:
 
 ```sql
 CREATE TABLE purchase_order (
-  id         bigint unsigned NOT NULL AUTO_INCREMENT,
+  purchase_order_id bigint unsigned NOT NULL AUTO_INCREMENT,  -- transaction table: rate x time
   public_id  binary(16) NOT NULL COMMENT 'UUIDv7, app-generated; external-facing UID',
   created_at timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  CONSTRAINT pk_purchase_order PRIMARY KEY (id),
+  CONSTRAINT pk_purchase_order PRIMARY KEY (purchase_order_id),
   CONSTRAINT uq_purchase_order_public_id UNIQUE (public_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
@@ -102,7 +103,9 @@ the PK's own B-tree, so write-heavy tables still prefer ordered keys.
 
 Policy:
 
-- Single-system tables: `bigint GENERATED ALWAYS AS IDENTITY`.
+- Single-system tables: `GENERATED ALWAYS AS IDENTITY`, sized by growth class exactly as on MySQL —
+  `int` for an entity table (record what caps the entity count), **`bigint` for an event/log table**
+  (rows = rate × time, and a sequence never reuses values, so retention does not reclaim range).
 - Distributed generation: native `uuid` type with **UUIDv7**.
 - Write-heavy tables: UUIDv7 over UUIDv4, for the same index-locality reason.
 - Natural keys stay out of the PK when they can change.
@@ -113,8 +116,9 @@ Policy:
 ```sql
 -- PostgreSQL 18+
 CREATE TABLE app.purchase_order (
-  purchase_order_id   uuid PRIMARY KEY DEFAULT uuidv7(),
-  created_at timestamptz NOT NULL DEFAULT current_timestamp
+  purchase_order_id   uuid NOT NULL DEFAULT uuidv7(),
+  created_at timestamptz NOT NULL DEFAULT current_timestamp,
+  CONSTRAINT pk_purchase_order PRIMARY KEY (purchase_order_id)
 );
 
 -- PostgreSQL 16 / 17: v7 supplied by the application

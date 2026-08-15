@@ -51,8 +51,14 @@ Connector/J does have multi-host failover modes; what it lacks is **Aurora topol
 discovery** — pointed at a single Aurora endpoint it cannot detect a Primary/Secondary transition,
 and detection can take **up to ~15 minutes** on default settings. Defenses:
 
-- `socketTimeout`: **default is 0 = infinite wait** — leaving it unset means broken connections are never
-  detected. Set an appropriately low value. Also set `connectTimeout`.
+- `socketTimeout`: **default is 0**, meaning the driver imposes **no read deadline of its own**. The
+  socket can still fail — a connection reset arrives immediately, and exhausted TCP retransmissions
+  eventually fail it — but you are then at the mercy of OS-level detection, which is the ~15 minute
+  case below. Set it explicitly. **Derive the value:** `socketTimeout` must be **shorter than the
+  request deadline** the caller enforces, and long enough for your slowest legitimate query
+  (`p99.9` query time plus headroom). For an Aurora failover target of ~30s a common starting point
+  is `socketTimeout=10000`, `connectTimeout=3000` — then verify against your own p99.9, because a
+  timeout below it turns healthy slow queries into errors.
 - Kernel `tcp_retries2`: default (~15 min) → lower to ~5 min minimum.
 - Implement retry and connection validation (health check) logic at application level.
 

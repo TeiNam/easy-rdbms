@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.4.0
+
+**Positioning:** this is a database plugin for vibe coders. New doc —
+[The same app, designed twice](docs/with-and-without.md) — walks one realistic schema through both
+paths (unaided AI agent vs. this plugin), with a table of eleven differences ordered by when each
+one bites and what it costs to fix later. It includes a "what this plugin does not do" section,
+because a comparison document without one is marketing.
+
+**Round 10 of two-way review** — Claude self-review plus two independent Codex passes (engine facts;
+cross-file consistency and flow). 116 findings. A large share were introduced by round 9's own
+changes, which is the recurring lesson of this exercise.
+
+**Corrected facts** (wrong facts are the worst failure mode for a guidance plugin)
+
+- **PostgreSQL `int` runway was wrong by 2×.** `integer` is signed — 2.1B — so 10k inserts/s
+  exhausts it in **~2.5 days**, not the ~5 days that MySQL's `int unsigned` gets from the same 4
+  bytes. The MySQL figure had been copied into the PostgreSQL files, the README, and the new doc.
+- **`UNSIGNED` underflow errors; it does not wrap.** MySQL raises
+  `ERROR 1690 (22003): BIGINT UNSIGNED value is out of range` (and clamps to 0 in a non-strict
+  `UPDATE`). C-style wraparound is not MySQL behaviour.
+- **`tinyint(1)` does not constrain values to 0/1** — `(1)` is display width. The boolean row is now
+  `tinyint unsigned` plus a named `CHECK (col IN (0,1))`.
+- **Gap locks at `REPEATABLE READ` are not unconditional** — a unique-index equality lookup that
+  finds its row takes only a record lock.
+- **`DROP PARTITION` is not `ALGORITHM=INSTANT`** — in-place and no table copy, but it takes a
+  metadata lock that can block concurrent statements.
+- **Losing semi-join eligibility does not imply `DEPENDENT SUBQUERY`** — subquery materialization is
+  a separate optimization. `NOT IN`/`NOT EXISTS` becomes an **antijoin** from 8.0.17.
+- **Implicit type conversion is not symmetric** — numeric values against an indexed *string* column
+  convert the column and kill the index; the reverse usually converts the constants.
+- **`eq_range_index_dive_limit` is a threshold**, so a 200-value list already uses statistics.
+- **Version gates split correctly**: row aliases 8.0.19+, `VALUES()` deprecation 8.0.20+,
+  `EXPLAIN ANALYZE` 8.0.18+, `JSON_SCHEMA_VALID` 8.0.17+.
+- **SQLite:** `STRICT` performs lossless coercions (text `'12'` enters an `INTEGER` column); `->>`
+  is **3.38+**, so it is a syntax error on the stated 3.37 baseline; FTS5 is a compile-time option;
+  `busy_timeout` does not cover `SQLITE_BUSY_SNAPSHOT`; `INTEGER PRIMARY KEY` is the rowid only in
+  rowid tables; NFS is an unverifiable corruption *risk*, not a guaranteed failure.
+- **PostgreSQL:** `ON CONFLICT` infers any non-deferrable unique index, not only a named constraint;
+  `n_dead_tup` is not a bloat measurement; `RESTRICT` and `NO ACTION` are not defined as identical.
+
+**Procedures that would have broken in production**
+
+- The **default-partition replacement sequence was not atomic** — between `DETACH` and re-`ATTACH`,
+  inserts outside existing bounds fail. Now wrapped in a transaction, with the lock cost stated and a
+  low-lock exclusion-`CHECK` variant added.
+- The **advisory-lock job claim allowed double claims** — a lock serializes only while held, so the
+  next caller re-claimed a job already in progress. The state check now lives in the `UPDATE`.
+- The **deferred-join pagination query had no outer `ORDER BY`**; a derived table's order is not
+  preserved, so the page came back in arbitrary order.
+- A **column-swap timeline dropped the old column while the application still dual-wrote it.**
+- **`CREATE INDEX CONCURRENTLY IF NOT EXISTS`** skips the invalid index a failed build leaves behind
+  and reports success.
+- **PK cutover is not "one transaction" on MySQL** — DDL cannot be wrapped in one. The procedure now
+  splits by engine, including sequence/`AUTO_INCREMENT` ownership, which the previous version left
+  undefined.
+
+**Consistency and flow**
+
+- Integer-PK growth class reached four files it had missed, so the plugin no longer says both
+  "always bigint" and "by growth class".
+- `db-select` routed new table design straight to the engine guidelines as a peer option, bypassing
+  the conceptual and logical gates. New design now goes to `rdbms-modeling` first.
+- Nothing routed **to** `rdbms-review` from the engine guidelines, naming, or migrations — the
+  commonest entry path had no exit into review.
+- Commands and agents were restating skill policy, which `AGENTS.md` forbids — and the copies had
+  already drifted, omitting SQLite from the FK split and contradicting the denormalization rule.
+  Trimmed to pointers plus genuinely invocation-specific behaviour.
+- The session hook told the agent not to re-ask the engine while `rdbms-modeling` required
+  confirming it; the hook now says the engine is inferred and the *version* still needs confirming.
+- Unactionable thresholds got derivable criteria: partitioning, delta history, `CASCADE` fan-out
+  severity, external pooler, built-in queue, BCNF exception, `socketTimeout`.
+- Money was told to be an integer minor unit in one place and fixed-point `decimal` in two others.
+- Soft delete was `is_active` in the standard and `deleted_at` in three examples.
+- `pk_<table>` is impossible on MySQL (the PK index is always `PRIMARY`) and on SQLite (the rowid
+  alias must be inline) — documented as engine exceptions instead of an unsatisfiable rule.
+
+**Examples now follow the plugin's own rules** — generic `id` columns renamed to `<table>_id`,
+reserved identifiers removed (`user` table, `role` column, `rank` alias), join-key types matched to
+their parent, redundant indexes separated by access pattern, ORM examples (Prisma CUID, Drizzle
+UUIDv4, Kysely `bigint` on a bounded entity) corrected with named constraints, missing `created_at`
+added, and snippets that referenced undefined `db`/`pool` made callable.
+
 ## 0.3.1
 
 Integer PK sizing, corrected. The previous guidance said widening a column later is comparatively

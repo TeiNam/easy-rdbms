@@ -16,7 +16,7 @@ version-specific pattern.
 
 | Feature | MySQL 8.0+ | MariaDB |
 |---|---|---|
-| Referencing inserted values in `ON DUPLICATE KEY UPDATE` | Row alias `AS new` (`VALUES(col)` deprecated) | `VALUES(col)` is the documented form |
+| Referencing inserted values in `ON DUPLICATE KEY UPDATE` | Row alias `AS new` — **8.0.19+**; `VALUES(col)` deprecated from **8.0.20** (so on 8.0.0-8.0.18, `VALUES(col)` is the only form) | `VALUES(col)` is the documented form |
 | Cross-engine safe choice | — | Use `VALUES(col)` for mixed fleets |
 
 ```sql
@@ -71,10 +71,13 @@ JOIN (
   FROM product
   ORDER BY created_at DESC, product_id DESC
   LIMIT 50 OFFSET 100000
-) AS page USING (product_id);
+) AS page USING (product_id)
+ORDER BY p.created_at DESC, p.product_id DESC;   -- REQUIRED: a derived table's order is not preserved
 ```
 
-The subquery touches only indexed columns, so it stays index-only. **The offset scan itself is
+Without that outer `ORDER BY` the page comes back in whatever order the join produced — the inner
+`ORDER BY` only decides *which* rows, not the order you receive them in. The subquery touches only
+indexed columns, so it stays index-only. **The offset scan itself is
 still there** — this reduces the per-row cost, not the row count. Prefer keyset pagination whenever
 the UI allows it, and for exports or batch work drop pagination entirely in favour of cursor-based
 streaming or chunked processing.
@@ -85,7 +88,7 @@ Index creation (with the `ngram` parser for Korean/CJK) is in `index-and-query.m
 The query side:
 
 ```sql
-SELECT id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
+SELECT article_id, title, MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE) AS score
 FROM article
 WHERE MATCH(title, body) AGAINST (? IN NATURAL LANGUAGE MODE)
 ORDER BY score DESC
@@ -101,6 +104,11 @@ InnoDB's default is **`REPEATABLE READ`**. Plain reads get their consistency fro
 snapshot; **locking** reads and writes additionally take **gap and next-key locks**, which is how
 RR blocks phantoms for them — and the most common deadlock source that surprises teams arriving
 from other databases.
+
+This is not unconditional. A **unique-index equality lookup that finds its row takes only a record
+lock** — no gap. Gap and next-key locking is what range scans and non-unique index searches do. So
+"my `SELECT ... FOR UPDATE` by primary key deadlocked" usually means the predicate was not the
+unique-equality shape you assumed; check the plan before blaming the isolation level.
 
 | Symptom | Cause at RR |
 |---|---|
@@ -133,14 +141,14 @@ Lock rows in a deterministic order across every code path:
 ```sql
 START TRANSACTION;
 
-SELECT id, balance
+SELECT account_id, balance
 FROM account
-WHERE id IN (?, ?)
-ORDER BY id            -- deterministic order prevents lock-cycle deadlocks
+WHERE account_id IN (?, ?)
+ORDER BY account_id    -- deterministic order prevents lock-cycle deadlocks
 FOR UPDATE;
 
-UPDATE account SET balance = balance - ? WHERE id = ?;
-UPDATE account SET balance = balance + ? WHERE id = ?;
+UPDATE account SET balance = balance - ? WHERE account_id = ?;
+UPDATE account SET balance = balance + ? WHERE account_id = ?;
 
 COMMIT;
 ```
@@ -160,7 +168,7 @@ Queue-style worker claim:
 ```sql
 START TRANSACTION;
 
-SELECT id
+SELECT job_id
 FROM job
 WHERE status = 'pending'
 ORDER BY created_at
@@ -169,7 +177,7 @@ FOR UPDATE SKIP LOCKED;
 
 UPDATE job
 SET status = 'processing', started_at = NOW()
-WHERE id = ?;
+WHERE job_id = ? AND status = 'pending';   -- state check in the UPDATE, not just the lock
 
 COMMIT;
 ```
@@ -196,10 +204,13 @@ const pool = mysql.createPool({
   keepAliveInitialDelay: 30000,
 });
 
-const [rows] = await pool.execute(
-  'SELECT id, total_amount FROM purchase_order WHERE account_id = ? LIMIT 50',
-  [accountId],
-);
+export async function listOrders(accountId) {
+  const [rows] = await pool.execute(
+    'SELECT purchase_order_id, total_amount FROM purchase_order WHERE account_id = ? LIMIT 50',
+    [accountId],
+  );
+  return rows;
+}
 ```
 
 **Recycle below the server timeout.** If the server has `wait_timeout = 300`, set client
@@ -226,7 +237,7 @@ SET GLOBAL long_query_time = 1;
 SET GLOBAL log_queries_not_using_indexes = 'ON';
 ```
 
-`EXPLAIN ANALYZE` **executes** the statement. Use it only when running the query is safe;
+`EXPLAIN ANALYZE` is **8.0.18+** (earlier 8.0 releases reject the syntax) and it **executes** the statement. Use it only when running the query is safe;
 on production-sized data it can be expensive. Prefer plain `EXPLAIN` / `EXPLAIN FORMAT=JSON`
 for plan inspection.
 

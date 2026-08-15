@@ -47,10 +47,16 @@ change on another.
 - **Time columns use the industry-standard past-participle form**: `created_at` / `updated_at` /
   `deleted_at`. These are the prevailing convention across the Django, Rails, JPA, Prisma, and TypeORM ecosystems
   (not every framework generates them automatically), so they win on portability and collaboration. Other time/date columns use `<purpose>_at` / `<purpose>_date`
-  (e.g. `publish_at`, `expire_at`, `open_date`).
+  — using the past participle for what happened (`published_at`, `expired_at`) and the base form for
+  what is scheduled (`publish_at`, `expire_at`).
   - **Note — the old "active voice" rule is retired.** A prior version forced `create_date`-style active
     voice, but that collides with the `created_at` industry standard. Time columns now follow the
     past-participle standard for portability.
+  - **Completed vs scheduled is the distinction that decides the form.** A column recording that
+    something *happened* takes the past participle (`created_at`, `published_at`, `expired_at`,
+    `opened_at`). A column holding a time something is *supposed to* happen is not a past event, so it
+    stays in the base form (`publish_at`, `expire_at`, `open_at`) — and if a table has both, that is
+    two columns (`publish_at` scheduled, `published_at` actual), not one.
 - **No reserved words**: Avoid words reserved in **either** MySQL or PostgreSQL — a word reserved in only
   one engine is still off-limits. Common traps: `user`, `order`, `group`, `table`, `column`, `type`,
   `default`, `check`, `limit`, `offset`, `desc`, `role`.
@@ -79,8 +85,8 @@ change on another.
 |---------|------|---------|
 | PK | `<table>_id` | `member_id` |
 | FK | `<parent_table>_id` | `member_id` |
-| Date (DATE) | `<purpose>_date` | `open_date` |
-| Date+Time (DATETIME) | `<purpose>_at` | `publish_at` (create/update/delete → `created_at`/`updated_at`/`deleted_at`) |
+| Date (DATE) | `<purpose>_date` | `opened_date` (happened) / `open_date` (scheduled) |
+| Date+Time (DATETIME) | `<purpose>_at` | `published_at` (happened) / `publish_at` (scheduled); create/update/delete → `created_at`/`updated_at`/`deleted_at` |
 | Code | `<purpose>_code` | `member_code` |
 | Number | `<purpose>_no` | `order_no` |
 | **Boolean** | **`is_` / `has_` prefix** | `is_active`, `is_deleted`, `has_coupon` |
@@ -105,13 +111,20 @@ change on another.
 
 | Type | Rule | Example |
 |------|------|---------|
-| Primary Key | `pk_<table>` | `pk_member` |
+| Primary Key | `pk_<table>` — **PostgreSQL only**, see the exception below | `pk_member` |
 | Foreign Key | `fk_<child>_<parent>` | `fk_order_member` — PostgreSQL only; MySQL creates no physical FK |
 | Unique | `uq_<table>_<col…>` | `uq_member_email` |
 | Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
 | General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |
 | Composite index | `idx_<table>_<col1>_<col2>…` | `idx_actor_first_name_last_name` |
 | Fulltext index | `fts_<table>_<col…>` | `fts_book_name` |
+
+> **`pk_<table>` has two engine exceptions — "always name it explicitly" cannot be satisfied there.**
+> On **MySQL/InnoDB** the primary key's index is always named `PRIMARY`; `CONSTRAINT pk_member PRIMARY
+> KEY (...)` parses but the name is discarded, so a bare `PRIMARY KEY (...)` is correct MySQL, not a
+> lapse. On **SQLite** an `INTEGER PRIMARY KEY` has to be written inline to *be* the rowid — naming it
+> turns it into an ordinary key. **PostgreSQL honours the name, so use `pk_<table>` there.** Every other
+> prefix (`fk_`/`uq_`/`chk_`/`idx_`/`fts_`) is nameable on all three engines and must be named.
 
 **63-char overflow** — when listing every column exceeds 63 chars, shorten in this order:
 1. Apply an abbreviation registered in the dictionary (§4) (e.g. `authentication` → `auth`).
@@ -143,9 +156,15 @@ apply to it unchanged.
 
 ### Common Principles (DB-agnostic)
 
-- **PK is integer-based by default**: **default the surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion
-  on large tables, and **widening a PK later is a full table rebuild** — see
-  `rdbms-modeling/references/identifier-selection.md`). Reach for UUID when distributed generation across DBs/shards is required (no central
+- **PK is integer-based by default**, and its **width follows growth class** — this is one decision you
+  cannot cheaply revisit, because widening a PK later is a full table rebuild:
+  - **Entity** table (one row per real thing — `member`, `product`): `INT`/`int unsigned` is enough. The
+    real world caps the count. Record what caps it.
+  - **Event/log** table (one row per occurrence — `*_log`, `*_history`, IoT, audit): **`BIGINT`, no
+    exceptions.** Rows = rate × time with no cap, and sequences never reuse values, so retention does
+    not reclaim range.
+  - Decision procedure and per-engine cost: `rdbms-modeling/references/identifier-selection.md`.
+  Reach for UUID when distributed generation across DBs/shards is required (no central
   sequence) **or** an externally visible identifier is needed — and prefer **UUID v7** (time-sortable) over
   random v4. Join keys should be **narrow and type-matched to the parent**, which usually means integer —
   but a UUID PK propagating into children is a supported design, not a violation.
@@ -153,8 +172,10 @@ apply to it unchanged.
   secondary index, so PK width and ordering are storage decisions; on **PostgreSQL** rows live in a heap, so a
   UUID PK costs less — but not nothing, since index locality still applies to write-heavy tables.
   Full criteria in `rdbms-modeling/references/identifier-selection.md`.
-  - **MySQL**: `BIGINT ... AUTO_INCREMENT`
-  - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`)
+  - **MySQL**: `AUTO_INCREMENT`, `UNSIGNED` (never negative). `int unsigned` / `bigint unsigned` by class
+  - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`). No `UNSIGNED`
+    exists, so `int` gives 2.1B where MySQL's `int unsigned` gives 4.2B — the event/log threshold
+    arrives twice as fast
 - **Amounts / settlement**: Floating-point (`float`/`double`/`real`) is **absolutely prohibited** → use
   fixed-point (`DECIMAL` = standard `NUMERIC`). **Size precision/scale per currency and use — never a blanket
   `(10,2)`:**
@@ -186,7 +207,7 @@ apply to it unchanged.
 | Purpose | MySQL | PostgreSQL |
 |---------|-------|------------|
 | Boolean | `TINYINT(1)` 0/1 (`BOOLEAN`/`BOOL` is an alias). No native boolean. Name `is_`/`has_` | **native `boolean`**. 'Y'/'N' strings prohibited |
-| PK (auto, integer) | **`AUTO_INCREMENT`** — `bigint unsigned` default (standard method) | **`GENERATED ALWAYS AS IDENTITY`** — `bigint` (SQL standard). Do not use `SERIAL` |
+| PK (auto, integer) | **`AUTO_INCREMENT`**. Width by growth class: entity table `int unsigned`, event/log table `bigint unsigned` | **`GENERATED ALWAYS AS IDENTITY`** (SQL standard — do not use `SERIAL`). Same widths: `int` / `bigint` |
 | Amount | `DECIMAL(p,s)` | `numeric(p,s)` |
 | Date+Time | `datetime` (+`DEFAULT CURRENT_TIMESTAMP`); `TIMESTAMP` only for auto-UTC ≤ 2038 | `timestamptz` (timezone required) |
 | Date | `date` | `date` |
@@ -222,4 +243,6 @@ apply to it unchanged.
 - `mysql-guideline` — MySQL-specific defaults, types, prohibitions, JDBC, release policy. Based on these rules.
 - `postgres-guideline` — PostgreSQL-specific differences (single text type, IDENTITY, no UNSIGNED, etc.).
 - `rdbms-modeling` — Applies these conventions for normalization and table design.
+- `sqlite-guideline` — SQLite-specific differences (type affinity, `STRICT` tables, rowid PK).
+- `rdbms-review` — Audits an existing schema against these conventions and reports violations by severity.
 - `db-select` — Picks the engine in the first place (RDBMS vs not, MySQL vs PostgreSQL, scale tier).

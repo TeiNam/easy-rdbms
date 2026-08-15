@@ -59,6 +59,20 @@ If every write goes through the application, do not add it. See `history-entitie
 |---|---|
 | Trigger maintaining a denormalized column or aggregate | The application transaction that changed the source (see `denormalization.md`) |
 | Trigger setting `updated_at` | Set it in the application write path |
+
+> **Named exception: native index maintenance.** A trigger whose entire job is to keep a *native
+> index structure* in step with its own base table — the documented SQLite FTS5 external-content
+> synchronization triggers being the case this plugin uses — is index plumbing, not business logic.
+> It carries no rule an application could own instead. Per-write is inherent to it, so it is exempt
+> from the "infrequent" limit on operational utilities. Anything that writes a **business** column or
+> another business table is not covered by this exception.
+
+> **Named exception: MySQL's `ON UPDATE CURRENT_TIMESTAMP`.** It is a *column attribute*, not a
+> routine — no stored program, no hidden branch, nothing to version separately — so it is outside
+> this policy and the MySQL examples use it. Two consequences to accept knowingly: the **database
+> clock** stamps the row rather than the application's, and it fires only when the `UPDATE` actually
+> changes a value. PostgreSQL has no equivalent, so there the application owns `updated_at`; a
+> trigger to emulate it is still prohibited.
 | Trigger enforcing a business rule or state transition | Application validation; `CHECK` for structural invariants |
 | Stored procedure holding a business workflow | Application service code |
 | Event running business processing on a timer | Application job or external scheduler |

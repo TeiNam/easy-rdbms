@@ -55,7 +55,7 @@ Summary + PostgreSQL-specific:
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint`** | **No exceptions.** Rows = rate × time with no bound; `int` at 10k/s dies in ~5 days, and a sequence never reuses values so retention does not reclaim range. `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` — see `schema-design.md` |
+| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint`** | **No exceptions.** Rows = rate × time with no bound; PostgreSQL `integer` is **signed** (2.1B ceiling), so at 10k/s it dies in **~2.5 days** — half the MySQL `int unsigned` runway. A sequence never reuses values, so retention does not reclaim range. `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` — see `schema-design.md` |
 | Entity table PK (`member`, `product`) | `int` | Fine — 2.1B, and the real world caps the entity count. Record what bounds it |
 | Bounded lookup/code table PK | `smallint` | Fixed code domain |
 | Small integer | `smallint` | -32768 ~ 32767 |
@@ -83,7 +83,9 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
   operational-utility and audit-trigger exceptions are in
   `rdbms-modeling/references/db-internal-routines.md`
 - Triggers: prohibited for business logic (handle `updated_at` in the application)
-- Events/Schedulers: use external (cron, Airflow)
+- Events/Schedulers: prefer external (cron, Airflow, an operator job). `pg_cron` is acceptable for
+  the sanctioned operational-utility category only (partition rotation, retention) — categories and
+  limits in `rdbms-modeling/references/db-internal-routines.md`, which is authoritative
 - Views: simple read-only views are fine for query reuse, security, and interface abstraction —
   **complex or nested views are discouraged** (a view is not a performance cache; PostgreSQL rewrites
   it into a base-table query). Materialized views **are** available for repeated joins and aggregation.
@@ -102,3 +104,12 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
 If the target DB is not decided yet — or you are weighing PostgreSQL against MySQL, or an
 RDBMS against DynamoDB / MongoDB / Redis — use the `db-select` skill first. It routes back
 here once PostgreSQL is confirmed.
+
+## After Writing the Schema
+
+Hand the DDL to the `rdbms-review` skill before it ships. It checks this file's rules plus the
+cross-engine ones (PostgreSQL defaults, `rdbms-naming` conventions, normalization level, index
+justification, physical-FK policy) and reports findings by severity — the checklists here tell you
+what *good* looks like, not whether a given schema got there.
+
+Changing a schema that already holds data is a different problem: use `database-migrations`.

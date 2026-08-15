@@ -67,13 +67,20 @@ fi
 # one the current task targets; guessing the dialect produces DDL that does not run.
 case "$FOUND" in
   *" and "*|*MariaDB*) CLOSING="More than one engine (or a MySQL-compatible variant) is present — ask which one the current task targets before writing any dialect-specific SQL." ;;
-  *)                   CLOSING="The dialect is settled; do not re-ask which database this project uses." ;;
+  *)                   CLOSING="The engine is inferred from the repository, so take it as given and do not re-ask which database this project uses. Still confirm the *version* and deployment form (managed / Aurora / container) before emitting version-specific SQL -- this detection does not reveal them." ;;
 esac
+
+# Name the guideline skill(s) outright. The engine is already known here, so making the
+# agent infer "the matching guideline skill" wastes the detection we just did.
+GUIDES=""
+case "$FOUND" in *PostgreSQL*) GUIDES="postgres-guideline" ;; esac
+case "$FOUND" in *MySQL*|*MariaDB*) GUIDES="${GUIDES:+$GUIDES, }mysql-guideline" ;; esac
+case "$FOUND" in *SQLite*) GUIDES="${GUIDES:+$GUIDES, }sqlite-guideline" ;; esac
 
 cat <<CTX
 This project already uses $FOUND.$EXTRA
 For any table, index, migration, or query work here, use the easy-rdbms skills:
-engine rules live in the matching guideline skill; naming and data types in
-rdbms-naming; new table design in rdbms-modeling; schema/query review in
-rdbms-review. $CLOSING
+engine rules in $GUIDES; naming and data types in rdbms-naming; new table
+design in rdbms-modeling; schema/query review in rdbms-review; changing a
+schema that already holds data in database-migrations. $CLOSING
 CTX

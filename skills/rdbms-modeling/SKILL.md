@@ -242,7 +242,7 @@ looks like `<DB>`. Correct?"
 
 | Target | Apply | Key rules |
 |---|---|---|
-| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
+| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `AUTO_INCREMENT` + `UNSIGNED` with width **by growth class** (entity `int unsigned`, event/log `bigint unsigned`), `datetime`, `json`, logical FKs |
 | Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
 | SQLite | `sqlite-guideline` | `STRICT` tables, PRAGMA baseline (`foreign_keys=ON`, WAL), `INTEGER PRIMARY KEY` rowid, integer-cents money, physical FKs allowed, no partitioning |
 
@@ -271,8 +271,8 @@ Then produce:
   seek-and-order for everything after it. Confirm against the real plan. Every index costs write throughput, storage, backup
   size, and buffer-pool space forever — emit the justifying query, the column-order reason, and the
   rollback with each one. With no plan or metrics available, say `needs measurement` rather than
-  estimating an improvement. See `references/index-design.md` and
-  `<engine>-guideline/index-and-query.md`
+  estimating an improvement. See `references/index-design.md`, plus
+  `mysql-guideline/index-and-query.md` or `postgres-guideline/index-and-query.md` for the dialect
 - **Views and materialized views** — a plain view is reuse, security, and abstraction; it is **not** a
   performance cache. Acceleration means a PostgreSQL materialized view or a MySQL summary table, which
   is a denormalization and inherits its requirements (source of truth, sync, rebuild). Never make one
@@ -336,13 +336,21 @@ national ID) go in a `UNIQUE` constraint, never the PK. Never a raw timestamp as
 
 | Situation | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
-| Single DB, ordinary table | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY`, or UUIDv7 |
+| Single DB, **entity** table (one row per real thing — `member`, `product`) | `int unsigned AUTO_INCREMENT` — 4.2B, and the real world caps the entity count. Record what caps it | `int GENERATED ALWAYS AS IDENTITY` |
+| Single DB, **event/log** table (one row per occurrence — `*_log`, `*_history`, IoT, audit) | **`bigint unsigned AUTO_INCREMENT`** — rows = rate × time, no cap | **`bigint GENERATED ALWAYS AS IDENTITY`** |
 | Write-heavy | Sequential integer first | `IDENTITY` or UUIDv7 — not v4 |
 | Generated on multiple nodes | UUIDv7 as `binary(16)` | native `uuid` with UUIDv7 |
 | Exposed externally | Internal integer PK + public UID column | UUID PK, or integer PK + public UID |
 | Wide natural or composite key | Split out as `UNIQUE` | Split out as `UNIQUE` |
 
-Why they differ: InnoDB clusters on the PK and copies it into every secondary index; PostgreSQL
+Size the integer by **what makes the row count grow**, not by today's row count — and get it right
+now, because changing a PK's type later needs `ALGORITHM=COPY` on MySQL (full rebuild plus every
+secondary index) or a table rewrite under `ACCESS EXCLUSIVE` on PostgreSQL. Note that retention
+policies and partition drops reclaim storage but **not** ID range: sequences never reuse values.
+An "entity" that turns out to be machine-generated (per-device rows, ad impressions) is an event
+table wearing an entity name.
+
+Why the engines differ: InnoDB clusters on the PK and copies it into every secondary index; PostgreSQL
 heaps rows, so a UUID PK costs less — but not nothing. Two traps: `UUID_TO_BIN(v, 1)`'s swap flag
 is **UUIDv1-only** (swapping a v7 destroys its ordering), and `uuidv7()` is built in only from
 **PG 18** — `gen_random_uuid()` is v4.

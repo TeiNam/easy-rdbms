@@ -44,7 +44,19 @@ happens and the partitioning is pure overhead — more objects to manage, no rea
 - The only stated reason is "this table will probably get big"
 
 That last one is the common case. Say plainly that the evidence is not there yet, and name the
-threshold that would change the answer.
+threshold that would change the answer. **Derive that threshold, do not invent a row count** — take
+whichever of these the project actually has:
+
+- **A retention or deletion SLA.** If rows must disappear after N days and a bulk `DELETE` of one
+  day's rows already exceeds the maintenance window (or generates more bloat/vacuum load than the
+  window absorbs), that is the threshold — partitioning turns the delete into a `DROP PARTITION`.
+- **A measured maintenance limit.** The point where an index rebuild, `VACUUM`, `ANALYZE`, or a
+  restore of this one table no longer fits its window. State the current duration and the window.
+- **A measured query limit.** A time-ranged read path whose plan already scans far more than the
+  range needs, where pruning would cut it — with the plan attached.
+
+If the project has none of the three, the honest output is "no threshold is derivable yet; revisit
+when a retention policy or a maintenance window exists", not a number you made up.
 
 ## Recommendation Output
 
@@ -182,11 +194,11 @@ Recommending partitioning without checking that pruning happens is half the work
 
 ```sql
 -- MySQL: the "partitions" column should list only the expected ones
-EXPLAIN SELECT * FROM event
+EXPLAIN SELECT event_id, event_type, created_at FROM event
 WHERE created_at >= '2026-09-01' AND created_at < '2026-10-01';
 
 -- PostgreSQL: the plan should show only the matching partitions scanned
-EXPLAIN SELECT * FROM event
+EXPLAIN SELECT event_id, event_type, created_at FROM event
 WHERE created_at >= '2026-09-01' AND created_at < '2026-10-01';
 ```
 

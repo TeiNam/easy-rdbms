@@ -34,7 +34,7 @@ DDL readable, and avoid an expression that every query has to mirror.
 CREATE TABLE `chat_history` (
   `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'event table: rows = rate x time, unbounded',
   `conversation_id` char(18) NOT NULL,
-  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id -- four controls required, see schema-design.md',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -78,7 +78,9 @@ ALTER TABLE chat_history REORGANIZE PARTITION p_maxvalue INTO (
 ```
 
 ```sql
--- Drop old partition (per data retention policy) — instant, unlike a mass DELETE
+-- Drop old partition (per retention policy) — in-place, no table copy, so far cheaper than a mass
+-- DELETE. Not ALGORITHM=INSTANT though: it still takes a metadata lock, so it can queue behind (and
+-- block) concurrent statements on the table. Run it with a lock_wait_timeout, off peak.
 ALTER TABLE chat_history DROP PARTITION p202608;
 ```
 
@@ -107,7 +109,7 @@ AND PARTITION_NAME IS NOT NULL;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(member_id: int, year: int, month: int):
+def get_monthly_chat_history(db, member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 

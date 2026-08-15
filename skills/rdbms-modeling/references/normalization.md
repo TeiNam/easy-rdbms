@@ -46,7 +46,7 @@ Decompose to BCNF when step 4 says yes.
 - **Dependency preservation fails.** The decomposition cannot enforce one of the original
   functional dependencies without a cross-table constraint the engine will not express. A
   dependency you cannot enforce is worse than the redundancy it removed.
-- **Join cost becomes unreasonable.** The decomposition forces additional joins into ordinary
+- **Join cost is **measured** unreasonable — a plan and a timing against a stated latency or throughput target, not an assertion.** The decomposition forces additional joins into ordinary
   read paths, and the anomaly it prevents is already ruled out by an application-level
   constraint or a `UNIQUE` index.
 

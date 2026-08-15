@@ -144,7 +144,11 @@ detection query. State which one is in use.
 ## Snapshot vs Delta
 
 - **Full snapshot is the default.** Point-in-time reconstruction is a single row read.
-- Consider deltas **only** when storage is genuinely large and the changing attribute set is narrow.
+- Consider deltas **only** when both of these are true, with numbers: (a) the **projected** snapshot
+  storage over the retention period exceeds a stated budget — compute it as
+  `row_size x changes_per_row_per_period x rows x retention`, do not eyeball it; and (b) the delta
+  replay time to reconstruct a point in time fits the restore SLA you will be held to. If you cannot
+  state both numbers, use snapshots. The changing attribute set must also be narrow.
 - With deltas, restoring a point in time means replaying every version up to it — and one lost or
   misordered row corrupts everything after it.
 - **A generic JSON audit log is not a substitute for a business history entity.** It has no schema,

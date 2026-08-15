@@ -31,7 +31,7 @@ A pooled connection must be returned — `close()` on a pooled connection releas
 pool rather than dropping the socket. Without it the pool is exhausted after `pool_size` calls.
 
 ```python
-def transfer(from_id: int, to_id: int, amount: int) -> None:
+def transfer(pool, from_id: int, to_id: int, amount: int) -> None:
     conn = pool.get_connection()
     try:
         with conn.cursor() as cur:
@@ -110,7 +110,7 @@ WHERE member_id = 1;
 ### Generated Columns
 
 ```sql
-ALTER TABLE user ADD COLUMN full_name varchar(200)
+ALTER TABLE member ADD COLUMN full_name varchar(200)
   GENERATED ALWAYS AS (CONCAT(first_name, ' ', last_name)) VIRTUAL;
 ```
 
@@ -118,7 +118,7 @@ ALTER TABLE user ADD COLUMN full_name varchar(200)
 
 ```sql
 SELECT member_id, message_count,
-  ROW_NUMBER() OVER (ORDER BY message_count DESC) AS rank
+  ROW_NUMBER() OVER (ORDER BY message_count DESC) AS row_rank   -- `rank` is reserved in MySQL 8
 FROM (
   SELECT member_id, COUNT(*) AS message_count
   FROM chat_history GROUP BY member_id

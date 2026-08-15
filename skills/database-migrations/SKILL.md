@@ -1,6 +1,6 @@
 ---
 name: database-migrations
-description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments. PostgreSQL-first mechanics with MySQL online-DDL notes, and workflows for Prisma, Drizzle, Kysely, Django, and golang-migrate.
+description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments. PostgreSQL-first mechanics with MySQL online-DDL notes, widening a primary key from int to bigint (ALGORITHM=COPY / ACCESS EXCLUSIVE table rewrite), and workflows for Prisma, Drizzle, Kysely, Django, and golang-migrate.
 ---
 
 # Database Migration Patterns
@@ -13,6 +13,7 @@ Safe, reversible database schema changes for production systems.
 - Adding/removing columns or indexes
 - Running data migrations (backfill, transform)
 - Planning zero-downtime schema changes
+- Widening a primary key or any column type on a large table
 - Setting up migration tooling for a new project
 
 ## Core Principles
@@ -52,8 +53,8 @@ ALTER TABLE member ADD COLUMN avatar_url TEXT;
 ALTER TABLE member ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT true;
 
 -- FAILS on a non-empty table: NOT NULL with no default has nothing to fill existing rows with
-ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
--- ERROR: column "role" of relation "member" contains null values
+ALTER TABLE member ADD COLUMN access_level TEXT NOT NULL;
+-- ERROR: column "access_level" of relation "member" contains null values
 
 -- GOOD: the NOT NULL-without-default path. Order matters: a `NOT VALID` CHECK still enforces on
 -- NEW writes, so adding it before every writer populates the column breaks running inserts.
@@ -61,19 +62,19 @@ ALTER TABLE member ADD COLUMN role TEXT NOT NULL;
 -- lets PostgreSQL (12+) skip that scan.
 
 -- 1. nullable add (migration)
-ALTER TABLE member ADD COLUMN role TEXT;
+ALTER TABLE member ADD COLUMN access_level TEXT;
 
--- 2. DEPLOY application code that always writes `role`  ← before any constraint exists
+-- 2. DEPLOY application code that always writes `access_level`  <- before any constraint exists
 
 -- 3. backfill existing rows (separate migration, batched — see Large Data Migrations)
-UPDATE member SET role = 'member' WHERE role IS NULL;
+UPDATE member SET access_level = 'member' WHERE access_level IS NULL;
 
 -- 4. now that no writer produces NULL and no row holds one:
-ALTER TABLE member ADD CONSTRAINT chk_member_role_not_null
-  CHECK (role IS NOT NULL) NOT VALID;                                 -- instant, no scan
-ALTER TABLE member VALIDATE CONSTRAINT chk_member_role_not_null;      -- scans under a weak lock
-ALTER TABLE member ALTER COLUMN role SET NOT NULL;                    -- no scan — the CHECK proves it
-ALTER TABLE member DROP CONSTRAINT chk_member_role_not_null;          -- helper no longer needed
+ALTER TABLE member ADD CONSTRAINT chk_member_access_level_not_null
+  CHECK (access_level IS NOT NULL) NOT VALID;                                 -- instant, no scan
+ALTER TABLE member VALIDATE CONSTRAINT chk_member_access_level_not_null;      -- scans under a weak lock
+ALTER TABLE member ALTER COLUMN access_level SET NOT NULL;                    -- no scan — the CHECK proves it
+ALTER TABLE member DROP CONSTRAINT chk_member_access_level_not_null;          -- helper no longer needed
 ```
 
 ### Adding an Index Without Downtime
@@ -124,6 +125,82 @@ UPDATE member SET display_name = username WHERE display_name IS NULL;
 ALTER TABLE member DROP COLUMN username;
 ```
 
+### Widening a Primary Key (MySQL and PostgreSQL) — Not an Ordinary Migration
+
+If a request is "change the PK from `int` to `bigint`", stop and size the work before writing the
+migration. There is no cheap path on either engine:
+
+| Engine | What actually happens |
+|---|---|
+| MySQL | No in-place path exists for changing an integer's type, so `ALTER TABLE … MODIFY` runs with **`ALGORITHM=COPY`**: full table rebuild, plus a rebuild of **every secondary index** (InnoDB appends the PK to all of them) |
+| PostgreSQL | `ALTER COLUMN … TYPE bigint` rewrites the whole table under **`ACCESS EXCLUSIVE`** and rebuilds every index on the column |
+
+And it is never one table. Every referencing column has to change in lockstep — under a logical-FK
+policy those are plain columns with no catalog record, so they must be found by grep and migrated
+separately, and a signed/unsigned or `int`/`bigint` mismatch left behind silently degrades the join.
+
+The zero-downtime route is the expand-contract pattern above, applied to the key:
+
+```sql
+-- 1. Add the wide column, nullable, no default (instant on both engines)
+--    PostgreSQL — no UNSIGNED exists here:
+ALTER TABLE log.chat_history ADD COLUMN chat_history_id_new bigint;
+--    MySQL:
+-- ALTER TABLE chat_history ADD COLUMN chat_history_id_new bigint unsigned NULL,
+--   ALGORITHM=INSTANT;
+
+-- 2. DEPLOY dual writes: the app writes both columns. Must precede the backfill.
+-- 3. Backfill in bounded batches (see "Large Data Migrations" below), monitoring replica lag
+-- 4. SET NOT NULL on the new column, add a UNIQUE index on it, and verify:
+--    counts match, no NULLs, no duplicates.
+-- 5. Cutover -- and this step is NOT the same on both engines (see below).
+-- 6. Migrate every referencing column to the wide type, then drop the old column.
+```
+
+**Step 5 differs by engine, and "swap it in one transaction" is only true on one of them.**
+
+*PostgreSQL* — DDL is transactional, so the cutover really is atomic:
+
+```sql
+BEGIN;
+ALTER TABLE log.chat_history DROP CONSTRAINT pk_chat_history;
+ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP IDENTITY IF EXISTS;
+ALTER TABLE log.chat_history RENAME COLUMN chat_history_id TO chat_history_id_old;
+ALTER TABLE log.chat_history RENAME COLUMN chat_history_id_new TO chat_history_id;
+ALTER TABLE log.chat_history ADD CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id);
+-- Identity/sequence ownership moves too, or nothing generates the next value:
+ALTER TABLE log.chat_history
+  ALTER COLUMN chat_history_id ADD GENERATED ALWAYS AS IDENTITY;
+SELECT setval(pg_get_serial_sequence('log.chat_history', 'chat_history_id'),
+              (SELECT max(chat_history_id) FROM log.chat_history));
+COMMIT;
+```
+
+*MySQL* — **DDL cannot be wrapped in a transaction.** Each `ALTER` commits, so there is no atomic
+swap: put every change in **one** `ALTER TABLE` statement so the table is never in a half-swapped
+state, and accept that the statement itself is the outage window.
+
+```sql
+-- One statement: drop the old PK, retype/rename, and re-establish AUTO_INCREMENT together.
+-- ALGORITHM=COPY is implied; there is no in-place path. Take the write pause deliberately,
+-- or run the cutover through gh-ost / pt-online-schema-change instead.
+ALTER TABLE chat_history
+  DROP PRIMARY KEY,
+  CHANGE chat_history_id chat_history_id_old bigint unsigned NOT NULL,
+  CHANGE chat_history_id_new chat_history_id bigint unsigned NOT NULL AUTO_INCREMENT,
+  ADD PRIMARY KEY (chat_history_id);
+```
+
+An `AUTO_INCREMENT` column must be indexed as a key, which is why the `ADD PRIMARY KEY` has to be in
+the same statement — split it and MySQL rejects the intermediate state.
+
+Expect weeks, with application deploys in the middle. **Do not start this without first confirming
+the target table is not still accumulating rows faster than the backfill drains** — on a hot
+event/log table the backfill can lose the race.
+
+The migration you actually want is the one you avoid: size event/log PKs as `bigint` at
+`CREATE TABLE` time. See `rdbms-modeling/references/identifier-selection.md`.
+
 ### Removing a Column Safely
 
 ```sql
@@ -154,8 +231,8 @@ BEGIN
   LOOP
     UPDATE member
     SET normalized_email = LOWER(email)
-    WHERE id IN (
-      SELECT id FROM member
+    WHERE member_id IN (
+      SELECT member_id FROM member
       WHERE normalized_email IS NULL
       LIMIT batch_size
       FOR UPDATE SKIP LOCKED
@@ -189,15 +266,21 @@ npx prisma generate
 ### Schema Example
 
 ```prisma
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+model Member {
+  // Integer key by growth class: member is a bounded entity table, so Int is enough.
+  // Do NOT reach for @default(cuid()) or @default(uuid()) here — a random string key on a
+  // single-database entity table buys nothing and costs index locality. Use a UUID (v7) only
+  // for distributed generation or an externally exposed identifier, as a separate column.
+  memberId  Int      @id @default(autoincrement()) @map("member_id")
+  email     String   @map("email")
   name      String?
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   // a relation like `orders PurchaseOrder[]` needs a matching model — omitted here
 
+  // Named constraint, per rdbms-naming. Prisma's bare `@unique` lets the engine pick the name.
+  @@unique([email], map: "uq_member_email")
   @@map("member")
 }
 ```
@@ -216,7 +299,10 @@ npx prisma migrate dev --create-only --name add_member_last_login_index
 -- Prisma cannot generate CONCURRENTLY, so we write it manually.
 -- (Not an index on `email` — the model already declares `email @unique`, which
 --  creates a unique index; a second one would be pure write cost.)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_member_last_login
+CREATE INDEX CONCURRENTLY idx_member_last_login
+-- No IF NOT EXISTS here: a failed CONCURRENTLY build leaves an *invalid* index behind, and
+-- IF NOT EXISTS would skip it and report success while the index stays unusable. Instead
+-- pre-flight: SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;  -- then DROP and rebuild
   ON member (last_login_at);
 ```
 
@@ -238,16 +324,22 @@ npx drizzle-kit push
 ### Schema Example
 
 ```typescript
-import { pgTable, text, timestamp, uuid, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const member = pgTable("member", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
+  // Bounded entity table -> integer identity, not uuid().defaultRandom(): that is UUIDv4,
+  // whose insert positions scatter. UUIDv7 (or an integer PK + a public UID column) is the
+  // choice when you actually need distributed or externally visible IDs.
+  memberId: integer("member_id").primaryKey().generatedAlwaysAsIdentity(),
+  email: text("email").notNull(),
   name: text("name"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  // Named, per rdbms-naming — a bare .unique() lets Drizzle generate the constraint name
+  uqMemberEmail: uniqueIndex("uq_member_email").on(table.email),
+}));
 ```
 
 ## Kysely (TypeScript/Node.js)
@@ -285,12 +377,17 @@ import { type Kysely, sql } from 'kysely'
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('member_profile')
-    .addColumn('id', 'bigint', (col) => col.generatedAlwaysAsIdentity().primaryKey())
-    .addColumn('email', 'text', (col) => col.notNull().unique())
+    // member_profile is a bounded entity table, so 'integer' -- 'bigint' is for event/log
+    // tables whose rows grow as rate x time.
+    .addColumn('member_profile_id', 'integer', (col) =>
+      col.generatedAlwaysAsIdentity().primaryKey())
+    .addColumn('email', 'text', (col) => col.notNull())
     .addColumn('avatar_url', 'text')
     .addColumn('created_at', 'timestamptz', (col) =>
       col.defaultTo(sql`now()`).notNull()
     )
+    // Named, per rdbms-naming — .unique() on the column would let PostgreSQL pick the name
+    .addUniqueConstraint('uq_member_profile_email', ['email'])
     .execute()
 
   await db.schema
@@ -478,9 +575,12 @@ Phase 3: CONTRACT
 
 ```
 Day 1: Migration adds new_status column (nullable)
-Day 1: Deploy app v2 — writes to both status and new_status
-Day 2: Run backfill migration for existing rows
-Day 3: Deploy app v3 — reads from new_status only
+Day 1: Deploy app v2 - writes BOTH status and new_status, still reads status
+Day 2: Run backfill migration for existing rows (batched)
+Day 3: Deploy app v3 - reads new_status, still writes both
+Day 5: Deploy app v4 - stops writing status          <- REQUIRED before the drop
+Day 6: Verify no writer references status (grep the deployed revision, check
+       pg_stat_statements / performance_schema for the column name)
 Day 7: Migration drops old status column
 ```
 
@@ -494,3 +594,11 @@ Day 7: Migration drops old status column
 | Inline index on large table | Blocks writes on PostgreSQL; MySQL builds eligible secondary indexes online but silently falls back when it cannot | PostgreSQL `CREATE INDEX CONCURRENTLY`; MySQL state `ALGORITHM=INPLACE, LOCK=NONE` explicitly so an ineligible change errors instead of locking |
 | Schema + data in one migration | Hard to rollback, long transactions | Separate migrations |
 | Dropping column before removing code | Application errors on missing column | Remove code first, drop column next deploy |
+
+## Related
+
+- `rdbms-modeling` — Designs the target schema in the first place;
+  `rdbms-modeling/references/index-design.md` justifies an index before this skill builds it safely.
+- `mysql-guideline` / `postgres-guideline` / `sqlite-guideline` — Engine-specific DDL semantics: which
+  `ALTER` is in-place, which locks it takes, and the type rules the new column has to satisfy.
+- `rdbms-review` — Review the resulting schema, not just the migration mechanics.

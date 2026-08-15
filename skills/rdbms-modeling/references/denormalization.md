@@ -25,7 +25,7 @@ data-integrity bug rather than an optimization.
 | Stored computed value | Total, balance, count | Concurrent updates and calculation drift |
 | Aggregate table | Daily revenue, per-customer statistics | Refresh lag and re-aggregation cost |
 | Table merge | A 1:1 entity always read together | Wider rows, increased coupling |
-| Snapshot | Product name and price at order time | PII retention and storage growth |
+| Snapshot | A copy taken to freeze a *display* value that should still track its source (e.g. a cached customer address on a shipment record that support edits later) | PII retention, storage growth, and divergence from the source. **Not this:** the price on an order line at purchase time is a business fact, not a snapshot-for-performance — see the next section |
 | Read model | Search, list, dashboard-specific structure | Eventual consistency; needs rebuild |
 | Materialized result | Complex join or aggregate output | Refresh cost and staleness |
 | Embedded JSON | Rarely-changing child data | Weakens constraints and partial search |

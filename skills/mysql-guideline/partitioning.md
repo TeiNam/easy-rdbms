@@ -79,8 +79,10 @@ ALTER TABLE chat_history REORGANIZE PARTITION p_maxvalue INTO (
 
 ```sql
 -- Drop old partition (per retention policy) — in-place, no table copy, so far cheaper than a mass
--- DELETE. Not ALGORITHM=INSTANT though: it still takes a metadata lock, so it can queue behind (and
--- block) concurrent statements on the table. Run it with a lock_wait_timeout, off peak.
+-- DELETE. It is not ALGORITHM=INSTANT: the partition-drop syntax does not accept an ALGORITHM clause
+-- at all (`ALTER TABLE ... DROP PARTITION p, ALGORITHM=INSTANT` is a syntax error), and it still takes
+-- a metadata lock, so it can queue behind and block concurrent statements. Run it off peak with a
+-- lock_wait_timeout.
 ALTER TABLE chat_history DROP PARTITION p202608;
 ```
 

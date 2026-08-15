@@ -31,10 +31,13 @@ ages. Declining it discards half the range for nothing.
 
 Caveats that matter in practice:
 
-- **Underflow errors; it does not wrap.** `UNSIGNED` subtraction dropping below zero raises
-  `ERROR 1690 (22003): BIGINT UNSIGNED value is out of range`. (Inside an `UPDATE` under non-strict
-  `sql_mode` it clamps to 0 with a warning.) Cast to signed when computing differences:
-  `CAST(a AS SIGNED) - CAST(b AS SIGNED)`, or set `NO_UNSIGNED_SUBTRACTION` to get signed results.
+- **Underflow errors; it does not wrap — and `sql_mode` does not save you.** `UNSIGNED` subtraction
+  dropping below zero raises `ERROR 1690 (22003): BIGINT UNSIGNED value is out of range` even under
+  `sql_mode = ''`, because it is an expression error rather than an out-of-range store. Cast to signed
+  when computing differences: `CAST(a AS SIGNED) - CAST(b AS SIGNED)`, or set
+  `NO_UNSIGNED_SUBTRACTION` to get signed results. (Assigning an out-of-range *literal* is the
+  separate case strict mode does govern: `SET c = -1` raises `ERROR 1264` under strict, clamps to 0
+  with a warning without it.)
 - **Never mix across a join key.** A signed column joined to an unsigned one is a type mismatch;
   keep both sides identical, `UNSIGNED` included (see the join-key rule in `rdbms-naming`).
 - **PostgreSQL has none.** There the equivalent is `CHECK (col >= 0)`. Add that on MySQL too only when

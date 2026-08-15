@@ -89,7 +89,7 @@ work; you can also name one explicitly.
 | `sqlite-guideline` | SQLite 3.37+ — embedded, local, prototype |
 | `database-migrations` | Zero-downtime schema change and rollback strategy |
 
-`rdbms-modeling` carries **eleven reference files** loaded on demand, so the policy detail costs
+`rdbms-modeling` carries **ten reference files** loaded on demand, so the policy detail costs
 nothing until the model actually needs it.
 
 ### Commands
@@ -148,7 +148,7 @@ privilege isolation, not resource or failure isolation.
 Output is up to three candidates with one named default, a graded cost assessment, and
 re-evaluation triggers that must be **measurable** ("when we get bigger" is rejected).
 
-### `rdbms-modeling` — three stages, eleven reference files
+### `rdbms-modeling` — three stages, ten reference files
 
 A rigor gate first: payments, inventory, permissions, contracts, ledgers, and audit get all three
 stages in full; a personal tool may compress the first two — but must say so.
@@ -181,7 +181,6 @@ The reference files, loaded on demand:
 | `db-internal-routines.md` | Procedures/triggers/events in three categories: sanctioned utilities, the narrow audit exception, prohibited business logic |
 | `views-and-materialized-views.md` | View vs materialized view vs summary table, indexing base tables vs the MView, `REFRESH CONCURRENTLY` prerequisites |
 | `index-design.md` | Evidence required, write-heavy tables per engine, covering indexes and Heap Fetches, pattern matching, FTS, search-engine migration signals |
-| `cost-evaluation.md` | *(under `db-select`)* Cost components, three-year TCO and outage-risk formulas, decision rules |
 
 ### Normalization, generalization, denormalization
 
@@ -521,7 +520,7 @@ codex plugin add easy-rdbms@easy-rdbms
 | 스킬 | 용도 |
 |---|---|
 | `db-select` | 어떤 DB를, 어떤 구성으로, 3년 비용은 얼마인지 |
-| `rdbms-modeling` | 개념 → 논리 → 물리 3단계 + 단계별 확인 게이트 (참조파일 11개) |
+| `rdbms-modeling` | 개념 → 논리 → 물리 3단계 + 단계별 확인 게이트 (참조파일 10개) |
 | `rdbms-review` | 기존 SQL·스키마·마이그레이션 리뷰 |
 | `rdbms-naming` | 테이블·컬럼·인덱스·제약 네이밍, 데이터 타입 |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL |
@@ -572,7 +571,7 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 결과는 최대 3개 후보, 기본 추천 1개, 등급화된 비용 평가, 재검토 조건입니다. 재검토 조건은
 **측정 가능**해야 하고, "더 커지면"은 조건으로 인정하지 않습니다.
 
-#### `rdbms-modeling` — 3단계와 참조파일 11개
+#### `rdbms-modeling` — 3단계와 참조파일 10개
 
 먼저 **어느 정도까지 엄격하게 할지** 정합니다. 결제·재고·권한·계약·원장·감사는 3단계를 전부
 거치고, 개인 도구는 앞 두 단계를 축약할 수 있지만 **축약했다고 말해야** 합니다.
@@ -603,7 +602,6 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 | `db-internal-routines.md` | 프로시저·트리거·이벤트 3분류: 허용 유틸리티, 좁은 감사 예외, 금지되는 비즈니스 로직 |
 | `views-and-materialized-views.md` | 뷰 vs MView vs 집계 테이블, 원본 테이블 vs MView 인덱싱, `REFRESH CONCURRENTLY` 전제 |
 | `index-design.md` | 필요한 근거, 엔진별 쓰기 부담, 커버링 인덱스와 Heap Fetches, 패턴 매칭, FTS, 검색엔진 이관 신호 |
-| `cost-evaluation.md` | *(`db-select` 소속)* 비용 구성, 3년 TCO·장애위험 공식, 판단 규칙 |
 
 #### 엔진별로 다루는 것
 

@@ -67,7 +67,7 @@ fi
 # one the current task targets; guessing the dialect produces DDL that does not run.
 case "$FOUND" in
   *" and "*|*MariaDB*) CLOSING="More than one engine (or a MySQL-compatible variant) is present — ask which one the current task targets before writing any dialect-specific SQL." ;;
-  *)                   CLOSING="The dialect is settled; do not re-ask which database this project uses." ;;
+  *)                   CLOSING="The engine is inferred from the repository, so take it as given and do not re-ask which database this project uses. Still confirm the *version* and deployment form (managed / Aurora / container) before emitting version-specific SQL -- this detection does not reveal them." ;;
 esac
 
 # Name the guideline skill(s) outright. The engine is already known here, so making the

@@ -34,7 +34,7 @@ DDL readable, and avoid an expression that every query has to mirror.
 CREATE TABLE `chat_history` (
   `chat_history_id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'event table: rows = rate x time, unbounded',
   `conversation_id` char(18) NOT NULL,
-  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id',
+  `member_id` int unsigned NOT NULL COMMENT 'logical FK: member.member_id -- four controls required, see schema-design.md',
   `user_message` text NOT NULL,
   `bot_response` text NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -109,7 +109,7 @@ AND PARTITION_NAME IS NOT NULL;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(member_id: int, year: int, month: int):
+def get_monthly_chat_history(db, member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 

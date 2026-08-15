@@ -31,7 +31,7 @@ A pooled connection must be returned — `close()` on a pooled connection releas
 pool rather than dropping the socket. Without it the pool is exhausted after `pool_size` calls.
 
 ```python
-def transfer(from_id: int, to_id: int, amount: int) -> None:
+def transfer(pool, from_id: int, to_id: int, amount: int) -> None:
     conn = pool.get_connection()
     try:
         with conn.cursor() as cur:

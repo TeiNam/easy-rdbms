@@ -99,6 +99,9 @@ check "sqlite via node driver" "SQLite" \
 check "names the mysql guideline skill" "engine rules in mysql-guideline" \
   "requirements.txt:aiomysql==0.2.0"
 
+check "single engine still requires confirming the version" "confirm the \*version\*" \
+  "requirements.txt:aiomysql==0.2.0"
+
 check "names the postgres guideline skill" "engine rules in postgres-guideline" \
   ".env.example:DATABASE_URL=postgresql://app@localhost:5432/app"
 
@@ -116,7 +119,7 @@ check "multiple engines name every guideline" "postgres-guideline, mysql-guideli
 check "routes to database-migrations for existing data" "database-migrations" \
   "requirements.txt:aiomysql==0.2.0"
 
-check "single engine suppresses the question" "dialect is settled" \
+check "single engine suppresses the question" "do not re-ask which database" \
   "docker-compose.yml:services:
   db:
     image: postgres:16"

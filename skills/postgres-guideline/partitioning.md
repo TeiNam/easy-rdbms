@@ -28,9 +28,19 @@ Both give you a trailing catch-all, but they are not equivalent:
 
 **Use `DEFAULT` on PostgreSQL.** A backfill or a corrected timestamp that predates the first
 partition is exactly the kind of row a safety partition should absorb, and `MAXVALUE` bounds reject
-it. Both share the same operational constraint — creating a partition whose range the catch-all
-already covers makes PostgreSQL scan it (see Partition Management below) — so `DEFAULT` costs
-nothing extra.
+it.
+
+They both make adding the next partition harder, but **not in the same way**, and the difference
+decides how you operate them:
+
+- **`DEFAULT`** — the new partition's range overlaps nothing, so it can be created while the default
+  stays attached. What it costs is a **validation scan of the default** to prove no row belongs in
+  the new range (skippable with an exclusion `CHECK` — see Partition Management below). If the
+  default really is empty, this is cheap.
+- **Explicit `TO (MAXVALUE)`** — the range itself **overlaps** every future partition, so no scan can
+  fix it. The catch-all has to be detached and replaced whatever its contents, empty or not.
+
+That asymmetry is the reason for the rule, not just the rejected-insert behaviour.
 
 ### Operating Rules
 
@@ -53,7 +63,11 @@ exists on any current version. Use the detach sequence below on 16, 17, and 18.)
 CREATE TABLE log.chat_history (
   chat_history_id bigint GENERATED ALWAYS AS IDENTITY,  -- event table: rows = rate x time, unbounded
   conversation_id char(18) NOT NULL,
-  member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent)
+  member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent).
+                                  -- Full four controls (COMMENT, index, named owner, orphan
+                                  -- check) in postgres-guideline/schema-design.md; a partition
+                                  -- example is not the place to repeat them, but they are
+                                  -- mandatory -- do not ship this DDL without them.
   user_message text NOT NULL,
   bot_response text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -190,7 +204,7 @@ ORDER BY c.relname;
 Always include partition key in WHERE clause:
 
 ```python
-def get_monthly_chat_history(member_id: int, year: int, month: int):
+def get_monthly_chat_history(db, member_id: int, year: int, month: int):
     start_date = f"{year}-{month:02d}-01"
     end_date = f"{year}-{month + 1:02d}-01" if month < 12 else f"{year + 1}-01-01"
 

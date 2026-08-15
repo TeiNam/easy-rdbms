@@ -273,9 +273,12 @@ REVOKE ALL ON SCHEMA public FROM public;
 CREATE TABLE app.member_setting (
   member_id int NOT NULL,      -- logical FK: app.member.member_id (type matches parent)
   setting_data jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_member_setting PRIMARY KEY (member_id)
 );
+COMMENT ON COLUMN app.member_setting.member_id IS
+  'logical FK -> app.member.member_id; owner: account-service; orphan check: nightly job q-142';
 
 -- Query
 SELECT setting_data->>'theme' AS theme FROM app.member_setting WHERE member_id = 1;

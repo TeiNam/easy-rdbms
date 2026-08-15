@@ -102,7 +102,9 @@ the PK's own B-tree, so write-heavy tables still prefer ordered keys.
 
 Policy:
 
-- Single-system tables: `bigint GENERATED ALWAYS AS IDENTITY`.
+- Single-system tables: `GENERATED ALWAYS AS IDENTITY`, sized by growth class exactly as on MySQL —
+  `int` for an entity table (record what caps the entity count), **`bigint` for an event/log table**
+  (rows = rate × time, and a sequence never reuses values, so retention does not reclaim range).
 - Distributed generation: native `uuid` type with **UUIDv7**.
 - Write-heavy tables: UUIDv7 over UUIDv4, for the same index-locality reason.
 - Natural keys stay out of the PK when they can change.

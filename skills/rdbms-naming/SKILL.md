@@ -186,7 +186,7 @@ apply to it unchanged.
 | Purpose | MySQL | PostgreSQL |
 |---------|-------|------------|
 | Boolean | `TINYINT(1)` 0/1 (`BOOLEAN`/`BOOL` is an alias). No native boolean. Name `is_`/`has_` | **native `boolean`**. 'Y'/'N' strings prohibited |
-| PK (auto, integer) | **`AUTO_INCREMENT`** — `bigint unsigned` default (standard method) | **`GENERATED ALWAYS AS IDENTITY`** — `bigint` (SQL standard). Do not use `SERIAL` |
+| PK (auto, integer) | **`AUTO_INCREMENT`**. Width by growth class: entity table `int unsigned`, event/log table `bigint unsigned` | **`GENERATED ALWAYS AS IDENTITY`** (SQL standard — do not use `SERIAL`). Same widths: `int` / `bigint` |
 | Amount | `DECIMAL(p,s)` | `numeric(p,s)` |
 | Date+Time | `datetime` (+`DEFAULT CURRENT_TIMESTAMP`); `TIMESTAMP` only for auto-UTC ≤ 2038 | `timestamptz` (timezone required) |
 | Date | `date` | `date` |
@@ -222,4 +222,6 @@ apply to it unchanged.
 - `mysql-guideline` — MySQL-specific defaults, types, prohibitions, JDBC, release policy. Based on these rules.
 - `postgres-guideline` — PostgreSQL-specific differences (single text type, IDENTITY, no UNSIGNED, etc.).
 - `rdbms-modeling` — Applies these conventions for normalization and table design.
+- `sqlite-guideline` — SQLite-specific differences (type affinity, `STRICT` tables, rowid PK).
+- `rdbms-review` — Audits an existing schema against these conventions and reports violations by severity.
 - `db-select` — Picks the engine in the first place (RDBMS vs not, MySQL vs PostgreSQL, scale tier).

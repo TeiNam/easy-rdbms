@@ -70,10 +70,17 @@ case "$FOUND" in
   *)                   CLOSING="The dialect is settled; do not re-ask which database this project uses." ;;
 esac
 
+# Name the guideline skill(s) outright. The engine is already known here, so making the
+# agent infer "the matching guideline skill" wastes the detection we just did.
+GUIDES=""
+case "$FOUND" in *PostgreSQL*) GUIDES="postgres-guideline" ;; esac
+case "$FOUND" in *MySQL*|*MariaDB*) GUIDES="${GUIDES:+$GUIDES, }mysql-guideline" ;; esac
+case "$FOUND" in *SQLite*) GUIDES="${GUIDES:+$GUIDES, }sqlite-guideline" ;; esac
+
 cat <<CTX
 This project already uses $FOUND.$EXTRA
 For any table, index, migration, or query work here, use the easy-rdbms skills:
-engine rules live in the matching guideline skill; naming and data types in
-rdbms-naming; new table design in rdbms-modeling; schema/query review in
-rdbms-review. $CLOSING
+engine rules in $GUIDES; naming and data types in rdbms-naming; new table
+design in rdbms-modeling; schema/query review in rdbms-review; changing a
+schema that already holds data in database-migrations. $CLOSING
 CTX

@@ -190,3 +190,12 @@ Two things to keep straight:
 If the target DB is not decided yet — or you are weighing MySQL against PostgreSQL, or an
 RDBMS against DynamoDB / MongoDB / Redis — use the `db-select` skill first. It routes back
 here once MySQL is confirmed.
+
+## After Writing the Schema
+
+Hand the DDL to the `rdbms-review` skill before it ships. It checks this file's rules plus the
+cross-engine ones (MySQL defaults, `rdbms-naming` conventions, normalization level, index
+justification, physical-FK policy) and reports findings by severity — the checklists here tell you
+what *good* looks like, not whether a given schema got there.
+
+Changing a schema that already holds data is a different problem: use `database-migrations`.

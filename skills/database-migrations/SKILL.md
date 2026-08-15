@@ -1,6 +1,6 @@
 ---
 name: database-migrations
-description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments. PostgreSQL-first mechanics with MySQL online-DDL notes, and workflows for Prisma, Drizzle, Kysely, Django, and golang-migrate.
+description: Database migration best practices for schema changes, data migrations, rollbacks, and zero-downtime deployments. PostgreSQL-first mechanics with MySQL online-DDL notes, widening a primary key from int to bigint (ALGORITHM=COPY / ACCESS EXCLUSIVE table rewrite), and workflows for Prisma, Drizzle, Kysely, Django, and golang-migrate.
 ---
 
 # Database Migration Patterns
@@ -13,6 +13,7 @@ Safe, reversible database schema changes for production systems.
 - Adding/removing columns or indexes
 - Running data migrations (backfill, transform)
 - Planning zero-downtime schema changes
+- Widening a primary key or any column type on a large table
 - Setting up migration tooling for a new project
 
 ## Core Principles
@@ -123,6 +124,44 @@ UPDATE member SET display_name = username WHERE display_name IS NULL;
 -- Step 6: Drop the old column (migration 003)
 ALTER TABLE member DROP COLUMN username;
 ```
+
+### Widening a Primary Key (MySQL and PostgreSQL) — Not an Ordinary Migration
+
+If a request is "change the PK from `int` to `bigint`", stop and size the work before writing the
+migration. There is no cheap path on either engine:
+
+| Engine | What actually happens |
+|---|---|
+| MySQL | No in-place path exists for changing an integer's type, so `ALTER TABLE … MODIFY` runs with **`ALGORITHM=COPY`**: full table rebuild, plus a rebuild of **every secondary index** (InnoDB appends the PK to all of them) |
+| PostgreSQL | `ALTER COLUMN … TYPE bigint` rewrites the whole table under **`ACCESS EXCLUSIVE`** and rebuilds every index on the column |
+
+And it is never one table. Every referencing column has to change in lockstep — under a logical-FK
+policy those are plain columns with no catalog record, so they must be found by grep and migrated
+separately, and a signed/unsigned or `int`/`bigint` mismatch left behind silently degrades the join.
+
+The zero-downtime route is the expand-contract pattern above, applied to the key:
+
+```sql
+-- 1. Add the wide column, nullable, no default (instant on both engines)
+--    PostgreSQL — no UNSIGNED exists here:
+ALTER TABLE log.chat_history ADD COLUMN chat_history_id_new bigint;
+--    MySQL:
+-- ALTER TABLE chat_history ADD COLUMN chat_history_id_new bigint unsigned NULL,
+--   ALGORITHM=INSTANT;
+
+-- 2. DEPLOY dual writes: the app writes both columns. Must precede the backfill.
+-- 3. Backfill in bounded batches (see "Large Data Migrations" below), monitoring replica lag
+-- 4. Add the unique index on the new column, then verify counts match and no NULLs remain
+-- 5. Swap in one transaction: drop the old PK, promote the new column, rename
+-- 6. Migrate every referencing column, then drop the old column
+```
+
+Expect weeks, with application deploys in the middle. **Do not start this without first confirming
+the target table is not still accumulating rows faster than the backfill drains** — on a hot
+event/log table the backfill can lose the race.
+
+The migration you actually want is the one you avoid: size event/log PKs as `bigint` at
+`CREATE TABLE` time. See `rdbms-modeling/references/identifier-selection.md`.
 
 ### Removing a Column Safely
 
@@ -494,3 +533,11 @@ Day 7: Migration drops old status column
 | Inline index on large table | Blocks writes on PostgreSQL; MySQL builds eligible secondary indexes online but silently falls back when it cannot | PostgreSQL `CREATE INDEX CONCURRENTLY`; MySQL state `ALGORITHM=INPLACE, LOCK=NONE` explicitly so an ineligible change errors instead of locking |
 | Schema + data in one migration | Hard to rollback, long transactions | Separate migrations |
 | Dropping column before removing code | Application errors on missing column | Remove code first, drop column next deploy |
+
+## Related
+
+- `rdbms-modeling` — Designs the target schema in the first place; its `references/index-design.md`
+  justifies an index before this skill builds it safely.
+- `mysql-guideline` / `postgres-guideline` / `sqlite-guideline` — Engine-specific DDL semantics: which
+  `ALTER` is in-place, which locks it takes, and the type rules the new column has to satisfy.
+- `rdbms-review` — Review the resulting schema, not just the migration mechanics.

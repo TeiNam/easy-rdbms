@@ -47,6 +47,12 @@ rows = 100MB vs 400MB), reduced index size (higher memory load rate → faster s
 buffer pool and cache efficiency, network bandwidth. Choose the minimal type without
 exceeding representable range.
 
+**This rule does not apply to a primary key.** "Minimal for the range I see today" is the wrong
+question for a PK, because widening one later needs `ALGORITHM=COPY` — a full table rebuild plus a
+rebuild of every secondary index. Size a PK by **growth class** instead: an entity table is capped
+by the real world (`int unsigned` is fine), an event/log table is not (`bigint unsigned`, and
+retention does not reclaim `AUTO_INCREMENT` range). See `SKILL.md`.
+
 ### 2.2 String Types
 
 | | CHAR | VARCHAR | TEXT |

@@ -98,9 +98,11 @@ ALTER TABLE app.purchase_order
 ALTER TABLE app.purchase_order VALIDATE CONSTRAINT fk_purchase_order_customer;
 ```
 
-`RESTRICT` blocks immediately. `NO ACTION` can defer its check to the end of the transaction **only
-when the constraint is `DEFERRABLE` and actually deferred** — under this guideline's `NOT DEFERRABLE`
-default the two behave the same. On MySQL InnoDB they are always identical, so a schema relying on
+`RESTRICT` blocks immediately and can never be deferred. `NO ACTION` is checked after the statement's
+action and *can* be deferred — but **only when the constraint is `DEFERRABLE` and actually deferred**.
+Under this guideline's `NOT DEFERRABLE` default the two give the same result for ordinary deletes;
+they are not defined as identical, and documented edge cases differ (notably some `ON UPDATE`
+paths), so do not treat them as interchangeable in a design that leans on the timing. On MySQL InnoDB they are always identical, so a schema relying on
 the difference is not portable.
 
 ### Costs That Remain

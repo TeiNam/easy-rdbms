@@ -23,15 +23,21 @@ that shows the improvement, its write cost, and a rollback (see
 CREATE INDEX idx_chat_history_member_created
   ON log.chat_history (member_id, created_at DESC);
 
--- Covering index: enables an index-only scan (does NOT guarantee it — the visibility map
--- decides; check Heap Fetches in EXPLAIN ANALYZE)
+-- These three all lead on `email`, so do NOT create them together — the canonical member DDL
+-- already has uq_member_email, and adding either of the others on top pays write cost for a
+-- B-tree that the unique index nearly covers. Pick one shape per access pattern:
+
+-- (a) uniqueness + lookup, which is what the canonical member table declares:
+CREATE UNIQUE INDEX uq_member_email ON app.member (email);
+
+-- (b) covering, only if a hot query needs those payload columns and (a) is not already enough.
+--     INCLUDE enables an index-only scan; it does NOT guarantee one — the visibility map decides,
+--     so check Heap Fetches in EXPLAIN ANALYZE. On a unique key you usually gain nothing.
 CREATE INDEX idx_member_email_covering ON app.member (email) INCLUDE (public_id, created_at);
 
--- Partial index (smaller, targeted)
+-- (c) partial, when the query always filters the same way and the excluded rows are most of
+--     the table. A partial index on a *unique* column is rarely worth it either.
 CREATE INDEX idx_member_active_email ON app.member (email) WHERE is_active = true;
-
--- Unique index
-CREATE UNIQUE INDEX uq_member_email ON app.member (email);
 ```
 
 ## Query Patterns
@@ -74,9 +80,12 @@ WHERE job_id = (
 ### UPSERT
 
 ```sql
--- Requires the conflict target to be a real unique constraint:
+-- The conflict target must be an *inferable* non-deferrable unique index — a named constraint is
+-- one way, but a plain CREATE UNIQUE INDEX also works (and a partial unique index is inferable if
+-- you repeat its predicate). Use ON CONSTRAINT <name> only when you mean a specific named one.
+-- A DEFERRABLE unique constraint cannot be inferred at all.
 --   CREATE TABLE app.member_setting (
---     member_id bigint NOT NULL,          -- logical FK: app.member.member_id (type matches parent)
+--     member_id int NOT NULL,             -- logical FK: app.member.member_id (same type as parent)
 --     setting_key text NOT NULL,
 --     setting_value text NOT NULL,
 --     created_at timestamptz NOT NULL DEFAULT now(),
@@ -109,12 +118,16 @@ ORDER BY r.created_at DESC;
 ### Bulk Insert (COPY)
 
 ```python
-with pool.connection() as conn:
-    with conn.cursor() as cur:
-        with cur.copy("COPY log.chat_history (member_id, conversation_id, user_message, bot_response) FROM STDIN") as copy:
-            for r in records:
-                copy.write_row((r['member_id'], r['cid'], r['msg'], r['resp']))
-    conn.commit()
+def bulk_insert_chat_history(pool, records):
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            with cur.copy(
+                "COPY log.chat_history (member_id, conversation_id, user_message, bot_response)"
+                " FROM STDIN"
+            ) as copy:
+                for r in records:
+                    copy.write_row((r['member_id'], r['cid'], r['msg'], r['resp']))
+        conn.commit()
 ```
 
 ## Anti-Pattern Detection Queries
@@ -140,8 +153,10 @@ SELECT query, mean_exec_time, calls
 FROM pg_stat_statements WHERE mean_exec_time > 100
 ORDER BY mean_exec_time DESC;
 
--- Check table bloat
-SELECT relname, n_dead_tup, last_vacuum
+-- Dead-tuple / autovacuum health. NOT a bloat measurement: n_dead_tup is an estimated dead-tuple
+-- count, and vacuum lowers it without shrinking the relation, so a bloated table can show few dead
+-- tuples. For actual bloat use pgstattuple, or compare pg_relation_size against live tuple density.
+SELECT relname, n_dead_tup, last_vacuum, last_autovacuum
 FROM pg_stat_user_tables WHERE n_dead_tup > 1000
 ORDER BY n_dead_tup DESC;
 ```

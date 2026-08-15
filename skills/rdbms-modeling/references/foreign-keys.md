@@ -74,8 +74,21 @@ LIMIT 100;
 ```
 
 If several writers exist (batch, admin tooling, external integrations), the integrity owner must be
-a shared layer they all pass through — not one application's validation code. If no such layer can
-exist, say so in the design rather than quietly adding the constraint back.
+a shared layer they all pass through — not one application's validation code.
+
+**If no such layer can exist, the design is not finishable as specified — pick one of these rather
+than stalling or quietly adding the constraint back:**
+
+1. **Consolidate the writers** behind one service, stored routine, or gateway that owns the check.
+   This is the intended answer; the others are what you do when it is genuinely blocked.
+2. **Change the relationship** so integrity is structural instead of enforced — merge the child into
+   the parent, or make the reference nullable and treat orphans as a valid state with defined
+   semantics.
+3. **Change the engine for this table.** The prohibition is InnoDB-specific; on PostgreSQL a physical
+   FK is allowed through the six conditions below, and on SQLite it is allowed outright.
+4. **Escalate the conflict explicitly** — state in the physical design that referential integrity is
+   unowned, name the tables and the detection query that substitutes for it, and get that accepted as
+   a known risk. Do this only as a last resort, and never silently.
 
 ## PostgreSQL — Allowed by Default, Created When Conditions Are Met
 
@@ -91,14 +104,15 @@ four compensating controls.
 | # | Condition | If it fails |
 |---|---|---|
 | 1 | Parent column is a **PK or UNIQUE** | Fix the parent model. A non-unique target is a modeling error, not a constraint option |
-| 2 | Referencing column is **indexed** — create it unless an existing index already leads with that column | Create the index in the same migration. Without it, every parent delete or key update sequentially scans the child |
+| 2 | Referencing column is **indexed** — create it unless an existing index already leads with that column | Create it **in the same rollout, before the FK**. On an empty or new table the same migration is fine. On a populated table use `CREATE INDEX CONCURRENTLY` in its own migration with no transaction wrapper — most runners wrap migrations in a transaction, which `CONCURRENTLY` rejects. Without the index, every parent delete or key update sequentially scans the child |
 | 3 | No **redundant** index introduced | Reuse the existing leading-column index; do not add a duplicate |
 | 4 | If `CASCADE`: the child's **lifecycle is genuinely dependent** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
 | 5 | `NOT DEFERRABLE` unless a **circular reference must resolve inside one transaction** | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if you use them |
-| 6 | On a **large existing table**: added `NOT VALID`, then `VALIDATE CONSTRAINT` separately | Do the two-step. A single-step add holds a strong lock for the whole validation scan |
+| 6 | On an **already-populated production table**: added `NOT VALID`, then `VALIDATE CONSTRAINT` separately | **Default to the two-step for anything already carrying production rows.** Single-step is acceptable only when you have timed the validation scan on production-sized data and it fits your stated lock budget — a single-step add holds a strong lock for the whole scan |
 
 ```sql
--- Condition 2 first, in the same migration
+-- Condition 2 first, in the same rollout (CREATE INDEX CONCURRENTLY in a separate,
+-- transaction-less migration if the table is already populated)
 CREATE INDEX idx_purchase_order_customer_id ON app.purchase_order (customer_id);
 
 ALTER TABLE app.purchase_order

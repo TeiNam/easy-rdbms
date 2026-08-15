@@ -127,7 +127,7 @@ gates — it typically passes all of them.
 ```sql
 -- MySQL
 CREATE TABLE individual_customer (
-  customer_id bigint unsigned NOT NULL COMMENT 'logical FK → customer.customer_id (subtype PK = supertype PK)',
+  customer_id int unsigned NOT NULL COMMENT 'logical FK → customer.customer_id (subtype PK = supertype PK)',
   birth_date  date NOT NULL,
   CONSTRAINT pk_individual_customer PRIMARY KEY (customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -29,3 +29,8 @@ Codex both deliver it through `skills/`, and neither loads this file from a plug
 - **Reference filenames in a `SKILL.md` must resolve.** The harness originals shipped broken
   `mysql_`-prefixed references; do not reintroduce that.
 - `hooks/detect-db.test.sh` must pass. Run `sh hooks/detect-db.test.sh`.
+- **README is bilingual, and the Korean section is not a translation** — it is written in its own
+  voice, so do not diff the prose. But a *factual* correction has to land in **both** sections; it
+  has twice landed in only one. `python3 scripts/check-readme-bilingual.py` fails on the two numbers
+  that actually went stale (an exhaustion day count, and a review total that disagreed with the
+  round sequence it sits next to). Run it after touching either section.

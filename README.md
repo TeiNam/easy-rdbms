@@ -21,7 +21,7 @@ walks one realistic schema through both paths, side by side:
 
 | Without the plugin | What happens | With the plugin |
 |---|---|---|
-| `messages.id SERIAL` | An event table grows as rate × time. PostgreSQL `int` is signed, so at 10k inserts/s the range is gone in **~2.5 days** — and deleting old rows does not give it back | `bigint`, because rows have no cap |
+| `messages.id SERIAL` | An event table grows as rate × time. PostgreSQL `int` is signed (a 2.1B ceiling), so at 10k inserts/s the range is gone in **~2.5 days** — and deleting old rows does not give it back | `bigint`, because rows have no cap |
 | `CREATE TABLE users` | `user` is reserved in PostgreSQL. Quote it forever, or rename it later and touch every query | `member`, decided once |
 | `ON DELETE CASCADE` to messages | One account deletion walks your largest table in a single transaction | Deletion is an explicit, batched path |
 | `cost FLOAT` | Rounding error accumulates until the invoice and the ledger disagree | `numeric`, sized per currency |
@@ -31,16 +31,17 @@ None of those fail a test. None get caught in review. They surface when the tabl
 **18 years of production DBRE practice, packaged as a plugin.** Not textbook normal forms — the
 things you only learn by running databases:
 
-- The foreign key you add today, which quietly makes that table impossible to partition next year.
+- The foreign key you add today that quietly makes the table it sits on impossible to partition next
+  year.
 - One popular parent row that slows down writes to a completely unrelated table.
 - A partition-creation job that stops without raising an error, so nobody notices for months.
 - An index that costs more on every write than it ever gives back on reads.
 
-Works in both **Claude Code** and **Codex** from one shared `skills/` directory. It picks the
-database for your scale and budget, keeps naming consistent, takes requirements through
-conceptual → logical → physical modeling instead of straight to DDL, and reviews schemas,
-queries, and migrations before they ship. Covers MySQL 8.4 LTS+ and PostgreSQL 16+ (including
-Aurora variants), plus SQLite for the embedded and prototype end.
+Works in both **Claude Code** and **Codex** from one shared `skills/` directory. The plugin picks
+the database for your scale and budget, keeps naming consistent, takes requirements through
+conceptual → logical → physical modeling instead of straight to DDL, and reviews schemas, queries,
+and migrations before they ship. Covers MySQL 8.4 LTS+ and PostgreSQL 16+ (including Aurora
+variants), plus SQLite for the embedded and prototype end.
 
 The recurring theme: **structural cost is never paid without evidence.** Denormalization needs a
 measurement, partitioning needs the queries and retention code, and an index needs the plan.
@@ -138,7 +139,7 @@ Then five steps:
    SQL, each with what to watch for.
 5. **Three-year TCO** — `references/cost-evaluation.md` has the cost components, the TCO and
    outage-risk formulas, per-scale defaults, and decision rules. When real prices are unavailable
-   it grades low/medium/high **and says it graded rather than priced**.
+   `db-select` grades low/medium/high **and says it graded rather than priced**.
 
 Also: **multi-tenancy shape** — shared tables + `tenant_id`, schema per tenant, database per
 tenant — with the consequences of each, including that schema-per-tenant is namespace and
@@ -154,8 +155,8 @@ stages in full; a personal tool may compress the first two — but must say so.
 
 **Stage 1 — conceptual.** Business concepts, relationships, and the terms *users* use. No columns,
 no types, no keys, no DB product. Flags specialization candidates by reading the IS-A sentence
-aloud, and separates what a thing **is** from what it is **doing** (states and roles are neither).
-Stops at a confirmation gate — terminology corrections are cheapest here.
+aloud, and separates what a thing **is** from what it is **doing** (neither states nor roles are
+kinds). Stops at a confirmation gate — terminology corrections are cheapest here.
 
 **Stage 2 — logical.** Entities, attributes, PK/FK, cardinality, NOT NULL and UNIQUE, using
 generic types only. Runs normalization, the generalization check, and the history question. Stops
@@ -185,9 +186,9 @@ The reference files, loaded on demand:
 ### Normalization, generalization, denormalization
 
 **3NF is required.** BCNF is *checked on every entity* — test each table for a determinant that is
-not a superkey — and decomposed when that determinant can produce a real anomaly. Staying at 3NF is
-allowed when decomposition cannot preserve functional dependencies or explodes the join count, but
-the reason must be named. `"BCNF: no violations"` is a valid and expected result.
+not a superkey — and the entity is decomposed when that determinant can produce a real anomaly.
+Staying at 3NF is allowed when decomposition cannot preserve functional dependencies or explodes the
+join count, but the reason must be named. `"BCNF: no violations"` is a valid and expected result.
 
 **Generalization is decided by IS-A, not attribute overlap.** Seven questions — genuine IS-A,
 subtype-specific attributes, exclusivity, totality, type mutability, type-vs-state, query shape —
@@ -201,9 +202,9 @@ land on one of three outcomes:
 
 The highest-value check is **type vs state**. `pending` / `paid` / `cancelled` are states of an
 order, not subtypes — modeling them as subtypes turns every transition into a cross-table move.
-Guarded from the other side too: a supertype where every meaningful column ended up nullable traded
-database constraints for application checks, and an entity/attribute/value table gave up on the
-schema entirely.
+Guarded from the other side too: a supertype whose meaningful columns all ended up nullable has
+traded database constraints for application checks, and an entity/attribute/value table gave up on
+the schema entirely.
 
 **Denormalization requires a measurement**, the nine cheaper alternatives ruled out first, a named
 source of truth, a synchronization mechanism, a consistency-check query, and a rebuild path — seven
@@ -227,16 +228,17 @@ keeps the schema from drifting. Neither substitutes for the other.
 and log and history tables are the usual partitioning candidates — so an FK today is a blocked
 partition tomorrow. Add the parent-index I/O on every child write, the parent-row locks that make
 hot-parent key updates and child writes stall each other, and the special handling
-`pt-online-schema-change` and `gh-ost` need.
+that `pt-online-schema-change` and `gh-ost` need.
 
-**The trap that is easy to miss:** InnoDB auto-creates the child index only *when the FK is
-created*. Under a no-FK policy nothing creates it for you, so the referencing-column index is
-deliberate and manual. (On an inherited schema, dropping an FK *leaves* its auto-named index
-behind — verify with `SHOW INDEX` and rename it before a cleanup job removes it.)
+**The trap that is easy to miss:** InnoDB auto-creates the referencing-column index only *when the
+FK is created*. Under a no-FK policy nothing creates it for you, so the referencing-column index is
+deliberate and manual. (On an inherited schema, dropping an FK *leaves* its auto-named index behind
+— verify with `SHOW INDEX` and rename it before a cleanup job removes it.)
 
 **The six PostgreSQL gates:** parent is PK/UNIQUE · referencing column indexed · no redundant index
 · `CASCADE` only for genuine lifecycle dependency · `NOT DEFERRABLE` · large tables via `NOT VALID`
-then `VALIDATE CONSTRAINT`. A failing gate means fix it or fall back to a logical FK and say why.
+then `VALIDATE CONSTRAINT`. A failing gate means you fix it or fall back to a logical FK and say
+why.
 
 Every **logical** FK carries four compensating controls: the reference in a `COMMENT`, the index, a
 named **integrity owner**, and a **scheduled orphan-detection query**. And on SQLite, `PRAGMA
@@ -244,7 +246,7 @@ foreign_keys = ON` per connection — otherwise every `REFERENCES` clause in the
 
 ### History — purpose before structure
 
-"History" conflates three questions, and a design answering one answers neither other:
+"History" conflates three questions, and a design answering one answers neither of the others:
 
 | Kind | Answers | Structure |
 |---|---|---|
@@ -260,7 +262,7 @@ mechanism.
 Two rules hold regardless of method: the current row and its history are written in **one
 transaction**, and **no FK links an entity to its history** — because every referential action is
 wrong there. `CASCADE` deletes the evidence, `RESTRICT` makes the parent undeletable, `SET NULL`
-orphans it.
+orphans the history row.
 
 ### Indexes and partitioning — evidence, or nothing
 
@@ -276,7 +278,7 @@ Engine differences get real weight:
   itself. An `INCLUDE` column enables an index-only scan but does not guarantee one; **Heap Fetches**
   has to be checked.
 - Composite order is conditional, not a mnemonic: equality first, then sort-before-range when the
-  query needs the index's ordering, or range-first when it is highly selective.
+  query needs the index's ordering, or range-first when the range is highly selective.
 - `filesort` in a MySQL plan means an extra sort pass — **not necessarily a disk sort**.
 
 **Partitioning is recommended, never applied by default.** The analysis reads the queries and the
@@ -293,10 +295,10 @@ pre-create 2–3 periods, move rows out before dropping it.
 
 **A view is not a cache.** PostgreSQL rewrites it into a base-table query; MySQL merges it or
 materializes it into a temporary table. Either way the work still happens — the view only moved
-where the SQL lives. Acceleration means a PostgreSQL materialized view or a MySQL summary table
-(8.4 has no native MView), which inherits the denormalization requirements. Nested views get
-special attention: each layer looks reasonable while the composed query does something nobody
-intended.
+where the SQL lives. Acceleration means a PostgreSQL materialized view or a MySQL summary table (8.4
+has no native materialized view); either option inherits the denormalization requirements. Nested
+views get special attention: each layer looks reasonable while the composed query does something
+nobody intended.
 
 **Procedures, triggers, and events split by what the routine *does*:**
 
@@ -367,33 +369,33 @@ local **SQLite 3.51**, not asserted from memory:
 | SQLite `STRICT` performs lossless coercions | `'12'` stored as integer `12`, `42` stored as text `'42'`, `'abc'` rejected |
 | `WITHOUT ROWID` has no rowid | `SELECT rowid` is a parse error there; in a rowid table `INTEGER PRIMARY KEY` returned the rowid |
 
-The example DDL was executed too — the "with the plugin" schema from
-[the comparison doc](docs/with-and-without.md) creates cleanly on PostgreSQL 16 and every `CHECK` in
-it actually rejects the value it is supposed to.
+The example DDL was executed too — the "with the plugin" schema from [the comparison
+doc](docs/with-and-without.md) creates cleanly on PostgreSQL 16 and every `CHECK` in the schema
+actually rejects the value it is supposed to.
 
 ### Review rounds
 
-Ten rounds — Claude self-review plus independent Codex passes — found and fixed **267 issues**.
+Ten rounds — Claude self-review plus independent Codex passes — found and fixed **272 issues**.
 Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116.
 
 The last round was the largest, and not because the plugin got worse: it was the first round to run
 two Codex passes with **separate mandates** (engine facts; cross-file consistency and flow) instead of
-one general pass. A large share of what it found had been introduced by the round before it.
+one general pass. A large share of what that round found had been introduced by the round before it.
 
-The count did not fall monotonically, and the reason is worth stating: passes 1–4 concentrated on
-newly written content, so pass 5 was the first deep read of the **ported** guideline files and found
-32 issues there. Pass 6 then found 31 — several of them **bugs introduced by pass 5's own fixes** (an
-invalid Prisma comment, a naming rule accidentally reversed by a bulk rename, an invented CLI flag,
-async code left unwrapped). Reviewing the fixes turned out to matter as much as reviewing the
-original.
+The count did not fall monotonically, and the reason is worth stating: rounds 1–4 concentrated on
+newly written content, so round 5 was the first deep read of the **ported** guideline files and
+found 32 issues there. Round 6 then found 31 — several of them **bugs introduced by round 5's own
+fixes** (an invalid Prisma comment, a naming rule accidentally reversed by a bulk rename, an
+invented CLI flag, async code left unwrapped). Reviewing the fixes turned out to matter as much as
+reviewing the original.
 
 What that surfaced, by category:
 
-- **Engine claims that would have misled** — dropping an InnoDB FK does not drop its child index; FK
-  parent-row locks do not serialize child writes against each other; PostgreSQL has no
-  `SPLIT PARTITION`; `NOTIFY` takes no bind parameters; `ADD COLUMN NOT NULL` without a default
-  *fails* rather than rewrites; session advisory locks survive a pooled connection's return but not a
-  crash.
+- **Engine claims that would have misled** — dropping an InnoDB FK does not drop its
+  referencing-column index; FK parent-row locks do not serialize child writes against each other;
+  PostgreSQL has no `SPLIT PARTITION`; `NOTIFY` takes no bind parameters; `ADD COLUMN NOT NULL`
+  without a default *fails* rather than rewrites; session advisory locks survive a pooled
+  connection's return but not a crash.
 - **Procedures whose ordering would break production** — the `NOT NULL` path and the column rename,
   both fixed above.
 - **Examples that could not run** — a connection class calling undefined methods, a table created
@@ -432,8 +434,9 @@ or sharding you have not earned. Each tier costs roughly an order of magnitude m
 attention than the one below it — the wasted spend is visible, but the wasted attention is what
 slows a team down.
 
-**Cost is part of the choice.** A free database still needs someone to operate it, and that salary
-is usually the largest line item at small scale. Comparisons run over three years, never per month.
+**Cost is part of the choice.** A free database still needs someone to operate it, and that person's
+salary is usually the largest line item at small scale. Comparisons run over three years, never per
+month.
 
 **MySQL, PostgreSQL, and SQLite only.** Other relational engines are out of scope, and the plugin
 says so rather than pretending to advise on them.
@@ -463,42 +466,42 @@ MIT
 
 ## 한국어
 
-**바이브 코더를 위한 데이터베이스 플러그인입니다.** 지금 속도 그대로 만들면서, 데이터베이스
-엔지니어가 설계했을 스키마를 얻습니다 — 아직 아무 비용도 들지 않는 맨 처음에.
+**바이브 코더를 위한 데이터베이스 플러그인입니다.** 지금 속도 그대로 만들면서,
+아직 아무 비용도 들지 않는 맨 처음에 데이터베이스 엔지니어가 설계했을 스키마를 얻습니다.
 
-AI 에이전트는 애플리케이션 코드를 잘 씁니다. 조용히 부족한 쪽은 데이터베이스입니다. 스키마는
-코드베이스에서 하루 만에 되돌릴 수 없는 유일한 부분이기 때문입니다. 함수는 다시 쓰면 됩니다.
+AI 에이전트는 애플리케이션 코드를 잘 씁니다. 티가 잘 안 나는 약점이 데이터베이스입니다. 스키마는
+코드베이스에서 유일하게 하루 만에 되돌릴 수 없는 부분이기 때문입니다. 함수는 다시 쓰면 됩니다.
 10억 행 테이블의 기본키는 중간에 배포까지 끼는 몇 주짜리 마이그레이션 프로젝트입니다.
 에이전트는 *그럴듯해 보이는* 기본값을 고릅니다 — `SERIAL` 키, `users` 라는 테이블 이름,
-금액에 `FLOAT`, 곳곳에 `CASCADE`. 하나같이 첫날에는 맞고 열두 달 뒤에 비쌉니다.
+금액에 `FLOAT`, 곳곳에 `CASCADE`. 하나같이 첫날에는 맞지만 열두 달 뒤에 비용이 큽니다.
 
-이 플러그인은 바로 그 결정들을 앞으로 당겨옵니다. **[같은 앱을 두 번 설계하기 →](docs/with-and-without.md)**
-에서 현실적인 스키마 하나를 두 경로로 나란히 따라갑니다.
+이 플러그인은 바로 그 결정을 앞으로 당겨옵니다. **[같은 앱을 두 번 설계하기 →](docs/with-and-without.md)**
+에서 현실적인 스키마 하나를 두 경로로 나란히 보여줍니다.
 
 | 플러그인 없이 | 무슨 일이 생기나 | 플러그인과 함께 |
 |---|---|---|
-| `messages.id SERIAL` | 이벤트 테이블은 속도 × 시간으로 자랍니다. 초당 1만 건이면 `int` 범위가 **약 5일**에 소진되고, 오래된 행을 지워도 범위는 돌아오지 않습니다 | 상한이 없는 테이블이므로 `bigint` |
+| `messages.id SERIAL` | 이벤트 테이블은 쓰기 속도 × 시간으로 자랍니다. PostgreSQL `int`는 signed(상한 21억)라 초당 1만 건이면 범위가 **약 2.5일**에 소진되고, 오래된 행을 지워도 범위는 돌아오지 않습니다 | 상한이 없는 테이블이므로 `bigint` |
 | `CREATE TABLE users` | `user` 는 PostgreSQL 예약어입니다. 영원히 따옴표를 붙이거나, 나중에 바꾸면서 모든 쿼리를 건드려야 합니다 | 한 번에 정한 `member` |
-| messages 로 걸린 `ON DELETE CASCADE` | 계정 하나 삭제가 가장 큰 테이블을 단일 트랜잭션으로 훑습니다 | 삭제는 명시적·배치 경로로 |
-| `cost FLOAT` | 반올림 오차가 쌓여 청구서와 원장이 어긋납니다 | 통화별로 크기를 정한 `numeric` |
+| messages 로 걸린 `ON DELETE CASCADE` | 계정 하나를 삭제하면 가장 큰 테이블을 단일 트랜잭션으로 훑습니다 | 삭제는 명시적·배치 경로로 |
+| `cost FLOAT` | 반올림 오차가 쌓이면 청구서와 원장이 어긋납니다 | 통화별로 크기를 정한 `numeric` |
 
-어느 것도 테스트에서 실패하지 않고, 코드 리뷰에서도 걸리지 않습니다. 테이블이 이미 다 찬 뒤에
+넷 다 테스트에서 실패하지도, 코드 리뷰에서 걸리지도 않습니다. 테이블이 이미 다 찬 뒤에야
 드러납니다.
 
-**18년 현업 DBRE 경험을 플러그인으로 옮겼습니다.** 교과서에 나오는 정규형이 아니라, 데이터베이스를
-직접 운영해봐야 알게 되는 것들입니다.
+**18년 현업 DBRE 경험을 플러그인으로 옮겼습니다.** 교과서에 나오는 정규형이 아니라,
+데이터베이스를 직접 운영해야 알 수 있는 내용입니다.
 
 - 지금 편하게 걸어둔 외래키 하나 때문에, 내년에 그 테이블을 파티셔닝할 수 없게 되는 일
-- 많이 조회되는 부모 행 하나가, 전혀 상관없는 테이블의 쓰기까지 느리게 만드는 일
-- 파티션을 미리 만들어주는 작업이 에러도 없이 멈춰서, 몇 달 뒤에야 발견하는 일
-- 인덱스를 하나 추가했는데, 읽기에서 얻는 것보다 매번 쓰기에서 잃는 게 더 큰 일
+- 많이 조회되는 부모 행 하나가, 전혀 상관없는 테이블의 쓰기까지 느리게 만드는 경우
+- 파티션을 미리 만들어주는 작업이 에러도 없이 멈춰서, 몇 달 뒤에야 발견되는 일
+- 인덱스를 하나 추가했는데, 읽기에서 얻는 것보다 매번 쓰기에서 잃는 게 더 큰 상황
 
 **Claude Code**와 **Codex** 양쪽에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로
 설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. MySQL 8.4 LTS+ / PostgreSQL 16+
 (Aurora 포함), 그리고 임베디드·프로토타입용 SQLite를 다룹니다.
 
-일관된 주제 하나: **구조적 비용은 근거 없이 지불하지 않습니다.** 비정규화는 측정, 파티셔닝은
+일관된 원칙 하나: **구조적 비용은 근거 없이 지불하지 않습니다.** 비정규화는 측정, 파티셔닝은
 쿼리와 보관 코드, 인덱스는 실행계획이 있어야 합니다.
 
 ### 설치
@@ -532,8 +535,9 @@ codex plugin add easy-rdbms@easy-rdbms
 Claude Code 전용 서브에이전트 `rdbms-modeler`·`rdbms-reviewer`는 스킬을 가리키는 얇은 래퍼입니다.
 Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어서, 같은 절차를 스킬 본문에 넣었습니다.
 
-세션 시작 훅은 `docker-compose.yml`, `.env`, `alembic.ini`, `prisma/schema.prisma`,
-`package.json`, `requirements.txt`, `Cargo.toml`, `go.mod` 등을 읽어 엔진을 한 번 알려줍니다.
+세션 시작 시 훅이 `docker-compose.yml`, `.env`, `alembic.ini`, `prisma/schema.prisma`,
+`package.json`, `requirements.txt`, `Cargo.toml`, `go.mod` 등의 파일을 읽고
+감지한 엔진을 한 번 보고합니다.
 **MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
 말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
 
@@ -542,9 +546,9 @@ Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어�
 #### `db-select` — 엔진 선택
 
 추천 전에 **13개 사실**을 먼저 묻습니다: 12개월 데이터량과 피크 트래픽, 읽기/쓰기 비율, 접근 패턴,
-RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, 개인정보·감사 요건, 1년·3년 예산,
-트래픽 형태, 이전할 기존 DB, 팀 경험. **"모르겠다"도 유효한 답**이고, 그럴 때는 교체하기 쉬운
-쪽으로 추천이 기울어집니다.
+RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) 허용 여부, 개인정보·감사 요건,
+1년·3년 예산, 트래픽 형태, 이전할 기존 DB, 팀 경험. **"모르겠다"도 유효한 답**이고, 그럴 때는
+교체하기 쉬운 쪽에 무게를 둡니다.
 
 그다음 5단계:
 
@@ -562,10 +566,10 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, �
    판단 규칙이 있습니다. 실제 가격을 모를 때는 낮음/중간/높음으로 등급을 매기고 **가격이 아니라
    등급이라는 사실을 함께 밝힙니다**.
 
-**멀티테넌시 형태**도 다룹니다 — 공유 테이블 + `tenant_id` / 스키마 per 테넌트 / DB per 테넌트.
-스키마 per 테넌트는 네임스페이스·권한 분리이고 **자원이나 장애 격리가 아니라는 점**을 포함합니다.
+**멀티테넌시 형태**도 다룹니다 — 공유 테이블 + `tenant_id` / 테넌트별 스키마 / 테넌트별 DB.
+테넌트별 스키마는 네임스페이스·권한 분리이고 **자원이나 장애 격리가 아니라는 점**을 포함합니다.
 
-결과는 최대 3후보 + 기본 추천 1개 + 등급화된 비용 평가 + 재검토 조건입니다. 재검토 조건은
+결과는 최대 3개 후보, 기본 추천 1개, 등급화된 비용 평가, 재검토 조건입니다. 재검토 조건은
 **측정 가능**해야 하고, "더 커지면"은 조건으로 인정하지 않습니다.
 
 #### `rdbms-modeling` — 3단계와 참조파일 11개
@@ -574,11 +578,11 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, �
 거치고, 개인 도구는 앞 두 단계를 축약할 수 있지만 **축약했다고 말해야** 합니다.
 
 **1단계 개념** — 업무 개념, 관계, 그리고 *사용자가 쓰는* 용어. 컬럼·자료형·키·DB 제품은 없습니다.
-`IS-A` 문장을 소리 내어 읽어서 서브타입 후보를 찾고, 어떤 것이 **무엇인지**와 **무엇을 하는
-중인지**를 분리합니다(상태와 역할은 둘 다 "종류"가 아닙니다). 확인 게이트에서 멈춥니다 — 용어를
-고치는 비용이 여기가 가장 쌉니다.
+`IS-A` 문장을 소리 내어 읽어서 서브타입 후보를 찾고, 어떤 것이 **무엇인지**와
+**무엇을 하는 중인지**를 분리합니다(상태와 역할은 둘 다 "종류"가 아닙니다).
+확인 게이트에서 멈춥니다 — 용어를 고치는 비용이 여기가 가장 쌉니다.
 
-**2단계 논리** — 엔터티·속성·PK/FK·카디널리티·NOT NULL·UNIQUE를 일반 자료형으로만. 정규화,
+**2단계 논리** — 엔터티·속성·PK/FK·카디널리티·NOT NULL·UNIQUE를 일반 자료형으로만 표현합니다. 정규화,
 일반화 검사, 이력 질문을 수행하고 확인 게이트에서 멈춥니다.
 
 **3단계 물리** — 이제야 엔진을 확정합니다. 논리 모델이 나와야 그 선택에 답할 수 있기 때문입니다.
@@ -681,12 +685,12 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, �
 예제 DDL도 실행했습니다 — [비교 문서](docs/with-and-without.md)의 "플러그인과 함께" 스키마가
 PostgreSQL 16에서 그대로 생성되고, 안의 모든 `CHECK`가 실제로 막아야 할 값을 막습니다.
 
-Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 267건** 반영
+Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 272건** 반영
 (33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116).
-5패스에서 이식 파일이 사각지대로 드러났고, 6패스는 **5패스 수정이 만든 버그**를 잡았습니다 —
+5라운드에서 이식 파일이라는 사각지대가 드러났고, 6라운드는 **5라운드 수정이 만든 버그**를 잡았습니다 —
 수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 마지막 라운드가 가장 컸던 이유는
 플러그인이 나빠져서가 아니라, 처음으로 Codex 패스를 **별도 임무**(엔진 사실 / 파일 간 일관성·흐름)로
-나눠 돌렸기 때문입니다. 찾힌 것의 큰 몫이 직전 라운드가 만든 것이었습니다.
+나눠 돌렸기 때문입니다. 발견한 것의 상당수가 직전 라운드가 만든 것이었습니다.
 
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.

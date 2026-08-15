@@ -81,8 +81,10 @@ def check_reference_files(english: str, korean: str, repo_root: Path) -> tuple[l
     skills = repo_root / "skills"
     owned = skills / OWNING_SKILL / "references"
     if not owned.is_dir():
-        # Running against a README outside the repo — nothing to cross-check.
-        return [], None
+        # Running against a README outside the repo — nothing to cross-check. Say so:
+        # a check that quietly degrades to passing is worse than one that is absent,
+        # because `ok` then means two different things.
+        return [], f"reference-file check SKIPPED ({skills} not found)"
 
     on_disk = sorted(p.name for p in owned.glob("*.md"))
     plugin_wide = sum(1 for p in skills.glob("*/references/*.md"))
@@ -184,6 +186,8 @@ def main() -> int:
     if reference_detail is not None:
         detail += f"; {reference_detail}"
     print(f"ok {path}: {detail}")
+    if reference_detail and "SKIPPED" in reference_detail:
+        print("  note: run this from the repo root for the reference-file cross-check to apply.")
     return 0
 
 

@@ -56,7 +56,10 @@ CREATE TABLE log.chat_history (
   member_id int NOT NULL,         -- logical FK: app.member.member_id (type matches parent)
   user_message text NOT NULL,
   bot_response text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  -- PostgreSQL requires the partition key in every unique constraint on a partitioned table,
+  -- so the PK is (id, created_at) rather than id alone.
+  CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id, created_at)
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE log.chat_history_2026_08 PARTITION OF log.chat_history
@@ -105,7 +108,15 @@ Check the installed version — the `create_parent` signature changed between 4.
 > range. On an empty or clean default the direct create succeeds — but on a fallen-behind one it
 > fails, so the safe sequence is detach → create → **move** → re-attach.
 
+> **Wrap the whole sequence in one transaction.** Between the `DETACH` and the re-`ATTACH` the table
+> has no default partition, so any insert whose `created_at` falls outside the existing regular bounds
+> fails with `no partition of relation ... found for row`. Statement-by-statement (autocommit) this is
+> a write outage of however long the row move takes. One transaction holds the locks throughout —
+> which blocks writers instead of failing them — so run it off peak with a `lock_timeout`, or use the
+> low-lock variant below that avoids the detach entirely.
+
 ```sql
+BEGIN;
 -- PASS: Correct sequence when DEFAULT partition exists
 -- 1. Detach default partition
 ALTER TABLE log.chat_history DETACH PARTITION log.chat_history_default;
@@ -131,6 +142,16 @@ FROM moved;
 
 -- 4. Re-attach default partition
 ALTER TABLE log.chat_history ATTACH PARTITION log.chat_history_default DEFAULT;
+COMMIT;
+
+-- LOW-LOCK VARIANT: no detach at all. If the default partition carries a valid CHECK proving it
+-- holds no rows in the new range, PostgreSQL can skip scanning it, so the plain CREATE succeeds:
+--   ALTER TABLE log.chat_history_default ADD CONSTRAINT chk_chat_history_default_excl_2026_10
+--     CHECK (created_at < '2026-10-01' OR created_at >= '2026-11-01') NOT VALID;
+--   ALTER TABLE log.chat_history_default VALIDATE CONSTRAINT chk_chat_history_default_excl_2026_10;
+--   -- now CREATE TABLE ... PARTITION OF ... FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+--   -- then drop the helper constraint.
+-- This only works when the default really holds no such rows; if it does, move them first.
 
 -- FAIL: Incorrect approach: errors if default partition contains 2026-10 data
 -- CREATE TABLE log.chat_history_2026_10 PARTITION OF log.chat_history

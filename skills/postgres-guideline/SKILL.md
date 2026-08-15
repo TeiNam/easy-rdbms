@@ -55,7 +55,7 @@ Summary + PostgreSQL-specific:
 
 | Use Case | Recommended Type | Notes |
 |----------|-----------------|-------|
-| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint`** | **No exceptions.** Rows = rate × time with no bound; `int` at 10k/s dies in ~5 days, and a sequence never reuses values so retention does not reclaim range. `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` — see `schema-design.md` |
+| **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint`** | **No exceptions.** Rows = rate × time with no bound; PostgreSQL `integer` is **signed** (2.1B ceiling), so at 10k/s it dies in **~2.5 days** — half the MySQL `int unsigned` runway. A sequence never reuses values, so retention does not reclaim range. `ALTER COLUMN … TYPE bigint` rewrites the whole table under `ACCESS EXCLUSIVE` — see `schema-design.md` |
 | Entity table PK (`member`, `product`) | `int` | Fine — 2.1B, and the real world caps the entity count. Record what bounds it |
 | Bounded lookup/code table PK | `smallint` | Fixed code domain |
 | Small integer | `smallint` | -32768 ~ 32767 |

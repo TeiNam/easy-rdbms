@@ -9,26 +9,27 @@ table ordered by it (`CLUSTER` reorders once and is not maintained). So a UUID P
 here than on InnoDB, but **not nothing**: index locality still applies to the PK's own B-tree, so
 write-heavy tables should still prefer an ordered key.
 
-**Default the surrogate PK to `bigint`, and treat that as a decision you cannot cheaply revisit.**
-`ALTER TABLE … ALTER COLUMN id TYPE bigint` **rewrites the entire table** while holding
+**Integer width is a decision you cannot cheaply revisit, so size it from what makes the row count
+grow.** `ALTER TABLE … ALTER COLUMN id TYPE bigint` **rewrites the entire table** while holding
 `ACCESS EXCLUSIVE` — no reads, no writes — and rebuilds every index on the column. Any referencing
 column has to change in lockstep, and under a logical-FK policy those are plain columns needing their
-own migrations. The workaround (add a new `bigint` column, backfill in batches, dual-write, then swap
-in one transaction) is a multi-week project with an application change in the middle. 4 extra bytes
-per row is the cheaper option by a wide margin.
+own migrations. The workaround is a multi-week expand-contract project with an application change in
+the middle (`database-migrations` has the procedure).
 
-Decide from **what makes the row count grow.** An **entity** table (one row per real thing) is
-bounded by the real world — `member` cannot exceed the human population, and `int` reaches 2.1
-billion — so `int` is a defensible choice there if you record what bounds it. An **event/log** table
-is bounded by nothing: rows = insert rate × elapsed time. At 10,000 inserts/s an `int` is exhausted
-in about **5 days**, and because a sequence never reuses values, deleting old rows or dropping old
-partitions reclaims storage but **not** ID range. IoT telemetry, audit trails, message history,
-access logs, metering, outbox — `bigint` from the start.
+- An **entity** table — one row per real thing — is bounded by the real world. `member` cannot exceed
+  the human population, and `int` reaches 2.1 billion, so `int` is a defensible choice here. Record
+  what bounds it.
+- An **event/log** table is bounded by nothing: rows = insert rate × elapsed time. PostgreSQL
+  `integer` is **signed**, so at 10,000 inserts/s it is exhausted in about **2.5 days** — MySQL's
+  `int unsigned` buys ~5 days from the same 4 bytes, and PostgreSQL has no `UNSIGNED`. Because a
+  sequence never reuses values, deleting old rows or dropping old partitions reclaims storage but
+  **not** ID range. IoT telemetry, audit trails, message history, access logs, metering, outbox —
+  `bigint` from the start.
 
 | Situation | Use |
 |---|---|
 | Event/log/IoT table | **`bigint GENERATED ALWAYS AS IDENTITY`** — no exceptions |
-| Single-system entity table | `bigint`, or `int` if the entity count is bounded by something real |
+| Single-system entity table | `int` when the entity count is bounded by something real (record what); otherwise `bigint` |
 | Distributed generation | native `uuid` with **UUIDv7** |
 | Write-heavy | `IDENTITY`, or UUIDv7 — not UUIDv4 |
 | Externally visible ID | UUID PK, or an integer PK plus a separate public UID |

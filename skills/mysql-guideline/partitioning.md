@@ -78,7 +78,9 @@ ALTER TABLE chat_history REORGANIZE PARTITION p_maxvalue INTO (
 ```
 
 ```sql
--- Drop old partition (per data retention policy) — instant, unlike a mass DELETE
+-- Drop old partition (per retention policy) — in-place, no table copy, so far cheaper than a mass
+-- DELETE. Not ALGORITHM=INSTANT though: it still takes a metadata lock, so it can queue behind (and
+-- block) concurrent statements on the table. Run it with a lock_wait_timeout, off peak.
 ALTER TABLE chat_history DROP PARTITION p202608;
 ```
 

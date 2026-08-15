@@ -190,7 +190,7 @@ better than a long literal list:
 
 ```sql
 CREATE TEMPORARY TABLE tmp_target_member (
-  member_id bigint unsigned NOT NULL,
+  member_id int unsigned NOT NULL,   -- same type as member.member_id, or the join loses the index
   PRIMARY KEY (member_id)
 ) ENGINE=InnoDB;
 

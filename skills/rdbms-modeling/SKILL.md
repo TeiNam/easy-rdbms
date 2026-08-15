@@ -242,7 +242,7 @@ looks like `<DB>`. Correct?"
 
 | Target | Apply | Key rules |
 |---|---|---|
-| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `bigint unsigned AUTO_INCREMENT`, `datetime` + `ON UPDATE CURRENT_TIMESTAMP`, `json`, logical FKs |
+| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `AUTO_INCREMENT` + `UNSIGNED` with width **by growth class** (entity `int unsigned`, event/log `bigint unsigned`), `datetime`, `json`, logical FKs |
 | Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
 | SQLite | `sqlite-guideline` | `STRICT` tables, PRAGMA baseline (`foreign_keys=ON`, WAL), `INTEGER PRIMARY KEY` rowid, integer-cents money, physical FKs allowed, no partitioning |
 
@@ -271,8 +271,8 @@ Then produce:
   seek-and-order for everything after it. Confirm against the real plan. Every index costs write throughput, storage, backup
   size, and buffer-pool space forever — emit the justifying query, the column-order reason, and the
   rollback with each one. With no plan or metrics available, say `needs measurement` rather than
-  estimating an improvement. See `references/index-design.md` and
-  `<engine>-guideline/index-and-query.md`
+  estimating an improvement. See `references/index-design.md`, plus
+  `mysql-guideline/index-and-query.md` or `postgres-guideline/index-and-query.md` for the dialect
 - **Views and materialized views** — a plain view is reuse, security, and abstraction; it is **not** a
   performance cache. Acceleration means a PostgreSQL materialized view or a MySQL summary table, which
   is a denormalization and inherits its requirements (source of truth, sync, rebuild). Never make one

@@ -21,7 +21,7 @@ walks one realistic schema through both paths, side by side:
 
 | Without the plugin | What happens | With the plugin |
 |---|---|---|
-| `messages.id SERIAL` | An event table grows as rate × time. At 10k inserts/s the `int` range is gone in **~5 days** — and deleting old rows does not give it back | `bigint`, because rows have no cap |
+| `messages.id SERIAL` | An event table grows as rate × time. PostgreSQL `int` is signed, so at 10k inserts/s the range is gone in **~2.5 days** — and deleting old rows does not give it back | `bigint`, because rows have no cap |
 | `CREATE TABLE users` | `user` is reserved in PostgreSQL. Quote it forever, or rename it later and touch every query | `member`, decided once |
 | `ON DELETE CASCADE` to messages | One account deletion walks your largest table in a single transaction | Deletion is an explicit, batched path |
 | `cost FLOAT` | Rounding error accumulates until the invoice and the ledger disagree | `numeric`, sized per currency |

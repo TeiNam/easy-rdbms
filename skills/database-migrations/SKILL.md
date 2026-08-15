@@ -255,7 +255,10 @@ npx prisma migrate dev --create-only --name add_member_last_login_index
 -- Prisma cannot generate CONCURRENTLY, so we write it manually.
 -- (Not an index on `email` — the model already declares `email @unique`, which
 --  creates a unique index; a second one would be pure write cost.)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_member_last_login
+CREATE INDEX CONCURRENTLY idx_member_last_login
+-- No IF NOT EXISTS here: a failed CONCURRENTLY build leaves an *invalid* index behind, and
+-- IF NOT EXISTS would skip it and report success while the index stays unusable. Instead
+-- pre-flight: SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;  -- then DROP and rebuild
   ON member (last_login_at);
 ```
 
@@ -517,9 +520,12 @@ Phase 3: CONTRACT
 
 ```
 Day 1: Migration adds new_status column (nullable)
-Day 1: Deploy app v2 — writes to both status and new_status
-Day 2: Run backfill migration for existing rows
-Day 3: Deploy app v3 — reads from new_status only
+Day 1: Deploy app v2 - writes BOTH status and new_status, still reads status
+Day 2: Run backfill migration for existing rows (batched)
+Day 3: Deploy app v3 - reads new_status, still writes both
+Day 5: Deploy app v4 - stops writing status          <- REQUIRED before the drop
+Day 6: Verify no writer references status (grep the deployed revision, check
+       pg_stat_statements / performance_schema for the column name)
 Day 7: Migration drops old status column
 ```
 

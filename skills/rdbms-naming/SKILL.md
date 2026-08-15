@@ -143,9 +143,15 @@ apply to it unchanged.
 
 ### Common Principles (DB-agnostic)
 
-- **PK is integer-based by default**: **default the surrogate PK to `BIGINT`** (`INT` runs out at ~2.1 billion
-  on large tables, and **widening a PK later is a full table rebuild** — see
-  `rdbms-modeling/references/identifier-selection.md`). Reach for UUID when distributed generation across DBs/shards is required (no central
+- **PK is integer-based by default**, and its **width follows growth class** — this is one decision you
+  cannot cheaply revisit, because widening a PK later is a full table rebuild:
+  - **Entity** table (one row per real thing — `member`, `product`): `INT`/`int unsigned` is enough. The
+    real world caps the count. Record what caps it.
+  - **Event/log** table (one row per occurrence — `*_log`, `*_history`, IoT, audit): **`BIGINT`, no
+    exceptions.** Rows = rate × time with no cap, and sequences never reuse values, so retention does
+    not reclaim range.
+  - Decision procedure and per-engine cost: `rdbms-modeling/references/identifier-selection.md`.
+  Reach for UUID when distributed generation across DBs/shards is required (no central
   sequence) **or** an externally visible identifier is needed — and prefer **UUID v7** (time-sortable) over
   random v4. Join keys should be **narrow and type-matched to the parent**, which usually means integer —
   but a UUID PK propagating into children is a supported design, not a violation.
@@ -153,8 +159,10 @@ apply to it unchanged.
   secondary index, so PK width and ordering are storage decisions; on **PostgreSQL** rows live in a heap, so a
   UUID PK costs less — but not nothing, since index locality still applies to write-heavy tables.
   Full criteria in `rdbms-modeling/references/identifier-selection.md`.
-  - **MySQL**: `BIGINT ... AUTO_INCREMENT`
-  - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`)
+  - **MySQL**: `AUTO_INCREMENT`, `UNSIGNED` (never negative). `int unsigned` / `bigint unsigned` by class
+  - **PostgreSQL**: `GENERATED ALWAYS AS IDENTITY` (SQL standard; do not use `SERIAL`). No `UNSIGNED`
+    exists, so `int` gives 2.1B where MySQL's `int unsigned` gives 4.2B — the event/log threshold
+    arrives twice as fast
 - **Amounts / settlement**: Floating-point (`float`/`double`/`real`) is **absolutely prohibited** → use
   fixed-point (`DECIMAL` = standard `NUMERIC`). **Size precision/scale per currency and use — never a blanket
   `(10,2)`:**

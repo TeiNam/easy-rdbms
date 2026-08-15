@@ -211,11 +211,13 @@ What to read in the plan:
   `attr_value`) has discarded typing, constraints, and the planner. Where a single-table subtype
   strategy is used, check that conditional `CHECK` constraints recover the `NOT NULL` guarantees
   it gave up, and that a separate surrogate key was not minted on subtype rows
-- Types: `bigint` for growing IDs, `numeric`/`decimal` for money (never float), timezone-aware
-  timestamps (`timestamptz` on PostgreSQL), native boolean over `'Y'`/`'N'`
+- Types: integer ID width **by growth class** (entity `int` when bounded, event/log `bigint`) —
+  detail below; `numeric`/`decimal` for money (never float); timezone-aware timestamps
+  (`timestamptz` on PostgreSQL); native boolean over `'Y'`/`'N'`
 - **An `int` surrogate PK on an event/log table** (`*_log`, `*_history`, IoT readings, audit trails,
   message history, metering, outbox) — this is the failure case, not entity tables. Rows grow as
-  insert rate × time with no bound: 10k/s exhausts `int unsigned` in ~5 days, and because sequences
+  insert rate × time with no bound: 10k/s exhausts MySQL `int unsigned` in ~5 days and PostgreSQL's
+  signed `int` in ~2.5 days, and because sequences
   and `AUTO_INCREMENT` never reuse values, retention policies and partition drops reclaim storage but
   **not** ID range. `int` on an *entity* table (`member`, `product`) is fine — ask what bounds the
   entity count and confirm it is not machine-generated rows wearing an entity name.

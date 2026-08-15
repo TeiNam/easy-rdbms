@@ -105,8 +105,11 @@ For entity tables, `int unsigned` is a reasonable choice — but write down **wh
 re-check if the entity turns out to be machine-generated rather than human (per-device rows, ad
 impressions, generated variants: those are event tables wearing an entity name).
 
-`decimal` follows the same principle: money that needs no fractional part is cheaper and simpler as
-an integer in the minor unit than as a `decimal`.
+Money is the exception to "pick the smallest type": it is **always fixed-point `decimal`**, sized per
+currency and use (see the Money row below). Do not store amounts as an integer minor unit on MySQL —
+`decimal(15,0)` already handles a currency with no minor unit, and the integer trick loses the type's
+self-documenting scale. (SQLite is the one place this plugin uses integer cents, because SQLite has no
+exact decimal type.)
 
 ### `UNSIGNED` — use it whenever negatives are impossible
 
@@ -123,10 +126,14 @@ ages, byte sizes. Skipping it throws away half the range for nothing.
 
 Two things to keep straight:
 
-- **Mixing signed and unsigned is where it bites.** `UNSIGNED` subtraction that would go below zero
-  **wraps to a huge positive number** rather than erroring (unless `NO_UNSIGNED_SUBTRACTION` is in
-  `sql_mode`), so compute differences by casting to signed. And a join between a signed column and an
-  unsigned one is a type mismatch — keep both sides of a join key identical, `UNSIGNED` included.
+- **Subtraction below zero fails; it does not wrap.** `UNSIGNED` arithmetic that would go negative
+  raises `ERROR 1690 (22003): BIGINT UNSIGNED value is out of range` — C-style wraparound is not what
+  MySQL does. In an `UPDATE` under non-strict `sql_mode` the value clamps to 0 with a warning instead.
+  Either way the answer is wrong, so compute differences as
+  `CAST(a AS SIGNED) - CAST(b AS SIGNED)`, or set `NO_UNSIGNED_SUBTRACTION` in `sql_mode` to make
+  unsigned subtraction yield a signed result.
+- **Never mix signed and unsigned across a join key.** That is a type mismatch — keep both sides
+  identical, `UNSIGNED` included.
 - **Portability**: PostgreSQL has no `UNSIGNED`; there the equivalent is `CHECK (col >= 0)`. Add the
   `CHECK` on MySQL as well **only when porting the schema is a stated requirement** — not for a
   portability need nobody has.
@@ -139,9 +146,9 @@ Two things to keep straight:
 |----------|-----------------|-------|
 | **Event/log table PK** (`*_log`, `*_history`, IoT, audit) | **`bigint unsigned`** | **No exceptions.** Rows = rate × time, with no upper bound. `int` at 10k/s dies in ~5 days, and retention does not reclaim `AUTO_INCREMENT` values |
 | Entity table PK (`member`, `product`) | `int unsigned` | Fine — 4.2B, and the real world caps the entity count. Record what bounds it |
-| Bounded lookup/code table PK | `tinyint`/`smallint unsigned` | Fixed code domain |
+| Bounded lookup/code table PK | `tinyint unsigned` / `smallint unsigned` | Fixed code domain. `UNSIGNED` on both — a code key is never negative |
 | Flag / small enumerated value | `tinyint unsigned` | 0~255 |
-| Boolean | `tinyint(1)` 0/1 | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`. Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched — new designs use `tinyint(1)`) |
+| Boolean | `tinyint unsigned` + `CHECK (col IN (0,1))` | `BOOLEAN`/`BOOL` is an alias for `tinyint(1)`, and **`(1)` is display width, not a constraint** — plain `tinyint(1)` accepts `2` and, if signed, `-5`. So make it `UNSIGNED` and add a named `CHECK` (8.0.16+ enforces it). Name with `is_`/`has_`. (Legacy `char(1)` 'Y'/'N' only where already entrenched) |
 | Variable string | `varchar(n)` | `n` = **character count** (MySQL 4.1+), sized to real max length. Row-wide 65,535B cap limits max `n` (utf8mb4 ≈ 16,383 chars single-column) |
 | Long text | `text` | 4 tiers: `tinytext`(255B)/`text`(64KB)/`mediumtext`(16MB)/`longtext`(4GB). Prefix index only |
 | Fixed string | `char(n)` | Truly fixed-width codes only (e.g. `char(2)` country code) |

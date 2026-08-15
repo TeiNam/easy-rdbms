@@ -97,18 +97,26 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 #   unlock is guaranteed on every path (or the connection is reset before return)
 
 async def claim_job(pool, job_id: int) -> bool:
-    """PASS: transaction-level lock — released when conn.transaction() ends, no finally needed."""
+    """PASS: transaction-level lock — released when conn.transaction() ends, no finally needed.
+
+    The lock only serializes concurrent callers *while held*. It does not remember that the job
+    was already claimed, so the state check has to be in the UPDATE itself — otherwise the next
+    caller acquires the freed lock and re-claims a job that is already processing.
+    """
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
                 # Blocks until acquired; use pg_try_advisory_xact_lock for non-blocking
                 await cur.execute("SELECT pg_advisory_xact_lock(%(id)s)", {"id": job_id})
                 await cur.execute(
-                    "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
+                    "UPDATE app.job SET status = 'processing', started_at = now()"
+                    " WHERE job_id = %(id)s AND status = 'pending'"
+                    " RETURNING job_id",
                     {"id": job_id},
                 )
+                claimed = await cur.fetchone() is not None
         # transaction commit and lock release happen together
-        return True
+        return claimed
 
 async def try_claim_job(pool, job_id: int) -> bool:
     """PASS: non-blocking — returns immediately if the lock is unavailable."""
@@ -122,10 +130,13 @@ async def try_claim_job(pool, job_id: int) -> bool:
                 if not row["pg_try_advisory_xact_lock"]:
                     return False          # another worker holds it
                 await cur.execute(
-                    "UPDATE app.job SET status = 'processing' WHERE job_id = %(id)s",
+                    "UPDATE app.job SET status = 'processing', started_at = now()"
+                    " WHERE job_id = %(id)s AND status = 'pending'"
+                    " RETURNING job_id",
                     {"id": job_id},
                 )
-    return True
+                claimed = await cur.fetchone() is not None
+    return claimed          # holding the lock is not the same as winning the job
 
 # FAIL: session-level lock + manual unlock.
 # A crash is safe — the backend terminates and session locks release with it.

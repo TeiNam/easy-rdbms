@@ -45,7 +45,8 @@ Policy:
 1. For single-database generation, size the integer by **growth class**: an **entity** table (one row
    per real thing) is capped by the real world, so `int unsigned` (4.2B) is defensible if you record
    what bounds it; an **event/log** table grows as rate × time with no bound, so `bigint unsigned`
-   with no exceptions — at 10k inserts/s `int unsigned` is gone in ~5 days, and `AUTO_INCREMENT`
+   with no exceptions — at 10k inserts/s MySQL `int unsigned` is gone in ~5 days and PostgreSQL's
+   signed `int` in ~2.5 days, and `AUTO_INCREMENT`
    never reuses values, so retention and partition drops reclaim storage but not ID range.
    **This is a one-way decision.** Changing a PK's integer type later requires `ALGORITHM=COPY` on
    MySQL — a full table rebuild plus every secondary index, since InnoDB appends the PK to all of

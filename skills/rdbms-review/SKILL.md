@@ -1,24 +1,15 @@
 ---
 name: rdbms-review
 description: >
-  Review existing SQL, schemas, and migrations for performance, correctness, security, and
-  concurrency problems on MySQL, PostgreSQL, and SQLite. Triggers: review this schema, review
-  this query, SQLite PRAGMA, STRICT table, review this migration, why is this query slow, is
-  this index right, missing index, seq scan, full table scan, N+1 query, EXPLAIN output,
-  EXPLAIN ANALYZE, deadlock, lock wait timeout, table bloat, vacuum, slow query log, connection
-  pool exhausted, too many connections, RLS policy review, GRANT audit, database security
-  review, duplicate tables, over-generalized schema, EAV anti-pattern, nullable everything,
-  subtype vs status, type column holding a state, missing role table, foreign key constraint,
-  ON DELETE CASCADE, orphan rows, referential integrity, partition pruning, partitions not
-  pruned, MAXVALUE partition, default partition filling up, partition key missing from WHERE,
-  history table, audit table, audit trail, versioning, temporal table, valid_from valid_to,
-  event sourcing, point-in-time query, stored procedure, trigger audit, database event,
-  denormalized column out of sync, aggregate table stale, write amplification, unused index,
-  redundant index, invisible index, covering index, heap fetches, index only scan, filesort,
-  LIKE wildcard slow, full text search, FULLTEXT ngram, pg_trgm, tsvector, search engine
-  migration, view performance, nested views, materialized view, REFRESH MATERIALIZED VIEW,
-  CONCURRENTLY, summary table stale, IN subquery slow, DEPENDENT SUBQUERY, Index Merge, OR
-  condition slow, deep pagination, OFFSET slow, is this schema safe to deploy.
+  Review existing MySQL, PostgreSQL, or SQLite schemas, SQL, indexes, and migrations for
+  correctness, performance, security, concurrency, and deployment risk. Use for schema, query, or
+  migration review; slow queries and EXPLAIN; missing, redundant, unused, covering, or invisible
+  indexes; seq or full scans, heap fetches, filesort, N+1, LIKE, FULLTEXT, pg_trgm, tsvector,
+  subqueries, Index Merge, OR, and OFFSET; views and materialized views; partition pruning and
+  retention; FKs, cascade, orphans, EAV, subtypes, and nullability; history, audit, temporal,
+  event-sourcing, trigger, or procedure design; stale denormalized or aggregate data; deadlocks,
+  locks, bloat, VACUUM, pool exhaustion, and replica lag; RLS, GRANT, security; SQLite PRAGMA or
+  STRICT tables; and safe deployment.
 ---
 
 # RDBMS Review

@@ -24,10 +24,10 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Easy RDBMS",
-    "shortDescription": "Choose, design, and review your relational database",
-    "longDescription": "Guides relational database work end to end: which engine and topology the current scale justifies, consistent naming and data types, table design normalized to 3NF, and review of existing schemas, queries, and migrations. Covers MySQL and PostgreSQL, including Aurora variants.",
+    "shortDescription": "Design and review databases",
+    "longDescription": "Guides relational database work end to end: which engine and topology the current scale justifies, consistent naming and data types, table design normalized to 3NF, and review of existing schemas, queries, and migrations. Covers MySQL, PostgreSQL, and SQLite, including Aurora variants.",
     "developerName": "TeiNam",
-    "category": "Engineering",
+    "category": "Developer Tools",
     "capabilities": [
       "Instructions",
       "Lifecycle hooks"

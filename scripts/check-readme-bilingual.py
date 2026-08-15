@@ -2,7 +2,7 @@
 """Fail when a factual number in the README disagrees with reality or with the other language.
 
 The English and Korean sections are not translations — they are written in their own voice, so
-their prose will never line up and comparing it would only produce noise. Three specific numbers
+their prose will never line up and comparing it would only produce noise. Four specific numbers
 *have* gone stale, and those are what this checks:
 
   1. Day counts (an integer-exhaustion runway). Corrected to ~2.5 days in English, left at
@@ -12,6 +12,7 @@ their prose will never line up and comparing it would only produce noise. Three 
      the eleventh, `cost-evaluation.md`, belongs to `db-select`. Unlike 1 and 2 this one is
      checkable against the filesystem, so the count, the listed filenames, and the directory
      all have to agree.
+  4. The hook-test count. The README said 16 after the suite had grown to 23.
 
 Deliberately narrow: the smallest check that fails if any recurs. Note that the two sections
 use different numbering systems for large values (Korean 억 = 10^8, English billion = 10^9), so
@@ -29,6 +30,8 @@ DAYS = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:days?|일)(?![\w])")
 TOTAL = re.compile(r"(\d[\d,]*)\s*(?:issues|건)")
 # The per-round sequence, e.g. "33 → 18 → … → 116"
 SEQUENCE = re.compile(r"(\d+(?:\s*→\s*\d+){3,})")
+HOOK_CASE_EN = re.compile(r"detect-db\.test\.sh[^\n]*?(\d+)\s+cases\b")
+HOOK_CASE_KO = re.compile(r"detect-db\.test\.sh[^\n]*?(\d+)\s*개\s*케이스")
 
 # "**ten reference files**" / "three stages, ten reference files" / "Eleven reference files"
 CLAIM_EN = re.compile(r"([A-Za-z]+|\d+)\s+reference files")
@@ -129,6 +132,31 @@ def check_reference_files(english: str, korean: str, repo_root: Path) -> tuple[l
     return problems, f"{len(on_disk)} reference files match {OWNING_SKILL}/references/"
 
 
+def check_hook_test_count(
+    english: str, korean: str, repo_root: Path
+) -> tuple[list[str], str | None]:
+    """README hook-test counts, cross-checked against the test script."""
+    test_script = repo_root / "hooks" / "detect-db.test.sh"
+    if not test_script.is_file():
+        return [], f"hook-test check SKIPPED ({test_script} not found)"
+
+    actual = len(re.findall(r'^check\s+"', test_script.read_text(encoding="utf-8"), re.MULTILINE))
+    problems = []
+    for name, claims in (
+        ("English", HOOK_CASE_EN.findall(english)),
+        ("Korean", HOOK_CASE_KO.findall(korean)),
+    ):
+        if not claims:
+            problems.append(f"{name} has no hook-test count")
+            continue
+        for stated in map(int, claims):
+            if stated != actual:
+                problems.append(
+                    f"{name} claims {stated} hook tests, but hooks/detect-db.test.sh has {actual}"
+                )
+    return problems, f"{actual} hook tests match hooks/detect-db.test.sh"
+
+
 def fail(msg: str) -> None:
     print(f"  {msg}")
 
@@ -171,6 +199,8 @@ def main() -> int:
         english, korean, path.resolve().parent
     )
     problems.extend(reference_problems)
+    hook_problems, hook_detail = check_hook_test_count(english, korean, path.resolve().parent)
+    problems.extend(hook_problems)
 
     if problems:
         print(f"FAIL {path}:")
@@ -185,9 +215,11 @@ def main() -> int:
         detail += f"; round total {expected} consistent"
     if reference_detail is not None:
         detail += f"; {reference_detail}"
+    if hook_detail is not None:
+        detail += f"; {hook_detail}"
     print(f"ok {path}: {detail}")
-    if reference_detail and "SKIPPED" in reference_detail:
-        print("  note: run this from the repo root for the reference-file cross-check to apply.")
+    if any(detail and "SKIPPED" in detail for detail in (reference_detail, hook_detail)):
+        print("  note: run this from the repo root for filesystem cross-checks to apply.")
     return 0
 
 

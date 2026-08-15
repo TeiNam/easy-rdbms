@@ -1,19 +1,15 @@
 ---
 name: mysql-guideline
 description: >
-  MySQL 8.0+ schema design, table/index creation, query optimization, partitioning, connection
-  management, development principles and anti-patterns, JDBC driver selection. Triggers: CREATE
-  TABLE, ALTER TABLE, slow query analysis, index design, RANGE partition, MySQL migration,
-  utf8mb4, InnoDB, transaction management, UPSERT, Covering Index, composite index,
-  normalization, data type selection, INET_ATON, UUID_TO_BIN, DATETIME TIMESTAMP, stored
-  procedure, COUNT(*), random PK, JSON column, JDBC, Connector/J, AWS Advanced JDBC Wrapper,
-  Aurora failover, keyset pagination, SKIP LOCKED queue, deadlock, replica lag,
-  read-after-write, GRANT least privilege, my.cnf tuning, slow query log, SHOW ENGINE INNODB
-  STATUS, MariaDB divergence, FULLTEXT MATCH AGAINST, connection pool sizing, integer type
-  ranges, IN subquery slow, DEPENDENT SUBQUERY, semi-join optimization,
-  eq_range_index_dive_limit, Index Merge, OR condition slow, deep pagination, OFFSET slow,
-  deferred join, PK type choice, int vs bigint PK, AUTO_INCREMENT exhaustion, UNSIGNED,
-  IoT/log table design related tasks.
+  MySQL 8.0+ and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
+  transactions, connections, security, migrations, and JDBC. Use for CREATE or ALTER TABLE,
+  utf8mb4, InnoDB, data types, UUID_TO_BIN, DATETIME or TIMESTAMP, JSON, PK choice, int vs bigint,
+  AUTO_INCREMENT exhaustion, UNSIGNED, normalization, composite or covering indexes, FULLTEXT,
+  EXPLAIN and slow logs, subqueries or DEPENDENT SUBQUERY, semi-joins, Index Merge or OR,
+  OFFSET, deferred join or keyset pagination, COUNT(*), stored procedures, SKIP LOCKED queues,
+  deadlocks, replica lag and read-after-write, Aurora failover, AWS Advanced JDBC Wrapper,
+  Connector/J, pool sizing, GRANT, my.cnf, RANGE partitioning, MariaDB differences, and IoT or
+  log tables.
 ---
 
 # MySQL Database Guideline

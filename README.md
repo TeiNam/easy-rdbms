@@ -64,6 +64,9 @@ codex plugin marketplace add TeiNam/easy-rdbms
 codex plugin add easy-rdbms@easy-rdbms
 ```
 
+Codex does not trust plugin hooks automatically. After installation, open `/hooks`, review the
+Easy RDBMS `SessionStart` hook, and trust it to enable automatic engine detection.
+
 Either harness also installs from a local checkout — pass the path instead of the repo slug.
 
 ### Updating
@@ -92,13 +95,18 @@ work; you can also name one explicitly.
 `rdbms-modeling` carries **ten reference files** loaded on demand, so the policy detail costs
 nothing until the model actually needs it.
 
-### Commands
+### Explicit invocation
 
-| Command | Does |
-|---|---|
-| `/db-select` | Up to three candidates with one named default, a cost assessment, and measurable re-evaluation triggers |
-| `/schema-design` | Conceptual → logical → physical with a gate between each, ending in DDL and migration SQL |
-| `/schema-review` | Findings ordered CRITICAL → HIGH → MEDIUM, each with impact and an exact fix |
+Skills activate automatically when the task matches. To invoke one explicitly:
+
+| Task | Claude Code | Codex |
+|---|---|---|
+| Database selection | `/db-select` | `$easy-rdbms:db-select` |
+| Schema design | `/schema-design` | `$easy-rdbms:rdbms-modeling` |
+| Schema review | `/schema-review` | `$easy-rdbms:rdbms-review` |
+
+Codex users can browse installed skills with `/skills`. Codex plugins do not register custom slash
+commands.
 
 ### Subagents (Claude Code only)
 
@@ -409,7 +417,7 @@ subcommand form), the plugin **does not assert either form** — it points at `k
 Automated gates, all passing:
 
 ```bash
-sh hooks/detect-db.test.sh    # 16 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
+sh hooks/detect-db.test.sh    # 23 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
                               # managed platforms / multi-engine confirmation / silence when absent
 claude plugin validate .      # official manifest validation
 ```
@@ -420,9 +428,10 @@ contains an undefined name, and manifests and frontmatter are well-formed.
 ## Design decisions
 
 **One skill directory, both harnesses.** `skills/` is shared. Frontmatter is `name` + `description`
-only — the intersection of what Claude Code and Codex accept. Commands ship as `.md` (Claude Code)
-and `.toml` (Codex) pairs. Codex plugins cannot register named subagents, so modeling and review
-procedures live in the skill bodies and Claude Code gets thin agent wrappers pointing at them.
+only — the intersection of what Claude Code and Codex accept. Claude Code gets `.md` commands;
+Codex invokes the same procedures through namespaced skills. Codex plugins cannot register named
+subagents, so modeling and review procedures live in the skill bodies and Claude Code gets thin
+agent wrappers pointing at them.
 
 **Progressive loading.** Eleven reference files keep the policy detail out of the always-on cost.
 Always-on is roughly 2.1k tokens across all eight skills; the heaviest skill costs ~7k only when it
@@ -443,7 +452,7 @@ says so rather than pretending to advise on them.
 ## Development
 
 ```bash
-sh hooks/detect-db.test.sh          # hook detection tests (16 cases)
+sh hooks/detect-db.test.sh          # hook detection tests (23 cases)
 sh scripts/sync-from-harness.sh     # show upstream drift for the four ported skills
 claude plugin validate .            # manifest validation
 claude plugin details easy-rdbms    # component inventory and projected token cost
@@ -515,6 +524,9 @@ codex plugin marketplace add TeiNam/easy-rdbms
 codex plugin add easy-rdbms@easy-rdbms
 ```
 
+Codex는 플러그인 훅을 자동으로 신뢰하지 않습니다. 설치 후 `/hooks`에서 Easy RDBMS의
+`SessionStart` 훅을 검토하고 승인해야 자동 엔진 감지가 켜집니다.
+
 ### 구성
 
 | 스킬 | 용도 |
@@ -528,8 +540,10 @@ codex plugin add easy-rdbms@easy-rdbms
 | `sqlite-guideline` | SQLite 3.37+ — 임베디드·로컬·프로토타입 |
 | `database-migrations` | 무중단 스키마 변경, 롤백 전략 |
 
-커맨드는 `/db-select`, `/schema-design`, `/schema-review`. 스킬은 관련 작업이 언급되면 자동
-발동하므로 커맨드를 꼭 쓸 필요는 없습니다.
+스킬은 관련 작업이 언급되면 자동 발동합니다. 명시적으로 호출할 때는 Claude Code에서
+`/db-select`, `/schema-design`, `/schema-review`를, Codex에서 `$easy-rdbms:db-select`,
+`$easy-rdbms:rdbms-modeling`, `$easy-rdbms:rdbms-review`를 사용합니다. Codex의 `/skills`에서
+설치된 스킬을 찾아볼 수도 있습니다.
 
 Claude Code 전용 서브에이전트 `rdbms-modeler`·`rdbms-reviewer`는 스킬을 가리키는 얇은 래퍼입니다.
 Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어서, 같은 절차를 스킬 본문에 넣었습니다.
@@ -539,6 +553,7 @@ Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어�
 감지한 엔진을 한 번 보고합니다.
 **MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
 말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
+현재 `sh hooks/detect-db.test.sh`의 23개 케이스가 통과합니다.
 
 ### 반영된 내용
 
@@ -692,4 +707,3 @@ Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 272건** 반영
 
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.
-

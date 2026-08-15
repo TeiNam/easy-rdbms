@@ -31,6 +31,9 @@ Codex both deliver it through `skills/`, and neither loads this file from a plug
 - `hooks/detect-db.test.sh` must pass. Run `sh hooks/detect-db.test.sh`.
 - **README is bilingual, and the Korean section is not a translation** — it is written in its own
   voice, so do not diff the prose. But a *factual* correction has to land in **both** sections; it
-  has twice landed in only one. `python3 scripts/check-readme-bilingual.py` fails on the two numbers
-  that actually went stale (an exhaustion day count, and a review total that disagreed with the
-  round sequence it sits next to). Run it after touching either section.
+  has twice landed in only one. `python3 scripts/check-readme-bilingual.py` fails on the three
+  numbers that actually went stale: an exhaustion day count, a review total that disagreed with the
+  round sequence it sits next to, and a reference-file count that disagreed with
+  `skills/rdbms-modeling/references/`. Run it after touching either section — and also after adding
+  or removing a reference file, since the count, the listed filenames, and the directory all have to
+  agree.

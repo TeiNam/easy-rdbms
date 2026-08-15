@@ -178,7 +178,8 @@ check existence*, not `COUNT` itself.
 
 MySQL PK is a **clustered index** — physically sorted by PK order. Random keys (UUIDv4 etc.)
 scatter inserts across the tree, causing far more page splits and lower page utilization, degrading write performance.
-**PK should be `INT` family + `AUTO_INCREMENT`** by default. If distributed globally-unique keys are
+**PK should be the `INT` family + `AUTO_INCREMENT` + `UNSIGNED`** by default, with the width chosen
+by growth class (entity `int unsigned`, event/log `bigint unsigned` — see `SKILL.md`). If distributed globally-unique keys are
 essential, prefer **UUID v7** (timestamp-based, sortable) generated in the application and stored as
 `BINARY(16)` over random v4 — this minimizes index fragmentation. (v1 + `UUID_TO_BIN(…, 1)` is a fallback;
 MySQL `UUID()` is v1-only.) Accept reduced FK-JOIN readability either way.
@@ -247,7 +248,9 @@ If you must use JSON (mitigations):
 ## Dev Practices Checklist
 
 - [ ] Prioritize normalization; denormalize only with a defined sync owner; no monolithic JSON/HTML columns
-- [ ] Select smallest type within representable range (grow later is easy, shrink is not)
+- [ ] Select smallest type within representable range for **ordinary columns** (grow later is
+      manageable, shrink is not) — **not for a PK**: sizing that by today's range is how event/log
+      tables run out. See §2.0/§2.1
 - [ ] IPv4 → `INET_ATON`; IPv4/IPv6 → `INET6_ATON`+`VARBINARY(16)`; UUID → `BINARY(16)`, app-generated
       v7 with **no swap flag** (`UUID_TO_BIN(v,1)` is v1-only — swapping a v7 destroys its ordering)
 - [ ] Choose DATETIME (5B, >2038 safe) vs TIMESTAMP (4B, auto-UTC, ≤2038) by range + timezone need
@@ -256,6 +259,8 @@ If you must use JSON (mitigations):
       `rdbms-modeling/references/db-internal-routines.md` (session-local cache, no global share), logic in app layer
 - [ ] Don't invalidate indexes with function conditions or `LIKE '%x'`
 - [ ] Existence check with `EXISTS`/`LIMIT 1` instead of `COUNT(*)` (InnoDB MVCC → COUNT scans)
-- [ ] PK is `INT`/`BIGINT`+`AUTO_INCREMENT` (avoid random v4; distributed → app UUID v7 BINARY(16); avoid composite PK)
+- [ ] PK is `AUTO_INCREMENT` + **`UNSIGNED`**, width by growth class — `int unsigned` for a bounded
+      entity table (record what bounds it), **`bigint unsigned` for an event/log table** (avoid random v4;
+      distributed → app UUID v7 BINARY(16); avoid composite PK)
 - [ ] FK: **no physical `FOREIGN KEY` constraints.** Logical FK documented in `COMMENT`, referencing
       column indexed, integrity owner named, orphan check scheduled

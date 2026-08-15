@@ -181,8 +181,9 @@ volume. When estimates are far from actual, evaluate `ANALYZE TABLE` and column 
 SELECT query, exec_count, rows_examined_avg, rows_sent_avg, tmp_tables, rows_sorted
 FROM sys.statement_analysis ORDER BY rows_examined_avg DESC LIMIT 10;
 
-SELECT * FROM sys.schema_unused_indexes;
-SELECT * FROM sys.schema_redundant_indexes;
+SELECT object_schema, object_name, index_name FROM sys.schema_unused_indexes;
+SELECT table_schema, table_name, redundant_index_name, dominant_index_name
+FROM sys.schema_redundant_indexes;
 ```
 
 **PostgreSQL** — `pg_stat_statements`, planner statistics, and `EXPLAIN (ANALYZE, BUFFERS)`.

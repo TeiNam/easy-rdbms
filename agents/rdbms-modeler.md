@@ -38,7 +38,7 @@ go read it there rather than acting on the label.**
 3. Generalization is decided by the IS-A test, and its result is reported per candidate group.
 4. 3NF is required; the BCNF check is emitted for **every** entity, including "none" results.
 5. Foreign keys follow the engine-split policy — it covers MySQL, PostgreSQL, **and SQLite**, and
-   the three differ. Read `references/foreign-keys.md` before emitting or omitting one.
+   the three differ. Read `rdbms-modeling/references/foreign-keys.md` before emitting or omitting one.
 6. Denormalization, partitioning, and every index require the evidence the skill specifies. Absent
    that evidence, the deliverable is the design without them, plus what would justify revisiting.
 

@@ -151,10 +151,48 @@ ALTER TABLE log.chat_history ADD COLUMN chat_history_id_new bigint;
 
 -- 2. DEPLOY dual writes: the app writes both columns. Must precede the backfill.
 -- 3. Backfill in bounded batches (see "Large Data Migrations" below), monitoring replica lag
--- 4. Add the unique index on the new column, then verify counts match and no NULLs remain
--- 5. Swap in one transaction: drop the old PK, promote the new column, rename
--- 6. Migrate every referencing column, then drop the old column
+-- 4. SET NOT NULL on the new column, add a UNIQUE index on it, and verify:
+--    counts match, no NULLs, no duplicates.
+-- 5. Cutover -- and this step is NOT the same on both engines (see below).
+-- 6. Migrate every referencing column to the wide type, then drop the old column.
 ```
+
+**Step 5 differs by engine, and "swap it in one transaction" is only true on one of them.**
+
+*PostgreSQL* — DDL is transactional, so the cutover really is atomic:
+
+```sql
+BEGIN;
+ALTER TABLE log.chat_history DROP CONSTRAINT pk_chat_history;
+ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP IDENTITY IF EXISTS;
+ALTER TABLE log.chat_history RENAME COLUMN chat_history_id TO chat_history_id_old;
+ALTER TABLE log.chat_history RENAME COLUMN chat_history_id_new TO chat_history_id;
+ALTER TABLE log.chat_history ADD CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id);
+-- Identity/sequence ownership moves too, or nothing generates the next value:
+ALTER TABLE log.chat_history
+  ALTER COLUMN chat_history_id ADD GENERATED ALWAYS AS IDENTITY;
+SELECT setval(pg_get_serial_sequence('log.chat_history', 'chat_history_id'),
+              (SELECT max(chat_history_id) FROM log.chat_history));
+COMMIT;
+```
+
+*MySQL* — **DDL cannot be wrapped in a transaction.** Each `ALTER` commits, so there is no atomic
+swap: put every change in **one** `ALTER TABLE` statement so the table is never in a half-swapped
+state, and accept that the statement itself is the outage window.
+
+```sql
+-- One statement: drop the old PK, retype/rename, and re-establish AUTO_INCREMENT together.
+-- ALGORITHM=COPY is implied; there is no in-place path. Take the write pause deliberately,
+-- or run the cutover through gh-ost / pt-online-schema-change instead.
+ALTER TABLE chat_history
+  DROP PRIMARY KEY,
+  CHANGE chat_history_id chat_history_id_old bigint unsigned NOT NULL,
+  CHANGE chat_history_id_new chat_history_id bigint unsigned NOT NULL AUTO_INCREMENT,
+  ADD PRIMARY KEY (chat_history_id);
+```
+
+An `AUTO_INCREMENT` column must be indexed as a key, which is why the `ADD PRIMARY KEY` has to be in
+the same statement — split it and MySQL rejects the intermediate state.
 
 Expect weeks, with application deploys in the middle. **Do not start this without first confirming
 the target table is not still accumulating rows faster than the backfill drains** — on a hot
@@ -228,15 +266,21 @@ npx prisma generate
 ### Schema Example
 
 ```prisma
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+model Member {
+  // Integer key by growth class: member is a bounded entity table, so Int is enough.
+  // Do NOT reach for @default(cuid()) or @default(uuid()) here — a random string key on a
+  // single-database entity table buys nothing and costs index locality. Use a UUID (v7) only
+  // for distributed generation or an externally exposed identifier, as a separate column.
+  memberId  Int      @id @default(autoincrement()) @map("member_id")
+  email     String   @map("email")
   name      String?
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   // a relation like `orders PurchaseOrder[]` needs a matching model — omitted here
 
+  // Named constraint, per rdbms-naming. Prisma's bare `@unique` lets the engine pick the name.
+  @@unique([email], map: "uq_member_email")
   @@map("member")
 }
 ```
@@ -280,16 +324,22 @@ npx drizzle-kit push
 ### Schema Example
 
 ```typescript
-import { pgTable, text, timestamp, uuid, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const member = pgTable("member", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
+  // Bounded entity table -> integer identity, not uuid().defaultRandom(): that is UUIDv4,
+  // whose insert positions scatter. UUIDv7 (or an integer PK + a public UID column) is the
+  // choice when you actually need distributed or externally visible IDs.
+  memberId: integer("member_id").primaryKey().generatedAlwaysAsIdentity(),
+  email: text("email").notNull(),
   name: text("name"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  // Named, per rdbms-naming — a bare .unique() lets Drizzle generate the constraint name
+  uqMemberEmail: uniqueIndex("uq_member_email").on(table.email),
+}));
 ```
 
 ## Kysely (TypeScript/Node.js)
@@ -327,12 +377,17 @@ import { type Kysely, sql } from 'kysely'
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('member_profile')
-    .addColumn('id', 'bigint', (col) => col.generatedAlwaysAsIdentity().primaryKey())
-    .addColumn('email', 'text', (col) => col.notNull().unique())
+    // member_profile is a bounded entity table, so 'integer' -- 'bigint' is for event/log
+    // tables whose rows grow as rate x time.
+    .addColumn('member_profile_id', 'integer', (col) =>
+      col.generatedAlwaysAsIdentity().primaryKey())
+    .addColumn('email', 'text', (col) => col.notNull())
     .addColumn('avatar_url', 'text')
     .addColumn('created_at', 'timestamptz', (col) =>
       col.defaultTo(sql`now()`).notNull()
     )
+    // Named, per rdbms-naming — .unique() on the column would let PostgreSQL pick the name
+    .addUniqueConstraint('uq_member_profile_email', ['email'])
     .execute()
 
   await db.schema

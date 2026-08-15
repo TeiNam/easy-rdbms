@@ -128,10 +128,13 @@ Two things to keep straight:
 
 - **Subtraction below zero fails; it does not wrap.** `UNSIGNED` arithmetic that would go negative
   raises `ERROR 1690 (22003): BIGINT UNSIGNED value is out of range` — C-style wraparound is not what
-  MySQL does. In an `UPDATE` under non-strict `sql_mode` the value clamps to 0 with a warning instead.
-  Either way the answer is wrong, so compute differences as
-  `CAST(a AS SIGNED) - CAST(b AS SIGNED)`, or set `NO_UNSIGNED_SUBTRACTION` in `sql_mode` to make
-  unsigned subtraction yield a signed result.
+  MySQL does. That error fires **regardless of `sql_mode`**, because it happens while evaluating the
+  expression, not while storing a value. So `UPDATE t SET c = c - 1` on a zero `int unsigned` fails
+  even with `sql_mode = ''`. Compute differences as `CAST(a AS SIGNED) - CAST(b AS SIGNED)`, or set
+  `NO_UNSIGNED_SUBTRACTION` to make unsigned subtraction yield a signed result.
+  > Do not confuse it with the *assignment* case, which is what strict mode governs: `SET c = -1`
+  > raises `ERROR 1264` under strict and **clamps to 0 with a warning** without it. Different error,
+  > different rule.
 - **Never mix signed and unsigned across a join key.** That is a type mismatch — keep both sides
   identical, `UNSIGNED` included.
 - **Portability**: PostgreSQL has no `UNSIGNED`; there the equivalent is `CHECK (col >= 0)`. Add the

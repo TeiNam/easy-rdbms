@@ -348,8 +348,37 @@ ordering you chose v7 for; and `uuidv7()` is built in only from **PostgreSQL 18*
 
 ## How it was verified
 
-Eight review rounds — Claude self-review plus independent Codex passes — found and fixed **151
-issues**. Findings per pass: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3.
+### Executed against real servers
+
+The claims that decide a schema were run on **MySQL 8.4.11** and **PostgreSQL 16.15** containers and
+local **SQLite 3.51**, not asserted from memory:
+
+| Claim | What the server did |
+|---|---|
+| Changing a PK's integer type needs `ALGORITHM=COPY` | `INSTANT` → `ERROR 1846`; `INPLACE` → `ERROR 1846 … Cannot change column type INPLACE. Try ALGORITHM=COPY`; only `COPY` succeeded |
+| `UNSIGNED` subtraction below zero errors, and `sql_mode` does not change that | `ERROR 1690 (22003) BIGINT UNSIGNED value is out of range`, including under `sql_mode = ''`. `NO_UNSIGNED_SUBTRACTION` returned `-1` |
+| `tinyint(1)` does not constrain to 0/1 | Accepted `2` and `-5`; `tinyint unsigned` accepted `200` |
+| `CONSTRAINT pk_x PRIMARY KEY` is discarded on MySQL | `information_schema.statistics` reported the index name as `PRIMARY` |
+| Gap locks at `REPEATABLE READ` are not unconditional | Unique-equality `FOR UPDATE` → the gap `INSERT` **succeeded** (record lock only); the same insert behind a **range** `FOR UPDATE` → `ERROR 1205` lock wait timeout |
+| A partitioned table's PK must include the partition key | `ERROR: unique constraint on partitioned table must include all partitioning columns` |
+| Detaching the `DEFAULT` partition opens a write-failure window | `ERROR: no partition of relation "d" found for row` — the same insert succeeded while it was attached |
+| An exclusion `CHECK` lets you add a partition without detaching | The low-lock path in `postgres-guideline/partitioning.md` completed |
+| `ON CONFLICT` infers a plain unique index, but not a `DEFERRABLE` one | Plain index upserted; `DEFERRABLE` → `ERROR: ON CONFLICT does not support deferrable unique constraints … as arbiters` |
+| SQLite `STRICT` performs lossless coercions | `'12'` stored as integer `12`, `42` stored as text `'42'`, `'abc'` rejected |
+| `WITHOUT ROWID` has no rowid | `SELECT rowid` is a parse error there; in a rowid table `INTEGER PRIMARY KEY` returned the rowid |
+
+The example DDL was executed too — the "with the plugin" schema from
+[the comparison doc](docs/with-and-without.md) creates cleanly on PostgreSQL 16 and every `CHECK` in
+it actually rejects the value it is supposed to.
+
+### Review rounds
+
+Ten rounds — Claude self-review plus independent Codex passes — found and fixed **267 issues**.
+Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116.
+
+The last round was the largest, and not because the plugin got worse: it was the first round to run
+two Codex passes with **separate mandates** (engine facts; cross-file consistency and flow) instead of
+one general pass. A large share of what it found had been introduced by the round before it.
 
 The count did not fall monotonically, and the reason is worth stating: passes 1–4 concentrated on
 newly written content, so pass 5 was the first deep read of the **ported** guideline files and found
@@ -632,9 +661,32 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 종속 허용 여부, �
 
 ### 검증
 
-Claude 자체 리뷰 + Codex 독립 리뷰 **8패스, 151건** 반영 (33 → 18 → 11 → 17 → 32 → 31 → 6 → 3).
+**실제 서버에서 실행했습니다.** 스키마를 좌우하는 주장은 **MySQL 8.4.11** / **PostgreSQL 16.15**
+컨테이너와 로컬 **SQLite 3.51**에서 직접 돌려 확인했습니다.
+
+| 주장 | 서버가 실제로 낸 결과 |
+|---|---|
+| PK 정수 타입 변경은 `ALGORITHM=COPY` 필요 | `INSTANT` → `ERROR 1846`, `INPLACE` → `ERROR 1846 … Cannot change column type INPLACE. Try ALGORITHM=COPY`, `COPY`만 성공 |
+| `UNSIGNED` 뺄셈 언더플로는 에러이고 `sql_mode`와 무관 | `sql_mode = ''`에서도 `ERROR 1690 (22003)`. `NO_UNSIGNED_SUBTRACTION` 설정 시 `-1` |
+| `tinyint(1)`은 0/1로 제약하지 않음 | `2`와 `-5` 통과, `tinyint unsigned`는 `200` 통과 |
+| MySQL은 `CONSTRAINT pk_x PRIMARY KEY` 이름을 버림 | `information_schema.statistics`의 인덱스명이 `PRIMARY` |
+| RR의 갭 락은 무조건이 아님 | 유니크 등가 `FOR UPDATE` 중 갭 `INSERT` **성공**(레코드 락만), 같은 INSERT를 **범위** `FOR UPDATE` 뒤에 하면 `ERROR 1205` |
+| 파티션 테이블의 PK는 파티션 키를 포함해야 함 | `ERROR: unique constraint on partitioned table must include all partitioning columns` |
+| `DEFAULT` 파티션 detach는 쓰기 실패 창을 만듦 | `ERROR: no partition of relation "d" found for row` — 붙어 있을 때는 같은 INSERT가 성공 |
+| 배타 `CHECK`로 detach 없이 파티션 추가 가능 | `postgres-guideline/partitioning.md`의 저잠금 경로가 그대로 완료 |
+| `ON CONFLICT`는 plain 유니크 인덱스를 추론하지만 `DEFERRABLE`은 못 함 | plain은 upsert 성공, `DEFERRABLE`은 `ERROR: … does not support deferrable unique constraints … as arbiters` |
+| SQLite `STRICT`는 무손실 강제변환을 허용 | `'12'`는 정수 `12`로, `42`는 텍스트 `'42'`로 저장, `'abc'`는 거부 |
+| `WITHOUT ROWID`에는 rowid가 없음 | 거기서 `SELECT rowid`는 파싱 오류, rowid 테이블에서는 `INTEGER PRIMARY KEY`가 rowid |
+
+예제 DDL도 실행했습니다 — [비교 문서](docs/with-and-without.md)의 "플러그인과 함께" 스키마가
+PostgreSQL 16에서 그대로 생성되고, 안의 모든 `CHECK`가 실제로 막아야 할 값을 막습니다.
+
+Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 267건** 반영
+(33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116).
 5패스에서 이식 파일이 사각지대로 드러났고, 6패스는 **5패스 수정이 만든 버그**를 잡았습니다 —
-수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다.
+수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 마지막 라운드가 가장 컸던 이유는
+플러그인이 나빠져서가 아니라, 처음으로 Codex 패스를 **별도 임무**(엔진 사실 / 파일 간 일관성·흐름)로
+나눠 돌렸기 때문입니다. 찾힌 것의 큰 몫이 직전 라운드가 만든 것이었습니다.
 
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.

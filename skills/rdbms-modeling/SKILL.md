@@ -221,9 +221,12 @@ If the engine is decided but unstated, ask:
 > 4. **PostgreSQL Community** (16.7+)
 > 5. **SQLite** (3.37+, embedded / local / Tier 0)
 
-If repo files already answer it (`docker-compose.yml`, `alembic.ini`, `flyway.conf`,
-`prisma/schema.prisma`, `DATABASE_URL` in `.env`), confirm instead of asking cold: "The repo
-looks like `<DB>`. Correct?"
+If the **session context already names the engine** — the `detect-db` session hook reports it when
+the repository declares one — take it as given and do **not** re-ask which database this is; the
+hook's detection does not reveal the *version or deployment form* (managed / Aurora / community /
+container), so confirm only that. If there is no such context but repo files hint at an engine
+(`docker-compose.yml`, `alembic.ini`, `flyway.conf`, `prisma/schema.prisma`, `DATABASE_URL` in
+`.env`), confirm instead of asking cold: "The repo looks like `<DB>`. Correct?"
 
 ### DB-to-Guideline Mapping
 

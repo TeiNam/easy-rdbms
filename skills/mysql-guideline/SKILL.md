@@ -17,7 +17,8 @@ description: >
 ## When to Activate
 
 - Writing MySQL queries or migrations
-- Designing MySQL database schemas
+- Emitting physical DDL for a model that came through `rdbms-modeling` — **new table design starts
+  there, not here**; its Stage 3 loads this skill once the logical model is confirmed
 - Troubleshooting slow queries
 - Creating partitioned tables
 - Setting up connection management
@@ -198,8 +199,9 @@ Two things to keep straight:
 ## Choosing a Database
 
 If the target DB is not decided yet — or you are weighing MySQL against PostgreSQL, or an
-RDBMS against DynamoDB / MongoDB / Redis — use the `db-select` skill first. It routes back
-here once MySQL is confirmed.
+RDBMS against DynamoDB / MongoDB / Redis — use the `db-select` skill first. Once MySQL is
+confirmed the flow returns here — directly for engine mechanics on an existing schema, or through
+`rdbms-modeling` Stage 3 when the work is new table design.
 
 ## After Writing the Schema
 

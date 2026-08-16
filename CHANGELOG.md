@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.4.1
+
+Codex compatibility, a flow audit, and the guard scripts that grew out of two user-caught
+regressions. Everything here is a correction or a tripwire — no new capability.
+
+**Codex compatibility** — the plugin now actually loads everything on Codex
+
+- **Four skill descriptions exceeded Codex's 1,024-character limit** (1,025 / 1,074 / 1,895 /
+  1,603) and were rejected there. Compressed to 673–900 characters. The compression initially cost
+  high-precision trigger literals; a token-level old/new diff restored the ones nothing else
+  covers: `UPSERT`, `INET_ATON`, `eq_range_index_dive_limit`, single-table inheritance /
+  discriminator, 1NF/2NF, `valid_from`/`valid_to`, `lock wait timeout`, `too many connections`.
+- **Removed `commands/*.toml`.** Codex plugins do not register custom slash commands — verified
+  against all nine official bundled plugins (zero `commands/` directories, zero manifest fields).
+  On Codex, invoke a skill as `$easy-rdbms:<skill-name>`; the README documents the mapping from
+  the Claude Code commands.
+- **Codex does not auto-trust plugin hooks.** The install steps now say to review and approve the
+  `SessionStart` hook via `/hooks`, or automatic engine detection never runs.
+- Codex-side manifests: category corrected to `Developer Tools`, `longDescription` now names
+  SQLite alongside MySQL and PostgreSQL.
+
+**Flow audit** — no instruction anywhere may point against the intended pipeline
+(hook → `db-select` → `rdbms-modeling` → engine guideline → `rdbms-review` →
+`database-migrations`). Extracting every directional statement and grading the back-edges found
+four violations:
+
+- The three engine guidelines listed **"Designing … schemas" as their own activation condition**,
+  which let an agent skip the conceptual and logical gates entirely. New table design now starts
+  in `rdbms-modeling`; the engine guideline is what its Stage 3 loads.
+- `rdbms-modeling` Stage 3 told the agent to re-confirm a repository-inferred engine — the exact
+  question the session hook forbids. It now takes a hook-named engine as given and confirms only
+  the **version and deployment form**, which the hook cannot detect.
+- `db-select`'s description said it routes to the engine guideline, contradicting its own body
+  (new design goes through `rdbms-modeling` first).
+- The mysql/postgres closing sections said `db-select` "routes back here" — for new design the
+  return path is via `rdbms-modeling` Stage 3, and now says so.
+
+Every remaining back-edge is conditional ("engine undecided", "needs redesigning, not patching",
+"outgrown SQLite").
+
+**Corrections caught in use**
+
+- The Korean comparison table still said the `int` runway was ~5 days after the English side had
+  been corrected to ~2.5 — the second time a numeric fix landed in only one language.
+- The review total said 267 while the listed rounds sum to 272.
+- The `rdbms-modeling` reference-file count said eleven; the skill owns ten
+  (`cost-evaluation.md` belongs to `db-select`).
+- The README claimed 16 hook-test cases after the suite had grown to 23.
+- Korean section copyedited out of translationese; English grammar fixes (subject inheritance,
+  pronoun references) without touching voice.
+
+**Guards** — `scripts/check-readme-bilingual.py`, run from the repo root
+
+- Fails when a factual number goes stale in one language or drifts from the repository: exhaustion
+  day counts, the review total vs. the round sequence beside it, the reference-file count and
+  filenames vs. `skills/*/references/` on disk, and the hook-test count vs.
+  `hooks/detect-db.test.sh`.
+- Filesystem checks that cannot run say `SKIPPED` out loud instead of passing silently — a check
+  that quietly degrades to `ok` is worse than no check.
+- Every guard was verified against the historical commit containing the bug it exists to catch.
+
 ## 0.4.0
 
 **Positioning:** this is a database plugin for vibe coders. New doc —

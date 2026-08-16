@@ -2,14 +2,14 @@
 name: rdbms-modeling
 description: >
   Design relational data models from business requirements in conceptual, logical, then physical
-  stages, with confirmation between stages; do not jump straight to DDL. Normalize to 3NF and
-  check BCNF, subtype IS-A validity, engine-specific foreign-key policy, and evidence for
+  stages, with confirmation between stages; do not jump straight to DDL. Normalize to 3NF
+  (through 1NF/2NF) and check BCNF, subtype IS-A validity, engine-specific foreign-key policy, and evidence for
   denormalization. Use for data, domain, conceptual, logical, physical, or ERD modeling; table or
   schema design from scratch; entities, relationships, cardinality, N:M and junction tables;
   functional dependencies, candidate, natural, surrogate, or composite keys; generalization,
-  subtype, role, status, or state modeling; EAV or duplicate tables; logical or physical FKs,
-  cascade, orphans, and soft delete; history, audit, temporal, event-sourcing, CDC, or
-  point-in-time models; partition and retention design; or migration SQL for a new feature.
+  subtype, single-table inheritance, discriminator, role, status, or state modeling; EAV or duplicate tables; logical or physical FKs,
+  cascade, orphans, and soft delete; history, audit, temporal (valid_from/valid_to),
+  event-sourcing, CDC, or point-in-time models; partition and retention design; or migration SQL for a new feature.
 ---
 
 # RDBMS Data Modeling

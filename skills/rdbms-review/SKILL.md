@@ -8,7 +8,7 @@ description: >
   subqueries, Index Merge, OR, and OFFSET; views and materialized views; partition pruning and
   retention; FKs, cascade, orphans, EAV, subtypes, and nullability; history, audit, temporal,
   event-sourcing, trigger, or procedure design; stale denormalized or aggregate data; deadlocks,
-  locks, bloat, VACUUM, pool exhaustion, and replica lag; RLS, GRANT, security; SQLite PRAGMA or
+  lock wait timeout, bloat, VACUUM, pool exhaustion or too many connections, and replica lag; RLS, GRANT, security; SQLite PRAGMA or
   STRICT tables; and safe deployment.
 ---
 

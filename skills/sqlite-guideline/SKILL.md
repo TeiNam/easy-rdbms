@@ -19,7 +19,8 @@ server engine.
 
 ## When to Activate
 
-- Designing or reviewing a schema stored in SQLite
+- Physical DDL or review for a schema stored in SQLite — **new table design still starts in
+  `rdbms-modeling`** (its Stage 3 routes here for SQLite targets)
 - A local tool, desktop/mobile app, or edge deployment needs persistence
 - `database is locked` / `SQLITE_BUSY` errors
 - Deciding whether the project has outgrown SQLite

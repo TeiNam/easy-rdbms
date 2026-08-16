@@ -3,7 +3,8 @@ name: db-select
 description: >
   Choose a database before schema design. Decide whether an RDBMS fits; compare MySQL,
   PostgreSQL, SQLite, NoSQL, and managed, serverless, or distributed options; select a topology
-  for the current scale and three-year TCO; then route to the engine guideline. Use for: which
+  for the current scale and three-year TCO; then hand off — new design through rdbms-modeling,
+  engine mechanics to the engine guideline. Use for: which
   database should I use, MySQL vs PostgreSQL, MongoDB or DynamoDB vs RDBMS, is Postgres enough,
   prototype database, SQLite in production, Aurora vs RDS or self-managed, Supabase, Neon,
   PlanetScale, CockroachDB, TiDB, sharding, read replicas, multi-tenant isolation, schema or

@@ -3,9 +3,9 @@ name: mysql-guideline
 description: >
   MySQL 8.0+ and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
   transactions, connections, security, migrations, and JDBC. Use for CREATE or ALTER TABLE,
-  utf8mb4, InnoDB, data types, UUID_TO_BIN, DATETIME or TIMESTAMP, JSON, PK choice, int vs bigint,
+  utf8mb4, InnoDB, data types, INET_ATON, UUID_TO_BIN, DATETIME or TIMESTAMP, JSON, UPSERT, PK choice, int vs bigint,
   AUTO_INCREMENT exhaustion, UNSIGNED, normalization, composite or covering indexes, FULLTEXT,
-  EXPLAIN and slow logs, subqueries or DEPENDENT SUBQUERY, semi-joins, Index Merge or OR,
+  EXPLAIN and slow logs, subqueries or DEPENDENT SUBQUERY, eq_range_index_dive_limit, semi-joins, Index Merge or OR,
   OFFSET, deferred join or keyset pagination, COUNT(*), stored procedures, SKIP LOCKED queues,
   deadlocks, replica lag and read-after-write, Aurora failover, AWS Advanced JDBC Wrapper,
   Connector/J, pool sizing, GRANT, my.cnf, RANGE partitioning, MariaDB differences, and IoT or

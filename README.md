@@ -1,6 +1,7 @@
 # Easy RDBMS
 
-![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
+![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
 
@@ -385,10 +386,10 @@ actually rejects the value it is supposed to.
 
 ### Review rounds
 
-Ten rounds — Claude self-review plus independent Codex passes — found and fixed **272 issues**.
-Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116.
+Eleven rounds — Claude self-review plus independent Codex passes — found and fixed **292 issues**.
+Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116 → 20.
 
-The last round was the largest, and not because the plugin got worse: it was the first round to run
+Round 10 was the largest, and not because the plugin got worse: it was the first round to run
 two Codex passes with **separate mandates** (engine facts; cross-file consistency and flow) instead of
 one general pass. A large share of what that round found had been introduced by the round before it.
 
@@ -398,6 +399,10 @@ found 32 issues there. Round 6 then found 31 — several of them **bugs introduc
 fixes** (an invalid Prisma comment, a naming rule accidentally reversed by a bulk rename, an
 invented CLI flag, async code left unwrapped). Reviewing the fixes turned out to matter as much as
 reviewing the original.
+
+Round 11 added 20 corrections around PK cutovers, concurrent backfills, FK policies, partition
+operations, naming, and hook discovery. `scripts/check-examples.py` runs the documented SQL and
+Django code against disposable databases, alongside metadata, SQLite, and sync checks.
 
 What that surfaced, by category:
 
@@ -422,11 +427,13 @@ Automated gates, all passing:
 ```bash
 sh hooks/detect-db.test.sh    # 26 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
                               # managed platforms / multi-engine confirmation / cwd and Git-root fallback
+python3 scripts/check-readme-bilingual.py
+python scripts/check-examples.py  # Docker and test dependencies required; see Development
 claude plugin validate .      # official manifest validation
 ```
 
-Plus per-commit checks that every Python example parses, every reference path resolves, no example
-contains an undefined name, and manifests and frontmatter are well-formed.
+The example suite also parses Python snippets, validates JSON manifests and skill frontmatter,
+and checks plugin-version agreement. Reference paths and example names are reviewed separately.
 
 ## Design decisions
 
@@ -472,6 +479,13 @@ The example check requires Docker and test dependencies in a virtual environment
 It starts isolated PostgreSQL 16 and MySQL 8.4 containers and removes them afterwards; it does not
 connect to an existing application database. It exercises post-cutover inserts, locked-row backfills,
 concurrent edits, DB alias selection, partition writes, constraints, and pagination plans.
+
+With `uv` installed, run the same checks in an isolated dependency environment from the repo root:
+
+```bash
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py
+```
 
 ## Changelog
 
@@ -696,6 +710,17 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 Docker와 가상환경에 설치한 `Django>=5.2,<5.3`, `psycopg[binary]>=3,<4`가 필요합니다.
 검사용 PostgreSQL 16·MySQL 8.4 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
 PK 교체 직후 INSERT, 잠긴 행의 backfill, 동시 수정, DB 별칭 선택, 파티션 쓰기, 제약과 실행계획을 검사합니다.
+같은 스크립트가 Python 예제 문법, 매니페스트·스킬 frontmatter·버전 일치, SQLite PK와 동기화
+스크립트도 검사합니다. 참조 경로와 예제의 이름 해석은 별도로 검토합니다.
+
+`uv`가 설치되어 있다면 저장소 루트에서 다음과 같이 의존성을 분리해 실행할 수 있습니다.
+
+```bash
+sh hooks/detect-db.test.sh
+python3 scripts/check-readme-bilingual.py
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py
+```
 
 **실제 서버에서 실행했습니다.** 스키마를 좌우하는 주장은 **MySQL 8.4.11** / **PostgreSQL 16.15**
 컨테이너와 로컬 **SQLite 3.51**에서 직접 돌려 확인했습니다.
@@ -717,12 +742,15 @@ PK 교체 직후 INSERT, 잠긴 행의 backfill, 동시 수정, DB 별칭 선택
 예제 DDL도 실행했습니다 — [비교 문서](docs/with-and-without.md)의 "플러그인과 함께" 스키마가
 PostgreSQL 16에서 그대로 생성되고, 안의 모든 `CHECK`가 실제로 막아야 할 값을 막습니다.
 
-Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 272건** 반영
-(33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116).
+Claude 자체 리뷰 + Codex 독립 리뷰 **11라운드, 292건** 반영
+(33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116 → 20).
 5라운드에서 이식 파일이라는 사각지대가 드러났고, 6라운드는 **5라운드 수정이 만든 버그**를 잡았습니다 —
-수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 마지막 라운드가 가장 컸던 이유는
+수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 10라운드가 가장 컸던 이유는
 플러그인이 나빠져서가 아니라, 처음으로 Codex 패스를 **별도 임무**(엔진 사실 / 파일 간 일관성·흐름)로
 나눠 돌렸기 때문입니다. 발견한 것의 상당수가 직전 라운드가 만든 것이었습니다.
+
+11라운드에서는 PK 교체·동시 백필·FK 정책·파티션 절차·명명 규칙·훅 탐색 등 20건을 고쳤습니다.
+문서 속 SQL·Django 예제를 직접 실행하는 회귀 검사를 추가해 수정된 절차를 다시 확인할 수 있습니다.
 
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.

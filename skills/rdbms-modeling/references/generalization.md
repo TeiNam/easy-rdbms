@@ -135,7 +135,7 @@ CREATE TABLE individual_customer (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Two integrity rules follow, with different enforceability:
+Three integrity rules follow, with different enforceability:
 
 1. **A subtype row exists only if its supertype row exists.** A physical FK can enforce this.
    Under a logical-FK policy it is application-carried with the four compensating controls.

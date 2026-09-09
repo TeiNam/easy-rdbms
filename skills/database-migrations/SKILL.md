@@ -139,60 +139,121 @@ And it is never one table. Every referencing column has to change in lockstep �
 policy those are plain columns with no catalog record, so they must be found by grep and migrated
 separately, and a signed/unsigned or `int`/`bigint` mismatch left behind silently degrades the join.
 
-The zero-downtime route is the expand-contract pattern above, applied to the key:
+The expand-contract route moves the long backfill and index build out of the final cutover.
+The cutover still needs a bounded lock window and a coordinated writer deployment:
 
 ```sql
--- 1. Add the wide column, nullable, no default (instant on both engines)
+-- 1. Add the wide column, nullable, no default (no rewrite on PostgreSQL; brief lock still required)
 --    PostgreSQL — no UNSIGNED exists here:
 ALTER TABLE log.chat_history ADD COLUMN chat_history_id_new bigint;
 --    MySQL:
 -- ALTER TABLE chat_history ADD COLUMN chat_history_id_new bigint unsigned NULL,
 --   ALGORITHM=INSTANT;
 
--- 2. DEPLOY dual writes: the app writes both columns. Must precede the backfill.
+-- 2. DEPLOY dual writes: both columns carry the SAME ID. Must precede the backfill.
 -- 3. Backfill in bounded batches (see "Large Data Migrations" below), monitoring replica lag
--- 4. SET NOT NULL on the new column, add a UNIQUE index on it, and verify:
---    counts match, no NULLs, no duplicates.
--- 5. Cutover -- and this step is NOT the same on both engines (see below).
--- 6. Migrate every referencing column to the wide type, then drop the old column.
+-- 4. SET NOT NULL on the new column, add uq_chat_history_id_new, and verify:
+--    equal IDs, no NULLs, no duplicates. PostgreSQL preparation is shown below.
+-- 5. Widen EVERY referencing column before IDs can exceed the old range.
+--    PostgreSQL: rebind physical FKs to the new UNIQUE key and validate before dropping the old PK.
+--    MySQL: prepare the wide references and record every FK definition for the write-pause plan below.
+-- 6. Drain writers and switch their column mapping with the engine-specific cutover below.
+--    Afterwards writers use only the new PK; no reader or FK may depend on the old column.
+-- 7. Remove the old column in a later contract migration.
 ```
 
-**Step 5 differs by engine, and "swap it in one transaction" is only true on one of them.**
+**Cutover differs by engine, and "swap it in one transaction" is only true on one of them.**
 
-*PostgreSQL* — DDL is transactional, so the cutover really is atomic:
+*PostgreSQL, non-partitioned table* — prepare the new key while dual writes still maintain it.
+Run the concurrent index build outside a transaction wrapper. The validated CHECK avoids a
+full-table scan during `SET NOT NULL`.
+
+```sql
+ALTER TABLE log.chat_history ADD CONSTRAINT chk_chat_history_id_new_not_null
+  CHECK (chat_history_id_new IS NOT NULL) NOT VALID;
+ALTER TABLE log.chat_history VALIDATE CONSTRAINT chk_chat_history_id_new_not_null;
+ALTER TABLE log.chat_history ALTER COLUMN chat_history_id_new SET NOT NULL;
+ALTER TABLE log.chat_history DROP CONSTRAINT chk_chat_history_id_new_not_null;
+CREATE UNIQUE INDEX CONCURRENTLY uq_chat_history_id_new
+  ON log.chat_history (chat_history_id_new);
+```
+
+For each physical FK, add its replacement referencing `chat_history_id_new`, validate it, then
+remove the old FK; use the version/partition rules in
+`rdbms-modeling/references/foreign-keys.md`. Do this **before** the cutover, never with
+`DROP ... CASCADE`. Once old readers and writers are drained, the following DDL is atomic.
+Deploy the new writer mapping before resuming writes. The old column becomes nullable because
+new INSERTs no longer populate it.
 
 ```sql
 BEGIN;
+SET LOCAL lock_timeout = '5s';
 ALTER TABLE log.chat_history DROP CONSTRAINT pk_chat_history;
 ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP IDENTITY IF EXISTS;
+ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP DEFAULT;
+ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP NOT NULL;
 ALTER TABLE log.chat_history RENAME COLUMN chat_history_id TO chat_history_id_old;
 ALTER TABLE log.chat_history RENAME COLUMN chat_history_id_new TO chat_history_id;
-ALTER TABLE log.chat_history ADD CONSTRAINT pk_chat_history PRIMARY KEY (chat_history_id);
--- Identity/sequence ownership moves too, or nothing generates the next value:
+ALTER TABLE log.chat_history
+  ADD CONSTRAINT pk_chat_history PRIMARY KEY USING INDEX uq_chat_history_id_new;
+-- New inserts generate the wide ID; the empty-table case must start at 1 too.
 ALTER TABLE log.chat_history
   ALTER COLUMN chat_history_id ADD GENERATED ALWAYS AS IDENTITY;
 SELECT setval(pg_get_serial_sequence('log.chat_history', 'chat_history_id'),
-              (SELECT max(chat_history_id) FROM log.chat_history));
+              COALESCE(max(chat_history_id), 1), max(chat_history_id) IS NOT NULL)
+FROM log.chat_history;
 COMMIT;
 ```
 
-*MySQL* — **DDL cannot be wrapped in a transaction.** Each `ALTER` commits, so there is no atomic
-swap: put every change in **one** `ALTER TABLE` statement so the table is never in a half-swapped
-state, and accept that the statement itself is the outage window.
+Verify the first INSERT after cutover, the FK targets, and that only the new PK index remains.
+Partitioned parents do not support this `PRIMARY KEY USING INDEX` procedure on the PostgreSQL 16
+baseline; their unique key must also include the partition key. Plan and test that rollout
+separately instead of copying this block.
+
+*MySQL* — **DDL cannot be wrapped in a transaction.** Put the parent-column changes in **one**
+`ALTER TABLE` so that table is never in a half-swapped state. Plan a write pause for the rebuild.
+The full rollout with physical FKs spans multiple committed statements.
+
+**For this COPY cutover, temporarily remove physical FKs that involve the renamed columns.**
+MySQL rejects renaming an FK column under `ALGORITHM=COPY`; simply switching this entire ALTER to
+`INPLACE` also fails on the tested 8.4 table. Record the definitions, stop **all** writers first,
+then drop the affected FKs. For example, if the prepared wide child is
+`chat_reference.parent_id bigint unsigned`:
 
 ```sql
--- One statement: drop the old PK, retype/rename, and re-establish AUTO_INCREMENT together.
--- ALGORITHM=COPY is implied; there is no in-place path. Take the write pause deliberately,
--- or run the cutover through gh-ost / pt-online-schema-change instead.
-ALTER TABLE chat_history
-  DROP PRIMARY KEY,
-  CHANGE chat_history_id chat_history_id_old bigint unsigned NOT NULL,
-  CHANGE chat_history_id_new chat_history_id bigint unsigned NOT NULL AUTO_INCREMENT,
-  ADD PRIMARY KEY (chat_history_id);
+-- Only when this physical FK exists; all writers remain paused until it is restored below.
+ALTER TABLE chat_reference DROP FOREIGN KEY fk_chat_reference_history;
 ```
 
+```sql
+-- Preparation included a UNIQUE index named uq_chat_history_id_new on the new column.
+-- Old key here is int unsigned. Wide references are ready; affected physical FKs are removed.
+-- This example explicitly chooses COPY and a maintenance window.
+ALTER TABLE chat_history
+  DROP PRIMARY KEY,
+  CHANGE chat_history_id chat_history_id_old int unsigned NULL,
+  CHANGE chat_history_id_new chat_history_id bigint unsigned NOT NULL AUTO_INCREMENT,
+  DROP INDEX uq_chat_history_id_new,
+  ADD PRIMARY KEY (chat_history_id),
+  ALGORITHM=COPY;
+```
+
+Before resuming writes, recreate and validate every recorded FK against the new wide key.
+Keep `foreign_key_checks=1` so the add actually checks existing data:
+
+```sql
+ALTER TABLE chat_reference ADD CONSTRAINT fk_chat_reference_history
+  FOREIGN KEY (parent_id) REFERENCES chat_history (chat_history_id);
+```
+
+If any step fails, keep writers paused and repair the rollout; a partially restored FK set is not
+completion. Logical-FK tables skip these FK DDL steps but still need every writer and child type
+switched before accepting IDs outside the old range.
+
 An `AUTO_INCREMENT` column must be indexed as a key, which is why the `ADD PRIMARY KEY` has to be in
-the same statement — split it and MySQL rejects the intermediate state.
+the same statement — split it and MySQL rejects the intermediate state. Test the first INSERT here
+too. For an online-tool alternative, verify `gh-ost` / `pt-online-schema-change` support for the
+actual table, FK topology, and ALTER before choosing it.
 
 Expect weeks, with application deploys in the middle. **Do not start this without first confirming
 the target table is not still accumulating rows faster than the backfill drains** — on a hot
@@ -220,6 +281,7 @@ ALTER TABLE purchase_order DROP COLUMN legacy_status;
 UPDATE member SET normalized_email = LOWER(email);
 
 -- GOOD: Batch update with progress
+-- Precondition: email is NOT NULL; deployed writers maintain normalized_email on new/changed rows.
 -- CAUTION: a DO block cannot COMMIT between batches when the migration runner wraps it
 -- in a transaction — then it is one giant transaction wearing a loop. Run it outside a
 -- transaction (psql, or the runner's no-transaction mode), or batch from application code.
@@ -239,7 +301,13 @@ BEGIN
     );
     GET DIAGNOSTICS rows_updated = ROW_COUNT;
     RAISE NOTICE 'Updated % rows', rows_updated;
-    EXIT WHEN rows_updated = 0;
+    IF rows_updated = 0 THEN
+      -- SKIP LOCKED can return an empty batch while another writer owns unfinished rows.
+      IF EXISTS (SELECT 1 FROM member WHERE normalized_email IS NULL) THEN
+        RAISE EXCEPTION 'Backfill incomplete: unprocessed rows remain; retry after active writers finish';
+      END IF;
+      EXIT;
+    END IF;
     COMMIT;
   END LOOP;
 END $$;
@@ -466,23 +534,28 @@ python manage.py makemigrations --empty app_name -n description
 
 `atomic = False` is what makes the batching real — without it Django wraps the whole `RunPython`
 in one transaction and the loop becomes a single giant transaction wearing a loop.
+This example assumes non-empty, non-null `username` values and writers that populate `display_name`.
+Use the schema editor's DB alias for every operation. Recheck the empty-value predicate in the
+UPDATE and read `username` there, so a concurrent user edit is not overwritten by a stale object.
 
 ```python
 from django.db import migrations, transaction
+from django.db.models import F
 
 def backfill_display_names(apps, schema_editor):
     Member = apps.get_model("accounts", "Member")
+    alias = schema_editor.connection.alias
+    members = Member.objects.using(alias)
     batch_size = 5000
     while True:
-        with transaction.atomic():          # one committed transaction per batch
-            batch = list(
-                Member.objects.filter(display_name="").only("pk", "username")[:batch_size]
+        with transaction.atomic(using=alias):  # one committed transaction per batch
+            ids = list(
+                members.filter(display_name="").order_by("pk")
+                .values_list("pk", flat=True)[:batch_size]
             )
-            if not batch:
+            if not ids:
                 break
-            for member in batch:
-                member.display_name = member.username
-            Member.objects.bulk_update(batch, ["display_name"], batch_size=batch_size)
+            members.filter(pk__in=ids, display_name="").update(display_name=F("username"))
 
 def reverse_backfill(apps, schema_editor):
     pass  # data migration — nothing to reverse

@@ -10,8 +10,17 @@ set -u
 # Some harnesses pipe hook payload on stdin; drain it so we never block.
 [ -t 0 ] || cat >/dev/null 2>&1 || true
 
-ROOT=${CLAUDE_PROJECT_DIR:-.}
-cd "$ROOT" 2>/dev/null || exit 0
+# Explicit project paths stay scoped to that directory. Otherwise inspect the cwd and
+# its ancestors through the Git root, so both root manifests and monorepo modules work.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
+  ROOT=$(pwd -P)
+else
+  ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+  ROOT=$(cd "$ROOT" 2>/dev/null && pwd -P) || exit 0
+  # A foreign GIT_WORK_TREE must not make us walk outside the cwd's repository.
+  case "$(pwd -P)/" in "$ROOT/"*) ;; *) ROOT=$(pwd -P) ;; esac
+fi
 
 # Files worth reading. Missing ones are skipped silently.
 FILES="docker-compose.yml docker-compose.yaml compose.yml compose.yaml
@@ -20,14 +29,19 @@ alembic.ini flyway.conf flyway.toml liquibase.properties
 prisma/schema.prisma knexfile.js knexfile.ts ormconfig.json
 package.json requirements.txt pyproject.toml Cargo.toml go.mod"
 
-EXISTING=""
-for f in $FILES; do
-  [ -f "$f" ] && EXISTING="$EXISTING $f"
-done
-[ -n "$EXISTING" ] || exit 0
-
-# shellcheck disable=SC2086
-HAYSTACK=$(cat $EXISTING 2>/dev/null) || exit 0
+HAYSTACK=$(
+  while :; do
+    for f in $FILES; do
+      if [ -f "$f" ]; then
+        cat "$f" 2>/dev/null
+        printf '\n'
+      fi
+    done
+    [ "$(pwd -P)" = "$ROOT" ] && break
+    cd .. 2>/dev/null || break
+  done
+)
+[ -n "$HAYSTACK" ] || exit 0
 
 FOUND=""
 

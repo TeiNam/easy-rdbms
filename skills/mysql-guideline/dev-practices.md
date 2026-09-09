@@ -194,45 +194,15 @@ complicates FK references (multiple columns required), and introduces performanc
 column order dependencies. **Use single surrogate key (`AUTO_INCREMENT`) as PK**, express
 composite uniqueness via UNIQUE constraint/index.
 
-### 5.4 Physical FK Constraints — Do Not Create Them
+### 5.4 Foreign Keys — Establish Project Policy First
 
-**Physical `FOREIGN KEY` constraints do not go into the physical model.** Referential integrity
-is managed at the application layer, with the relationship documented via `COMMENT` (see
-Application-Level Referential Integrity in `schema-design.md`).
+MySQL examples default to logical FKs for operational flexibility. That is a plugin policy, not
+an InnoDB-wide prohibition; existing physical FKs are not defects merely for existing.
+`rdbms-modeling/references/foreign-keys.md` owns the costs, project overrides, partition restrictions,
+and four compensating controls. Measure before recommending removal.
 
-Why this is a hard rule rather than a preference:
-
-| Cost | What actually happens |
-|---|---|
-| **Extra internal I/O on every write** | Each `INSERT`/`UPDATE` on the child does a parent index lookup the query never asked for. Each parent `UPDATE`/`DELETE` scans children. The I/O is invisible in the SQL and unattributable in slow-query analysis |
-| **Lock contention and deadlocks** | FK checks take shared locks on the parent row. Child writes are mutually compatible, but any update/delete of a hot parent's key (a tenant, a category, a config row) blocks — and is blocked by — every in-flight child write. These locks do not appear where engineers look, so the stalls are hard to diagnose |
-| **Cascades have unbounded scope** | `ON DELETE CASCADE` turns one statement into an arbitrarily large transaction — long undo history, replication lag, a row lock per affected child |
-| **Blocks partitioning outright** | InnoDB **cannot** have foreign keys on a partitioned table, in either direction. Since log and history tables are the usual partitioning candidates, an FK today is a blocked partition tomorrow |
-| **Breaks online schema change** | `pt-online-schema-change` and `gh-ost` need special handling for FKs, and some paths are unsupported. Routine maintenance turns into a downtime negotiation |
-| **Bulk and recovery operations need FK checks disabled** | Loads, backfills, and data repairs run with checks off — which means the guarantee was not there during exactly the operations most likely to corrupt data |
-
-The trade-off is real and must be paid for, not ignored: **without a physical FK, orphan rows
-are possible.** Every logical FK therefore requires all four:
-
-1. The reference documented in a `COMMENT` (`logical FK: parent_table.parent_column`)
-2. An index on the referencing column — still needed for joins and for parent-side lookups
-3. Application-level validation on the write path, with the **owner named** (which service or
-   module guarantees it)
-4. A periodic orphan check, so violations surface instead of accumulating silently
-
-```sql
--- Orphan detection — schedule this per logical FK
-SELECT c.chat_history_id
-FROM chat_history c
-LEFT JOIN member u ON u.member_id = c.member_id
-WHERE u.member_id IS NULL
-LIMIT 100;
-```
-
-If multiple writers exist (batch, admin tools, external integrations) the integrity owner must
-be a shared layer — a service or stored routine all of them go through — not one application's
-validation logic. If that layer cannot exist, say so explicitly in the design rather than
-quietly relying on a constraint this policy forbids.
+For logical FKs, use the write-path and orphan-query examples in `schema-design.md`. The integrity
+owner must cover every writer and the parent delete/key-update paths as well as child insertion.
 
 ### 5.5 JSON Column Overuse
 
@@ -265,5 +235,5 @@ If you must use JSON (mitigations):
 - [ ] PK is `AUTO_INCREMENT` + **`UNSIGNED`**, width by growth class — `int unsigned` for a bounded
       entity table (record what bounds it), **`bigint unsigned` for an event/log table** (avoid random v4;
       distributed → app UUID v7 BINARY(16); avoid composite PK)
-- [ ] FK: **no physical `FOREIGN KEY` constraints.** Logical FK documented in `COMMENT`, referencing
-      column indexed, integrity owner named, orphan check scheduled
+- [ ] FK choice follows project policy and `rdbms-modeling/references/foreign-keys.md`;
+      every logical FK has its COMMENT, index, integrity owner, and orphan check

@@ -22,7 +22,21 @@ check() {
     printf '%s\n' "$body" >"$tmp/$f"
   done
 
-  out=$(CLAUDE_PROJECT_DIR="$tmp" sh "$SCRIPT" </dev/null 2>&1) || {
+  out=$(
+    if [ "${MODE:-explicit}" = "git-subdir" ]; then
+      git -C "$tmp" init -q || exit 1
+      mkdir -p "$tmp/src/nested"
+      cd "$tmp/src/nested" || exit 1
+      unset CLAUDE_PROJECT_DIR
+    elif [ "${MODE:-explicit}" = "cwd" ]; then
+      cd "$tmp" || exit 1
+      unset CLAUDE_PROJECT_DIR
+    else
+      CLAUDE_PROJECT_DIR="$tmp"
+      export CLAUDE_PROJECT_DIR
+    fi
+    sh "$SCRIPT" </dev/null 2>&1
+  ) || {
     echo "FAIL $name — script exited non-zero"
     FAIL=$((FAIL + 1))
     rm -rf "$tmp"
@@ -135,6 +149,18 @@ check "mariadb demands confirmation" "ask which one" \
   "docker-compose.yml:services:
   db:
     image: mariadb:11"
+
+MODE=git-subdir
+check "codex from nested git directory without CLAUDE_PROJECT_DIR" "PostgreSQL" \
+  "package.json:{\"dependencies\":{\"pg\":\"8\"}}"
+
+check "codex finds a component manifest between cwd and git root" "MySQL" \
+  "src/package.json:{\"dependencies\":{\"mysql2\":\"3\"}}"
+
+MODE=cwd
+check "non-git cwd without CLAUDE_PROJECT_DIR" "SQLite" \
+  "requirements.txt:aiosqlite==0.20.0"
+unset MODE
 
 echo "---"
 echo "passed: $PASS  failed: $FAIL"

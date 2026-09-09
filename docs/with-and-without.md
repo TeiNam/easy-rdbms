@@ -108,6 +108,7 @@ CREATE TABLE app.member (
 CREATE TABLE app.member_setting (
   member_id    int NOT NULL,
   setting_data jsonb NOT NULL DEFAULT '{}',
+  created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_member_setting PRIMARY KEY (member_id),
   CONSTRAINT fk_member_setting_member FOREIGN KEY (member_id)
@@ -119,6 +120,7 @@ CREATE TABLE app.conversation (
   member_id       int NOT NULL,           -- same type as the parent PK, always
   title           text,
   created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_conversation PRIMARY KEY (conversation_id),
   CONSTRAINT fk_conversation_member FOREIGN KEY (member_id)
     REFERENCES app.member (member_id)
@@ -143,14 +145,23 @@ CREATE TABLE log.message (
   CONSTRAINT chk_message_token_count CHECK (token_count >= 0)
 ) PARTITION BY RANGE (created_at);
 
--- A partitioned parent holds no rows. Create the current period before the first insert,
--- and alert on the creation job -- a stalled one looks fine until every recent row is
--- sitting in a single unpruned partition.
+-- Dated example bounds: create the current period and pre-create 2–3 future periods in production.
+-- DEFAULT also accepts older backfills and future rows if the creation job falls behind.
 CREATE TABLE log.message_2026m08 PARTITION OF log.message
   FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+CREATE TABLE log.message_2026m09 PARTITION OF log.message
+  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+CREATE TABLE log.message_2026m10 PARTITION OF log.message
+  FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+CREATE TABLE log.message_2026m11 PARTITION OF log.message
+  FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
+CREATE TABLE log.message_default PARTITION OF log.message DEFAULT;
+-- Alert on rows in message_default and move them using postgres-guideline/partitioning.md.
 
 CREATE INDEX idx_message_conversation_created
   ON log.message (conversation_id, created_at DESC);
+COMMENT ON COLUMN log.message.conversation_id IS
+  'logical FK: app.conversation.conversation_id; integrity owner: chat-service ChatWriter; orphan check: daily';
 
 -- Metering: money is numeric, never float. Precision sized to the currency and use.
 CREATE TABLE app.member_monthly_usage (
@@ -158,20 +169,34 @@ CREATE TABLE app.member_monthly_usage (
   usage_month  date NOT NULL,             -- a real date, not VARCHAR(7)
   total_tokens bigint NOT NULL DEFAULT 0,
   cost_amount  numeric(19,6) NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT pk_member_monthly_usage PRIMARY KEY (member_id, usage_month),
   CONSTRAINT chk_member_monthly_usage_month CHECK (usage_month = date_trunc('month', usage_month)::date),
   CONSTRAINT chk_member_monthly_usage_tokens CHECK (total_tokens >= 0)
 );
+COMMENT ON COLUMN app.member_monthly_usage.member_id IS
+  'logical FK: app.member.member_id; integrity owner: billing-service UsageWriter; orphan check: daily';
+-- The composite PK already indexes this logical reference; do not add another member_id index.
+
+-- Wire these checks into the stated schedule. The named owners must cover every child writer
+-- and parent delete/key-update path; a COMMENT alone does not enforce the reference.
+SELECT m.message_id, m.created_at
+FROM log.message m LEFT JOIN app.conversation c ON c.conversation_id = m.conversation_id
+WHERE c.conversation_id IS NULL LIMIT 100;
+SELECT u.member_id, u.usage_month
+FROM app.member_monthly_usage u LEFT JOIN app.member m ON m.member_id = u.member_id
+WHERE m.member_id IS NULL LIMIT 100;
 ```
 
 Longer, and it asked more questions on the way. That is the trade.
 
 Note the split on foreign keys: `conversation` and `member_setting` get real `FOREIGN KEY`
 constraints, `message` does not. That is the plugin's engine-split policy, not inconsistency —
-PostgreSQL FKs are allowed when a set of conditions holds, and a high-rate partitioned event
-table fails them. On MySQL the same design would carry no physical FK at all, and every
-referencing column would need its index declared explicitly.
+PostgreSQL FKs are allowed when a set of conditions holds; partitioning alone does not disqualify
+them. This example chooses a logical FK for the event path, a choice that needs measured write/lock
+costs in a real deployment. MySQL examples default to logical FKs, but established project policy
+can keep physical FKs on non-partitioned tables. Every logical reference needs an explicit index.
 
 ---
 
@@ -183,7 +208,7 @@ Sorted by how expensive the fix gets, not by how clever the point is.
 |---|---|---|---|---|
 | 1 | `messages.id SERIAL` (`int`, 2.1B ceiling) | Rows are rate × time with no cap. PostgreSQL `integer` is **signed** — a 2.1B ceiling — so at 10k messages/s the range is gone in **~2.5 days**; even at a modest 100/s, ~8 months. (MySQL's `int unsigned` doubles that to ~5 days.) Retention does not help — a sequence never reuses values, so deleting old rows frees storage but **not ID range** | The busiest table, at the worst moment | **Weeks.** Full table rewrite under `ACCESS EXCLUSIVE`, every index rebuilt, every referencing column migrated in lockstep, application deploys in the middle |
 | 2 | `users` as a table name | `user` is reserved in PostgreSQL; the plural also breaks the singular convention. Every hand-written query and every migration carries the inconsistency | Immediately, then forever | **Days, spread over months.** A rename touches every query, ORM model, migration, and dashboard |
-| 3 | `ON DELETE CASCADE` from `users` to `messages` | Deleting one account walks the largest table in the database inside a single transaction. Meanwhile, a physical FK on a hot parent takes a shared lock on the parent row — unrelated writes to that member queue behind it | First GDPR deletion request, or the first popular account | **Hours of incident**, then a redesign of the deletion path |
+| 3 | `ON DELETE CASCADE` from `users` to `messages` | Deleting one account walks the largest table in the database inside a single transaction. Child FK checks take parent key-share locks on PostgreSQL; parent-key updates and deletes conflict with them, while sibling checks and ordinary non-key updates remain compatible | First GDPR deletion request, or the first popular account | **Hours of incident**, then a redesign of the deletion path |
 | 4 | `cost FLOAT` | Binary floating point cannot represent `0.1`. Per-call rounding error accumulates across millions of rows until the invoice and the ledger disagree | First reconciliation | **Painful.** Recomputing historical billing from logs, if the logs are even sufficient |
 | 5 | `TIMESTAMP` without time zone | Stores wall-clock with no offset. The first non-UTC deployment, DST boundary, or cross-region replica produces silently wrong ordering and windowing | First timezone that is not the developer's | **Full column migration** plus an audit of which existing values meant what |
 | 6 | `month VARCHAR(7)` | `'2026-9'` and `'2026-09'` both insert. Range queries do string comparison. No date arithmetic | First aggregation bug nobody can reproduce | Data cleanup with no reliable source of truth |

@@ -37,7 +37,7 @@ rules, abbreviation dictionary, column prefix/suffix system, case-folding, 63-ch
 - Tables/Columns: lowercase snake_case, tables in singular form (e.g. `member`, `member_chat_setting`, `member_id`)
 - Time columns: past-participle standard `created_at` / `updated_at` / `deleted_at` (the old active-voice
   `create_date` rule is retired)
-- Boolean: `is_`/`has_` prefix + `TINYINT(1)` 0/1 (not the old `use_yn` CHAR(1) 'Y'/'N')
+- Boolean: `is_`/`has_` prefix + `tinyint unsigned` and a named 0/1 CHECK (see the type table)
 - Constraints/Indexes: **lowercase prefix** (uppercase suffix `_IDX` breaks PostgreSQL case-folding)
   - `pk_<table>` · `fk_<child>_<parent>` · `uq_<table>_<col>` · `chk_<table>_<rule>` · `idx_<table>_<col>` · `fts_<table>_<col>`
   - Examples: `idx_book_like_member_id`, `uq_member_email`, `fts_book_name`
@@ -186,8 +186,8 @@ Two things to keep straight:
 - `dev-practices.md` — Development principles and anti-patterns: normalization + denormalization criteria,
   minimal types, `UNSIGNED` range benefit and the signed/unsigned mixing traps, VARCHAR char-semantics, INET_ATON/INET6_ATON/UUID_TO_BIN, DATETIME vs TIMESTAMP (Y2038),
   session-local SP cache, index anti-patterns, COUNT(*) MVCC reason, random PK (UUID v7), composite PK,
-  no physical FK (extra write I/O, parent-row lock contention, blocks partitioning and online DDL —
-  with the four compensating controls required instead), JSON (multi-valued index)
+  FK project policy and logical-FK controls (full criteria in
+  `rdbms-modeling/references/foreign-keys.md`), JSON (multi-valued index)
 - `jdbc-driver.md` — Java driver selection (2026-07): AWS Advanced JDBC Wrapper (top choice) vs Connector/J
   9.x; MariaDB Connector/J Aurora EOL, Aurora JDBC Driver EOL; failover tuning
 - `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 Innovation; production = LTS

@@ -70,8 +70,7 @@ MySQL/PostgreSQL type checking; a `CHECK` is still what enforces a real domain.
 
 ```sql
 CREATE TABLE member (
-  member_id   INTEGER PRIMARY KEY,          -- the rowid; naming a PK constraint is the one
-                                            -- place SQLite differs, see Identifiers below
+  member_id   INTEGER CONSTRAINT pk_member PRIMARY KEY,  -- named PK, still the rowid alias
   email       TEXT NOT NULL,
   is_active   INTEGER NOT NULL DEFAULT 1,
   balance_cents INTEGER NOT NULL DEFAULT 0,
@@ -98,15 +97,15 @@ lowercase index prefixes).
 
 ## Identifiers
 
-> **Naming note:** `pk_<table>` does not apply to the rowid alias — `INTEGER PRIMARY KEY` has to be
-> written inline to *be* the rowid, and wrapping it in `CONSTRAINT pk_member PRIMARY KEY (member_id)`
-> makes it an ordinary key instead. `uq_`/`chk_`/`idx_` names work normally. (MySQL has the same kind
-> of exception for a different reason: its PK index is always named `PRIMARY`.)
+> **Naming note:** `pk_<table>` works on SQLite too. Both an inline named constraint and
+> `member_id INTEGER, CONSTRAINT pk_member PRIMARY KEY (member_id)` retain the rowid alias.
+> Naming the constraint or moving it to table level does not change the INTEGER key's storage.
 
 **In a rowid table, `INTEGER PRIMARY KEY` *is* the rowid** — the table's actual storage key, fast and
 auto-assigned, and always 64-bit, which is why the int-vs-bigint sizing problem does not exist here.
-This is the default surrogate PK. Two qualifications: the alias needs exactly that spelling (the
-historical `INTEGER PRIMARY KEY DESC` is not the rowid), and a **`WITHOUT ROWID` table has no rowid**,
+This is the default surrogate PK. The column's declared type must be exactly `INTEGER`, with a
+single-column PK; `INT PRIMARY KEY` is not an alias. The historical inline
+`INTEGER PRIMARY KEY DESC` spelling is another exception. A **`WITHOUT ROWID` table has no rowid**,
 so there an integer primary key is an ordinary key column.
 
 - **`AUTOINCREMENT` is almost always unnecessary** — its guarantee is that a generated rowid is
@@ -136,9 +135,8 @@ write, but writers still serialize. Design for it:
 
 ## Foreign Keys — Physical FKs Are Fine Here
 
-The MySQL prohibition (see `rdbms-modeling/references/foreign-keys.md`) rests on costs SQLite
-does not have: there is no partitioning to block, no parent-row lock contention (one writer),
-and no online-DDL tooling to break. **Declare physical FKs** — with two rules:
+SQLite has no partitioning to block, no concurrent parent-row writers (one writer), and no online-DDL
+tooling to break. **Declare physical FKs** — with two rules:
 
 1. `PRAGMA foreign_keys = ON` on **every connection**, verified in code review — otherwise the
    constraints are decorative.

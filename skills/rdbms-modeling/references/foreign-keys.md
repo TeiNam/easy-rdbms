@@ -1,13 +1,15 @@
 # Foreign Keys — Engine-Split Policy
 
-The *meaning* of a foreign key is the same on both engines. The implementation and operational
-behaviour are not, and the difference is large enough that the policy splits by engine.
+The *meaning* of a foreign key is the same on both engines. Implementation and operational costs
+differ. **Read the project's established FK policy first.** The MySQL logical-FK default below is
+a plugin policy for operational flexibility, not a claim that InnoDB cannot enforce references.
+Do not remove a working FK merely because the engine is MySQL.
 
 | | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
-| **Physical `FOREIGN KEY`** | **Not created** | **Allowed by default — created when the conditions below are met** |
-| Referential integrity owner | Application | The database, once the constraint is valid |
-| Referencing-column index | **Mandatory, by hand** | **Created unless an existing index already leads with the column** |
+| **Physical `FOREIGN KEY`** | Logical by default; project policy may use physical FKs on non-partitioned tables | **Allowed by default — created when the conditions below are met** |
+| Referential integrity owner | Application for logical FKs; database for physical FKs | The database, once the constraint is valid |
+| Referencing-column index | Verify it; create by hand for logical FKs | **Created unless an existing index already leads with the column** |
 
 ## Engine Differences That Drive the Split
 
@@ -16,18 +18,21 @@ behaviour are not, and the difference is large enough that the policy splits by 
 | **Child (referencing) index** | Auto-created by the FK if no index leads with that column | **Never auto-created** |
 | **Parent (referenced) target** | Historically permitted a non-unique index; deprecated | **PK or UNIQUE only** |
 | **Check timing** | Immediate | Immediate, or deferrable to end of transaction |
-| **Adding an FK to a large table** | Validates immediately — needs a window | `NOT VALID`, then `VALIDATE CONSTRAINT` as a separate step |
+| **Adding an FK to a large table** | Validates immediately — budget the scan and locks | Non-partitioned referencing table: `NOT VALID`, then `VALIDATE CONSTRAINT`; partition/version exception below |
 | **`NO ACTION` vs `RESTRICT`** | Effectively identical; both check immediately | `NO ACTION` can defer to end of transaction; `RESTRICT` blocks immediately |
 | **Partitioned tables** | InnoDB **cannot** have an FK on a partitioned table, either direction | Supported (referencing a partitioned table from PG 12+); `ATTACH PARTITION` validates, taking stronger locks |
 
-The operational rows (write I/O, parent-row locks, online-DDL tooling) justify the MySQL policy on
-their own; the partitioning row seals it — log and history tables are the usual partitioning
-candidates, and on InnoDB an FK today is a blocked partition tomorrow.
+Use measured lock contention, the chosen schema-change tool, and an actual partitioning requirement
+to justify a logical FK. A possible future partition is not enough reason to remove current
+integrity protection.
 
-## MySQL / InnoDB — Logical FK Only
+## MySQL / InnoDB — Logical FK Default and Project Overrides
 
-**Do not create `FOREIGN KEY` constraints.** Referential integrity is owned by the application and
-the relationship is documented in a `COMMENT`.
+The examples use logical FKs: referential integrity is owned by the application and the relationship
+is documented in a `COMMENT`. Where project policy uses physical FKs, keep both tables
+non-partitioned, reference a PK/UNIQUE target with matching types, verify the child index, bound
+cascades, and plan validated additions within the lock budget. Do not disable `foreign_key_checks`
+and assume re-enabling it validates existing rows.
 
 Why, beyond partitioning: an FK adds a parent-index lookup to every child write that the statement
 never shows and slow-query analysis cannot attribute; FK checks take shared locks on the parent row —
@@ -43,8 +48,8 @@ InnoDB auto-creates a child index **when the FK is created** (if none leads with
 **Dropping the FK does not drop that index** — it remains, but under an auto-generated name that
 reads like leftovers, and the next "unused index cleanup" is likely to remove it.
 
-So on MySQL the referencing-column index is **deliberate and manual**: under this policy no FK ever
-creates one for you, and on an inherited schema, after dropping an FK, run `SHOW INDEX` and keep or
+For a logical FK the referencing-column index is **deliberate and manual**: no constraint creates
+one for you. On an inherited schema, after dropping an FK, run `SHOW INDEX` and keep or
 rename the auto-created index explicitly. An unindexed child column means a full scan of the child
 table on every parent-side lookup and join.
 
@@ -76,26 +81,15 @@ LIMIT 100;
 If several writers exist (batch, admin tooling, external integrations), the integrity owner must be
 a shared layer they all pass through — not one application's validation code.
 
-**If no such layer can exist, the design is not finishable as specified — pick one of these rather
-than stalling or quietly adding the constraint back:**
-
-1. **Consolidate the writers** behind one service, stored routine, or gateway that owns the check.
-   This is the intended answer; the others are what you do when it is genuinely blocked.
-2. **Change the relationship** so integrity is structural instead of enforced — merge the child into
-   the parent, or make the reference nullable and treat orphans as a valid state with defined
-   semantics.
-3. **Change the engine for this table.** The prohibition is InnoDB-specific; on PostgreSQL a physical
-   FK is allowed through the six conditions below, and on SQLite it is allowed outright.
-4. **Escalate the conflict explicitly** — state in the physical design that referential integrity is
-   unowned, name the tables and the detection query that substitutes for it, and get that accepted as
-   a known risk. Do this only as a last resort, and never silently.
+If no shared integrity owner can exist, prefer a physical FK where the table and project policy
+permit it, or consolidate the writers. If partitioning or another concrete requirement prevents
+both, resolve the ownership/model conflict explicitly. An orphan detector finds violations after
+they happen; it is not a substitute for enforcing an invariant that must always hold.
 
 ## PostgreSQL — Allowed by Default, Created When Conditions Are Met
 
-PostgreSQL stores rows in a heap, has no clustering-index penalty, supports FKs on partitioned
-tables, and can add a constraint to a large table without a long exclusive validation. The costs
-that make FKs untenable on InnoDB are materially smaller here, so **the default posture is to allow
-them.**
+PostgreSQL supports FKs on partitioned tables and staged validation on non-partitioned referencing
+tables. **The default posture is to allow physical FKs**, while measuring their write and lock costs.
 
 "Allowed by default" is not "always create". Create the constraint when **all** of these hold —
 each is a gate, and a failing gate means either fix it first or fall back to a logical FK with the
@@ -108,7 +102,13 @@ four compensating controls.
 | 3 | No **redundant** index introduced | Reuse the existing leading-column index; do not add a duplicate |
 | 4 | If `CASCADE`: the child's **lifecycle is genuinely dependent** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
 | 5 | `NOT DEFERRABLE` unless a **circular reference must resolve inside one transaction** | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if you use them |
-| 6 | On an **already-populated production table**: added `NOT VALID`, then `VALIDATE CONSTRAINT` separately | **Default to the two-step for anything already carrying production rows.** Single-step is acceptable only when you have timed the validation scan on production-sized data and it fits your stated lock budget — a single-step add holds a strong lock for the whole scan |
+| 6 | Use a validation path supported by the **server version and referencing table** within the lock budget | On a populated, non-partitioned referencing table, default to `NOT VALID` then `VALIDATE CONSTRAINT`. A validated single-step add needs a timed scan and an explicit lock budget |
+
+**PostgreSQL 16 partition exception:** a partitioned **referencing** table cannot use
+`ADD FOREIGN KEY ... NOT VALID` (a partitioned *referenced* parent is a different case).
+Use a validated add only after measuring it within a maintenance window, or retain the logical
+controls until a supported rollout is ready. Check the exact server version before assuming this
+restriction or its removal; adding FKs to individual leaves is not a parent-wide constraint.
 
 ```sql
 -- Condition 2 first, in the same rollout (CREATE INDEX CONCURRENTLY in a separate,
@@ -122,7 +122,7 @@ ALTER TABLE app.purchase_order
 ```
 
 ```sql
--- Condition 6: two-step add on a large existing table
+-- Condition 6: two-step add on a large existing NON-PARTITIONED referencing table
 ALTER TABLE app.purchase_order
   ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
@@ -173,8 +173,7 @@ high-volume children; see `identifier-selection.md`.
 
 ## Inherited MySQL Schemas
 
-When an InnoDB schema you did not author already has FK constraints, do not rip them out
-opportunistically. Dropping the FK leaves its auto-created child index in place — but under an
-auto-generated name that invites deletion by cleanup jobs. Plan it: drop the constraint, verify the
-index with `SHOW INDEX` and rename it to the `idx_` convention (or create the explicit index if a
-suitable one is missing), then add the remaining compensating controls.
+Keep working constraints unless project policy and a measured operational problem justify removal.
+Before any removal, deploy the integrity-owner checks and orphan detection. Dropping an FK leaves
+its auto-created child index in place; verify it with `SHOW INDEX` and keep or rename it explicitly.
+Do not leave a gap between removing database enforcement and enabling its replacement.

@@ -163,11 +163,11 @@ individual_customer: customer_id, birth_date
 corporate_customer:  customer_id, business_registration_number, corporate_name
 ```
 
-A subtype **shares the supertype's PK** — never mint a separate surrogate key for it. Two
-integrity rules attach to it: a subtype row requires its supertype row (FK-enforceable on
-PostgreSQL, application-carried on MySQL), and an exclusive classification permits at most one
-subtype row per supertype row — exactly one, if total — which **no FK can enforce on either
-engine** and always needs an application rule plus a detection query.
+A subtype **shares the supertype's PK** — never mint a separate surrogate key for it. State
+parent existence, exclusivity (at most one subtype), and totality (at least one subtype)
+separately. A discriminator plus composite FK and fixed subtype CHECKs can enforce exclusivity;
+a simple id-only FK cannot. Totality needs its own write rule and detection query.
+The physical pattern and the logical-FK alternative are in `references/generalization.md`.
 
 **Do not over-generalize.** A supertype where every meaningful column ended up nullable has
 traded database constraints for application checks; an entity/attribute/value table
@@ -232,7 +232,7 @@ container), so confirm only that. If there is no such context but repo files hin
 
 | Target | Apply | Key rules |
 |---|---|---|
-| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `AUTO_INCREMENT` + `UNSIGNED` with width **by growth class** (entity `int unsigned`, event/log `bigint unsigned`), `datetime`, `json`, logical FKs |
+| Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `AUTO_INCREMENT` + `UNSIGNED` with width **by growth class** (entity `int unsigned`, event/log `bigint unsigned`), `datetime`, `json`, FK choice per project policy |
 | Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
 | SQLite | `sqlite-guideline` | `STRICT` tables, PRAGMA baseline (`foreign_keys=ON`, WAL), `INTEGER PRIMARY KEY` rowid, integer-cents money, physical FKs allowed, no partitioning |
 
@@ -282,7 +282,7 @@ tradeoff is about constraints and query shape, so it belongs to the physical mod
 | Strategy | Fits | Watch out for |
 |---|---|---|
 | **Single table + discriminator** | Few types, small differences, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover with conditional `CHECK` per type — and note these multiply with each type added |
-| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is not FK-enforceable on either engine — application rule + detection query |
+| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Choose the exclusivity and totality controls from `references/generalization.md` |
 | **One table per concrete subtype** | Types used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
 
 **Default for ordinary business systems: supertype table + one table per subtype.** It is the
@@ -351,14 +351,13 @@ Full criteria, the SQL, and the exception paths: `references/foreign-keys.md`.
 
 | | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
-| Physical `FOREIGN KEY` | **Not created** | **Allowed — created only through the six gates** |
-| Integrity owner | The application | The database, once the constraint is valid |
-| Referencing-column index | **Mandatory, by hand** | Created unless an existing index already leads with it |
+| Physical `FOREIGN KEY` | Logical by default; respect project overrides on non-partitioned tables | **Allowed — created only through the six gates** |
+| Integrity owner | Application for logical FKs; database for physical FKs | The database, once the constraint is valid |
+| Referencing-column index | Verify it; create by hand for logical FKs | Created unless an existing index already leads with it |
 
-Why: InnoDB cannot put an FK on a partitioned table (and log/history tables are the usual
-partitioning candidates), FK checks take parent-row locks that make hot-parent key updates and
-child writes stall each other, and online DDL tools need special handling. PostgreSQL has none of the clustering penalty and validates large tables via
-`NOT VALID` → `VALIDATE CONSTRAINT`.
+This is a policy default, not a claim that MySQL cannot enforce references. Preserve existing
+constraints unless project policy and measured costs justify a change. Engine limitations and
+PostgreSQL's version/partition-aware validation paths live in `references/foreign-keys.md`.
 
 (SQLite targets differ again: physical FKs are fine there but enforcement is per-connection —
 `sqlite-guideline` owns that policy.)
@@ -369,11 +368,9 @@ its auto-created index behind under an auto-generated name — verify with `SHOW
 it before a cleanup job mistakes it for dead weight.)
 
 Every **logical** FK carries four controls: `COMMENT`, the index, a named integrity owner, a
-scheduled orphan-detection query. The six PostgreSQL gates: ① parent is PK/UNIQUE ② referencing
-column indexed ③ no redundant index ④ `CASCADE` only for genuine lifecycle dependency
-⑤ `NOT DEFERRABLE` ⑥ large tables via `NOT VALID` then `VALIDATE`. A failing gate → fix it, or
-fall back to a logical FK and say why. Both engines: every reference — logical included —
-targets a **PK or UNIQUE** column.
+scheduled orphan-detection query. Apply the PostgreSQL gates from `references/foreign-keys.md`
+without assuming `NOT VALID` works on a partitioned referencing table.
+Both engines: every reference — logical included — targets a **PK or UNIQUE** column.
 
 ## Deliverable Format
 
@@ -425,19 +422,19 @@ STAGE 3 — Physical model
       subtype that is actually a **state** or an overlapping **role**; classifications that
       differ only in name use a type column
 - [ ] For each subtype structure: exclusivity, totality, and type mutability stated; subtype PK
-      **is** the supertype PK; integrity split stated (supertype-row existence — FK on PG or
-      app-carried on MySQL; exclusivity/totality — always app-carried with a detection query)
+      **is** the supertype PK; existence/exclusivity controls chosen per `references/generalization.md`;
+      totality checked separately
 - [ ] No all-nullable supertype; no entity/attribute/value table
 - [ ] History purpose identified (audit / business / valid-time) or stated as not needed; any
       history is `(entity_id, version)` unique, append-only, same-transaction, no FK/CASCADE
       from the entity, retention and PII purge path named
 
 **Stage 3 — physical**
-- [ ] Naming per `rdbms-naming`; engine-correct types (MySQL `datetime`/`json`/`tinyint(1)`;
+- [ ] Naming per `rdbms-naming`; engine-correct types (MySQL `datetime`/`json`/`tinyint unsigned` + 0/1 CHECK;
       PostgreSQL `timestamptz`/`jsonb`/`boolean`); PK type sized to expected rows
 - [ ] `created_at` everywhere; `updated_at` on mutable tables; soft delete via `is_active` with
       the per-engine index strategy
-- [ ] FK policy: MySQL DDL has **no** `FOREIGN KEY`; PostgreSQL FKs pass all six gates or are
+- [ ] FK policy: MySQL DDL follows the established project policy; PostgreSQL FKs pass all six gates or are
       deliberately logical with the reason stated; every logical FK has `COMMENT` + index +
       integrity owner + orphan check; every reference targets a PK or UNIQUE; no `NOT VALID`
       left unvalidated
@@ -469,11 +466,11 @@ STAGE 3 — Physical model
 | Separate surrogate key on a subtype row | Subtype PK **is** the supertype PK |
 | Entity/attribute/value table | Real columns; `jsonb`/`json` only for non-queried config |
 | Multi-value storage via CSV or pipe delimiters | Separate N:M table |
-| `'Y'` / `'N'` string flags | MySQL `tinyint(1)` / PostgreSQL `boolean` |
+| `'Y'` / `'N'` string flags | MySQL `tinyint unsigned` + 0/1 CHECK / PostgreSQL `boolean` |
 | `timestamp` without timezone (PostgreSQL) | `timestamptz` |
 | Habitual `varchar(255)` (PostgreSQL) | `text` |
 | Natural key as PK when the key changes | Surrogate PK + `UNIQUE` constraint |
-| `FOREIGN KEY` constraint on MySQL/InnoDB | Logical FK: `COMMENT` + index + named integrity owner + orphan check |
+| Removing a working FK solely because the engine is MySQL | Respect project policy; measure costs and deploy replacement integrity controls before removal |
 | Dropping a MySQL FK and then "cleaning up" its auto-named index | The index survives the drop — verify with `SHOW INDEX`, rename to `idx_` convention |
 | `ON DELETE CASCADE` on a high-fan-out parent | `RESTRICT` + explicit deletion, or a bounded batch job |
 | PostgreSQL FK with an unindexed referencing column | Create the index — PostgreSQL never auto-creates it |

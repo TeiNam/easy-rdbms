@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Correct the review's 20 findings: DB alias and concurrent-write safety in Django backfills;
+  PostgreSQL PK cutover, index reuse, and backfill completion; MySQL cursor pagination, boolean
+  constraints, optimizer/arithmetic facts, partition DDL, and LTS support dates; SQLite named
+  INTEGER PKs; FK validation/locking, subtype exclusivity, history uniqueness, and partition
+  procedures; hook root discovery, sync exit status, and both README sections.
+- Apply the PK cutover's old-column fix to MySQL too, including its physical-FK restore/validation
+  sequence during the write pause. Preserve existing MySQL FKs under project policy and require
+  evidence plus replacement controls before removal.
+- Consolidate duplicated FK/partition guidance and add executable documentation checks using
+  disposable PostgreSQL/MySQL databases, real Django migrations, SQLite, and a sync fixture.
+  Hook detection now has 26 cases, including Codex sessions below the Git root and inside monorepo modules.
+- Align the comparison schema with the timestamp and logical-FK documentation rules as well as
+  adding its missing safety partition.
+
 ## 0.4.1
 
 Codex compatibility, a flow audit, and the guard scripts that grew out of two user-caught

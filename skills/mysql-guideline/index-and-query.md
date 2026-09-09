@@ -148,9 +148,10 @@ not "it is now per-row":
 
 | In the subquery | Effect |
 |---|---|
-| `GROUP BY` / `HAVING` / an implicit grouping (aggregate) | Not a semi-join candidate |
+| `HAVING` or aggregate functions (with or without explicit grouping) | Not a semi-join candidate |
+| `GROUP BY` without aggregates | Permitted; grouping is ignored for semi-join purposes |
 | `UNION` | Not a semi-join candidate |
-| `ORDER BY` with `LIMIT` | Not a semi-join candidate |
+| `LIMIT` | Not a semi-join candidate; `ORDER BY` alone is permitted and ignored |
 | The `IN` is under `OR` rather than in a top-level `AND` of the `WHERE` | Semi-join needs the top-level `AND` shape |
 
 `NOT IN` / `NOT EXISTS` is a different case: from **8.0.17** MySQL transforms eligible ones into an

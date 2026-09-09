@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- 후속 리뷰 20건을 반영했습니다. README의 영어·한국어 누적 기록을 **11라운드, 292건**으로
+  맞추고 검증 명령과 Python·Docker 배지를 갱신했습니다.
+- PostgreSQL·MySQL의 PK 교체 후 INSERT가 실패하지 않도록 기존 키의 NOT NULL을 해제하고,
+  인덱스 재사용·ID 생성·참조 컬럼 확장·물리 FK 복원과 검증 순서를 정리했습니다.
+- Django 백필이 지정된 DB 별칭을 사용하고 동시 사용자 수정을 덮어쓰지 않도록 수정했습니다.
+  PostgreSQL 백필은 `SKIP LOCKED`로 건너뛴 미처리 행이 있으면 완료로 보고하지 않습니다.
+- MySQL의 기존 물리 FK를 프로젝트 정책에 따라 보존하고, 제거 전 측정 근거와 대체 무결성
+  통제를 요구합니다. FK 검증·부모 잠금·서브타입 배타성·이력 유일성·파티션 절차도 바로잡았습니다.
+- MySQL 커서 페이지네이션·불리언 제약·옵티마이저와 산술 동작·파티션 DDL·LTS 지원 기간,
+  SQLite의 이름 붙은 INTEGER PK 지침을 정정했습니다.
+- 세션 훅이 Git 하위 디렉토리와 모노레포 모듈의 DB 설정도 찾도록 하고, 동기화 스크립트의
+  적용 성공 시 종료 상태를 수정했습니다. 비교 스키마에는 시각 컬럼·논리 FK 통제·안전 파티션을
+  보완했습니다.
+- 문서 예제를 읽어 실행하는 `scripts/check-examples.py`를 추가했습니다. PostgreSQL 16.15,
+  MySQL 8.4.11, Django 5.2.17을 사용한 회귀 검사 9종과 훅 검사 26개가 통과했습니다.
+  README 수치 일치와 플러그인 매니페스트 검사도 통과했으며, 테스트 컨테이너는 종료 후 삭제합니다.
+
 ## 0.4.1
 
 Codex compatibility, a flow audit, and the guard scripts that grew out of two user-caught

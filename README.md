@@ -1,6 +1,7 @@
 # Easy RDBMS
 
-![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
+![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
 
@@ -120,6 +121,8 @@ On session start the hook reads `docker-compose.yml`, `.env`, `alembic.ini`,
 then reports the engine once. It distinguishes **MariaDB** and **SQLite** from MySQL/PostgreSQL,
 and when more than one engine is present it tells the agent to **ask which one the task targets**
 rather than guessing a dialect. Silent when nothing is found.
+An explicit project path takes priority; otherwise the hook checks the current directory and its
+ancestors through the Git root. Outside Git it checks only the current directory.
 
 ## What's covered, in detail
 
@@ -227,15 +230,14 @@ keeps the schema from drifting. Neither substitutes for the other.
 
 | | MySQL / InnoDB | PostgreSQL | SQLite |
 |---|---|---|---|
-| Physical `FOREIGN KEY` | **Not created** | Allowed — through six gates | Allowed |
-| Integrity owner | The application | The database, once valid | The database, if the pragma is on |
-| Referencing-column index | **Mandatory, manual** | Create it (never auto-created) | Create it (never auto-created) |
+| Physical `FOREIGN KEY` | Logical by default; respect project policy on non-partitioned tables | Allowed — through six gates | Allowed |
+| Integrity owner | Application for logical FKs; database for physical FKs | The database, once valid | The database, if the pragma is on |
+| Referencing-column index | Verify it; create manually for logical FKs | Create it (never auto-created) | Create it (never auto-created) |
 
-**Why MySQL differs.** InnoDB cannot put a foreign key on a partitioned table in either direction,
-and log and history tables are the usual partitioning candidates — so an FK today is a blocked
-partition tomorrow. Add the parent-index I/O on every child write, the parent-row locks that make
-hot-parent key updates and child writes stall each other, and the special handling
-that `pt-online-schema-change` and `gh-ost` need.
+**Why the MySQL default differs.** InnoDB cannot put a foreign key on a partitioned table in either
+direction, and online schema-change tools have FK limitations. Those are reasons to evaluate
+logical FKs, not to remove every existing constraint. Respect project policy and measure write/lock
+costs before changing the integrity mechanism.
 
 **The trap that is easy to miss:** InnoDB auto-creates the referencing-column index only *when the
 FK is created*. Under a no-FK policy nothing creates it for you, so the referencing-column index is
@@ -243,9 +245,10 @@ deliberate and manual. (On an inherited schema, dropping an FK *leaves* its auto
 — verify with `SHOW INDEX` and rename it before a cleanup job removes it.)
 
 **The six PostgreSQL gates:** parent is PK/UNIQUE · referencing column indexed · no redundant index
-· `CASCADE` only for genuine lifecycle dependency · `NOT DEFERRABLE` · large tables via `NOT VALID`
-then `VALIDATE CONSTRAINT`. A failing gate means you fix it or fall back to a logical FK and say
-why.
+· `CASCADE` only for genuine lifecycle dependency · `NOT DEFERRABLE` · a validation path within the
+lock budget. Populated non-partitioned referencing tables can use `NOT VALID` then `VALIDATE`;
+PostgreSQL 16 partitioned referencing tables cannot. Full version and rollout rules are in
+`skills/rdbms-modeling/references/foreign-keys.md`.
 
 Every **logical** FK carries four compensating controls: the reference in a `COMMENT`, the index, a
 named **integrity owner**, and a **scheduled orphan-detection query**. And on SQLite, `PRAGMA
@@ -338,7 +341,8 @@ raw timestamp alone, never `char(36)` for a UUID, and **a UUID is not a credenti
 
 | Situation | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
-| Single DB, ordinary table | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY` |
+| Bounded entity table | `int unsigned AUTO_INCREMENT` | `int GENERATED ALWAYS AS IDENTITY` |
+| Event/log table | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY` |
 | Write-heavy | Sequential integer first | `IDENTITY` or UUIDv7 — not v4 |
 | Generated on multiple nodes | UUIDv7 as `binary(16)` | native `uuid` with UUIDv7 |
 | Exposed externally | Internal integer PK + public UID | UUID PK, or integer PK + public UID |
@@ -371,7 +375,7 @@ local **SQLite 3.51**, not asserted from memory:
 | Gap locks at `REPEATABLE READ` are not unconditional | Unique-equality `FOR UPDATE` → the gap `INSERT` **succeeded** (record lock only); the same insert behind a **range** `FOR UPDATE` → `ERROR 1205` lock wait timeout |
 | A partitioned table's PK must include the partition key | `ERROR: unique constraint on partitioned table must include all partitioning columns` |
 | Detaching the `DEFAULT` partition opens a write-failure window | `ERROR: no partition of relation "d" found for row` — the same insert succeeded while it was attached |
-| An exclusion `CHECK` lets you add a partition without detaching | The low-lock path in `postgres-guideline/partitioning.md` completed |
+| A prepared table and validated CHECKs allow attachment without detaching the default | `ATTACH PARTITION` completed with `ShareUpdateExclusiveLock` on the parent |
 | `ON CONFLICT` infers a plain unique index, but not a `DEFERRABLE` one | Plain index upserted; `DEFERRABLE` → `ERROR: ON CONFLICT does not support deferrable unique constraints … as arbiters` |
 | SQLite `STRICT` performs lossless coercions | `'12'` stored as integer `12`, `42` stored as text `'42'`, `'abc'` rejected |
 | `WITHOUT ROWID` has no rowid | `SELECT rowid` is a parse error there; in a rowid table `INTEGER PRIMARY KEY` returned the rowid |
@@ -382,10 +386,10 @@ actually rejects the value it is supposed to.
 
 ### Review rounds
 
-Ten rounds — Claude self-review plus independent Codex passes — found and fixed **272 issues**.
-Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116.
+Eleven rounds — Claude self-review plus independent Codex passes — found and fixed **292 issues**.
+Findings per round: 33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116 → 20.
 
-The last round was the largest, and not because the plugin got worse: it was the first round to run
+Round 10 was the largest, and not because the plugin got worse: it was the first round to run
 two Codex passes with **separate mandates** (engine facts; cross-file consistency and flow) instead of
 one general pass. A large share of what that round found had been introduced by the round before it.
 
@@ -395,6 +399,10 @@ found 32 issues there. Round 6 then found 31 — several of them **bugs introduc
 fixes** (an invalid Prisma comment, a naming rule accidentally reversed by a bulk rename, an
 invented CLI flag, async code left unwrapped). Reviewing the fixes turned out to matter as much as
 reviewing the original.
+
+Round 11 added 20 corrections around PK cutovers, concurrent backfills, FK policies, partition
+operations, naming, and hook discovery. `scripts/check-examples.py` runs the documented SQL and
+Django code against disposable databases, alongside metadata, SQLite, and sync checks.
 
 What that surfaced, by category:
 
@@ -417,13 +425,15 @@ subcommand form), the plugin **does not assert either form** — it points at `k
 Automated gates, all passing:
 
 ```bash
-sh hooks/detect-db.test.sh    # 23 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
-                              # managed platforms / multi-engine confirmation / silence when absent
+sh hooks/detect-db.test.sh    # 26 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
+                              # managed platforms / multi-engine confirmation / cwd and Git-root fallback
+python3 scripts/check-readme-bilingual.py
+python scripts/check-examples.py  # Docker and test dependencies required; see Development
 claude plugin validate .      # official manifest validation
 ```
 
-Plus per-commit checks that every Python example parses, every reference path resolves, no example
-contains an undefined name, and manifests and frontmatter are well-formed.
+The example suite also parses Python snippets, validates JSON manifests and skill frontmatter,
+and checks plugin-version agreement. Reference paths and example names are reviewed separately.
 
 ## Design decisions
 
@@ -452,7 +462,9 @@ says so rather than pretending to advise on them.
 ## Development
 
 ```bash
-sh hooks/detect-db.test.sh          # hook detection tests (23 cases)
+sh hooks/detect-db.test.sh          # hook detection tests (26 cases)
+python3 scripts/check-readme-bilingual.py
+python scripts/check-examples.py   # documented SQL + Django regressions in disposable databases
 sh scripts/sync-from-harness.sh     # show upstream drift for the four ported skills
 claude plugin validate .            # manifest validation
 claude plugin details easy-rdbms    # component inventory and projected token cost
@@ -462,9 +474,22 @@ Four skills are ported from a private harness and carry deliberate local edits (
 prefixes, stripped harness-only frontmatter, cross-references repointed). `sync-from-harness.sh` is
 diff-only for that reason — never blind-copy over them. See `AGENTS.md` for repo conventions.
 
+The example check requires Docker and test dependencies in a virtual environment:
+`python -m pip install 'Django>=5.2,<5.3' 'psycopg[binary]>=3,<4'`.
+It starts isolated PostgreSQL 16 and MySQL 8.4 containers and removes them afterwards; it does not
+connect to an existing application database. It exercises post-cutover inserts, locked-row backfills,
+concurrent edits, DB alias selection, partition writes, constraints, and pagination plans.
+
+With `uv` installed, run the same checks in an isolated dependency environment from the repo root:
+
+```bash
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py
+```
+
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **0.3.0**.
+See [CHANGELOG.md](CHANGELOG.md). Current: **0.4.1**.
 
 ## License
 
@@ -553,7 +578,8 @@ Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어�
 감지한 엔진을 한 번 보고합니다.
 **MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
 말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
-현재 `sh hooks/detect-db.test.sh`의 23개 케이스가 통과합니다.
+명시된 프로젝트 경로가 없으면 현재 디렉토리부터 Git 루트까지 확인합니다.
+Git 밖에서는 현재 디렉토리만 검사합니다. 현재 `sh hooks/detect-db.test.sh`의 26개 케이스가 통과합니다.
 
 ### 반영된 내용
 
@@ -641,10 +667,11 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 - **비정규화는 측정된 문제에만.** 더 싼 대안 9개를 먼저 배제하고, 원본·동기화 방식·정합성 검사 쿼리·
   재구축 경로까지 7조건을 모두 충족해야 합니다. 단 **거래 사실 스냅샷은 비정규화가 아닙니다** —
   주문 당시 가격은 상품 가격의 캐시가 아니라 거래 자체의 데이터입니다.
-- **FK는 엔진별 정책입니다.** MySQL/InnoDB는 물리 FK 미생성(파티션 테이블에 FK 불가 + 부모 락 +
-  온라인 DDL 도구 문제), PostgreSQL은 6개 게이트 통과 시 허용, SQLite는 허용(단 연결마다
-  `PRAGMA foreign_keys = ON`). 놓치기 쉬운 귀결: 자식 인덱스 자동 생성은 FK를 **만들 때만**
-  일어나므로, FK 없는 정책에서는 참조 컬럼 인덱스가 의도적·수동입니다.
+- **FK는 엔진과 프로젝트 정책을 함께 봅니다.** MySQL 예제는 논리 FK가 기본이지만, 비파티션
+  테이블의 기존 물리 FK를 이유 없이 제거하지 않습니다. 프로젝트 규칙과 측정된 쓰기·잠금 비용을
+  먼저 확인합니다. PostgreSQL은 6개 게이트 통과 시 허용하며, 16의 파티션 참조 테이블에는
+  `NOT VALID`를 쓸 수 없으므로 검증 경로를 따로 잡습니다. SQLite는 연결마다
+  `PRAGMA foreign_keys = ON`이 필요합니다. FK 없는 정책에서는 참조 컬럼 인덱스를 직접 만듭니다.
 - **이력은 구조보다 목적이 먼저.** 감사 / 비즈니스 / 유효시간은 서로 다른 질문이고 `updated_at`은
   셋 다 답하지 못합니다. 방식과 무관하게 두 규칙 고정: 현재 행과 이력은 한 트랜잭션, 엔터티와
   이력 사이에 FK 금지(어떤 참조 동작도 옳지 않음 — `CASCADE`는 증거 삭제, `RESTRICT`는 부모 삭제
@@ -668,7 +695,8 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 
   | 상황 | MySQL / InnoDB | PostgreSQL |
   |---|---|---|
-  | 단일 DB, 일반 테이블 | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY` |
+  | 증가 상한이 있는 엔터티 테이블 | `int unsigned AUTO_INCREMENT` | `int GENERATED ALWAYS AS IDENTITY` |
+  | 이벤트·로그 테이블 | `bigint unsigned AUTO_INCREMENT` | `bigint GENERATED ALWAYS AS IDENTITY` |
   | 쓰기가 많음 | 순차 정수 우선 | `IDENTITY` 또는 UUIDv7 — v4 아님 |
   | 다중 노드 생성 | `binary(16)` UUIDv7 | 네이티브 `uuid` + UUIDv7 |
   | 외부 노출 | 내부 정수 PK + 공개 UID | UUID PK 또는 정수 PK + 공개 UID |
@@ -677,6 +705,22 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
   시간 정렬이 깨집니다. 그리고 `uuidv7()`은 **PostgreSQL 18**부터이고 `gen_random_uuid()`는 v4입니다.
 
 ### 검증
+
+`python scripts/check-examples.py`는 문서의 SQL·Django 예제를 직접 읽어 실행합니다.
+Docker와 가상환경에 설치한 `Django>=5.2,<5.3`, `psycopg[binary]>=3,<4`가 필요합니다.
+검사용 PostgreSQL 16·MySQL 8.4 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
+PK 교체 직후 INSERT, 잠긴 행의 backfill, 동시 수정, DB 별칭 선택, 파티션 쓰기, 제약과 실행계획을 검사합니다.
+같은 스크립트가 Python 예제 문법, 매니페스트·스킬 frontmatter·버전 일치, SQLite PK와 동기화
+스크립트도 검사합니다. 참조 경로와 예제의 이름 해석은 별도로 검토합니다.
+
+`uv`가 설치되어 있다면 저장소 루트에서 다음과 같이 의존성을 분리해 실행할 수 있습니다.
+
+```bash
+sh hooks/detect-db.test.sh
+python3 scripts/check-readme-bilingual.py
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py
+```
 
 **실제 서버에서 실행했습니다.** 스키마를 좌우하는 주장은 **MySQL 8.4.11** / **PostgreSQL 16.15**
 컨테이너와 로컬 **SQLite 3.51**에서 직접 돌려 확인했습니다.
@@ -690,7 +734,7 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 | RR의 갭 락은 무조건이 아님 | 유니크 등가 `FOR UPDATE` 중 갭 `INSERT` **성공**(레코드 락만), 같은 INSERT를 **범위** `FOR UPDATE` 뒤에 하면 `ERROR 1205` |
 | 파티션 테이블의 PK는 파티션 키를 포함해야 함 | `ERROR: unique constraint on partitioned table must include all partitioning columns` |
 | `DEFAULT` 파티션 detach는 쓰기 실패 창을 만듦 | `ERROR: no partition of relation "d" found for row` — 붙어 있을 때는 같은 INSERT가 성공 |
-| 배타 `CHECK`로 detach 없이 파티션 추가 가능 | `postgres-guideline/partitioning.md`의 저잠금 경로가 그대로 완료 |
+| 별도 테이블과 검증된 CHECK로 DEFAULT detach 없이 attach | `ATTACH PARTITION`이 부모에 `ShareUpdateExclusiveLock`을 잡고 완료 |
 | `ON CONFLICT`는 plain 유니크 인덱스를 추론하지만 `DEFERRABLE`은 못 함 | plain은 upsert 성공, `DEFERRABLE`은 `ERROR: … does not support deferrable unique constraints … as arbiters` |
 | SQLite `STRICT`는 무손실 강제변환을 허용 | `'12'`는 정수 `12`로, `42`는 텍스트 `'42'`로 저장, `'abc'`는 거부 |
 | `WITHOUT ROWID`에는 rowid가 없음 | 거기서 `SELECT rowid`는 파싱 오류, rowid 테이블에서는 `INTEGER PRIMARY KEY`가 rowid |
@@ -698,12 +742,17 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 예제 DDL도 실행했습니다 — [비교 문서](docs/with-and-without.md)의 "플러그인과 함께" 스키마가
 PostgreSQL 16에서 그대로 생성되고, 안의 모든 `CHECK`가 실제로 막아야 할 값을 막습니다.
 
-Claude 자체 리뷰 + Codex 독립 리뷰 **10라운드, 272건** 반영
-(33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116).
+Claude 자체 리뷰 + Codex 독립 리뷰 **11라운드, 292건** 반영
+(33 → 18 → 11 → 17 → 32 → 31 → 6 → 3 → 5 → 116 → 20).
 5라운드에서 이식 파일이라는 사각지대가 드러났고, 6라운드는 **5라운드 수정이 만든 버그**를 잡았습니다 —
-수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 마지막 라운드가 가장 컸던 이유는
+수정을 검증하는 패스가 원본을 검증하는 것만큼 중요했습니다. 10라운드가 가장 컸던 이유는
 플러그인이 나빠져서가 아니라, 처음으로 Codex 패스를 **별도 임무**(엔진 사실 / 파일 간 일관성·흐름)로
 나눠 돌렸기 때문입니다. 발견한 것의 상당수가 직전 라운드가 만든 것이었습니다.
 
+11라운드에서는 PK 교체·동시 백필·FK 정책·파티션 절차·명명 규칙·훅 탐색 등 20건을 고쳤습니다.
+문서 속 SQL·Django 예제를 직접 실행하는 회귀 검사를 추가해 수정된 절차를 다시 확인할 수 있습니다.
+
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.
+
+현재 배포 버전은 **0.4.1**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.

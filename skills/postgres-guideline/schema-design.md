@@ -60,9 +60,9 @@ CREATE TABLE app.member (
 
 ## Foreign Key Policy — Allowed by Default, Created When Conditions Are Met
 
-Physical `FOREIGN KEY` constraints **are permitted on PostgreSQL**. This differs from the MySQL
-guideline, which prohibits them — PostgreSQL has no clustering-index penalty, supports FKs on
-partitioned tables, and can validate a large table without holding a long exclusive lock.
+Physical `FOREIGN KEY` constraints **are permitted on PostgreSQL**. Project policy, the full six
+conditions, and version-specific validation paths are owned by
+`rdbms-modeling/references/foreign-keys.md`.
 
 **"Allowed by default" is not "always create."** Create the constraint when all six conditions hold.
 A failing condition means fix it first, or fall back to a logical FK with the compensating controls
@@ -75,7 +75,7 @@ below and state why.
 | 3 | No **redundant** index introduced | Reuse an index that already leads with the column |
 | 4 | If `CASCADE`: the child's **lifecycle genuinely depends** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
 | 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if used |
-| 6 | Large existing table: **`NOT VALID`** first, then `VALIDATE CONSTRAINT` | Do the two-step; a single-step add holds a strong lock for the whole validation scan |
+| 6 | Validation path matches the server version, referencing table, and lock budget | See `rdbms-modeling/references/foreign-keys.md`: PostgreSQL 16 partitioned referencing tables cannot use `NOT VALID` |
 
 ```sql
 -- Condition 2 first, in the same migration
@@ -88,7 +88,7 @@ ALTER TABLE app.purchase_order
 ```
 
 ```sql
--- Condition 6: two-step add on a large existing table
+-- Condition 6: two-step add on a large existing NON-PARTITIONED referencing table
 ALTER TABLE app.purchase_order
   ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
@@ -187,7 +187,7 @@ async def create_chat_history(pool, member_id: int, conversation_id: str,
             async with conn.cursor() as cur:
                 await cur.execute(
                     "SELECT member_id FROM app.member"
-                    " WHERE member_id = %(member_id)s AND is_active = true FOR UPDATE",
+                    " WHERE member_id = %(member_id)s AND is_active = true FOR SHARE",
                     {"member_id": member_id},
                 )
                 if await cur.fetchone() is None:
@@ -195,7 +195,7 @@ async def create_chat_history(pool, member_id: int, conversation_id: str,
 
                 await cur.execute(
                     "SELECT conversation_id FROM app.conversation_session"
-                    " WHERE conversation_id = %(cid)s FOR UPDATE",
+                    " WHERE conversation_id = %(cid)s FOR KEY SHARE",
                     {"cid": conversation_id},
                 )
                 if await cur.fetchone() is None:
@@ -212,6 +212,11 @@ async def create_chat_history(pool, member_id: int, conversation_id: str,
                 row = await cur.fetchone()
                 return row["chat_history_id"]
 ```
+
+`FOR SHARE` protects the member's `is_active` predicate as well as its existence; `FOR KEY SHARE`
+is enough for the conversation's existence/key check. These locks let sibling inserts proceed
+concurrently. They do not prevent later orphaning: parent delete/key-update paths must also enforce
+the logical relationship through the named integrity owner.
 
 ## Soft Delete Pattern
 
@@ -298,7 +303,7 @@ SELECT member_id, setting_data FROM app.member_setting WHERE setting_data ? 'the
 - [ ] PK uses `GENERATED ALWAYS AS IDENTITY` (not SERIAL)
 - [ ] FK: physical constraint only where all six conditions hold (PK/UNIQUE target, referencing
       column indexed, no redundant index, `CASCADE` justified by lifecycle dependency,
-      `NOT DEFERRABLE`, `NOT VALID`+`VALIDATE` on large tables)
+      `NOT DEFERRABLE`, version/partition-aware validation within the lock budget)
 - [ ] Any relationship left as a logical FK carries all four compensating controls (`COMMENT`,
       index, named integrity owner, scheduled orphan check)
 - [ ] No constraint left `NOT VALID` without a validation step — it never checked existing rows

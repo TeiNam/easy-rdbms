@@ -8,15 +8,17 @@
 CREATE TABLE `member` (
   `member_id` int unsigned NOT NULL AUTO_INCREMENT COMMENT 'entity table: bounded by real user count',
   `email` varchar(255) NOT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `is_active` tinyint unsigned NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`member_id`)
+  PRIMARY KEY (`member_id`),
+  CONSTRAINT chk_member_is_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
 
 ## Foreign Key Policy
-- Logical FK only (no physical FK constraints) — see `dev-practices.md` §5.4 for why
+- These examples use logical FKs by default; established project policy can use physical FKs on
+  non-partitioned tables. See `rdbms-modeling/references/foreign-keys.md` for the decision and costs.
 - Every logical FK carries **all four** compensating controls: the `COMMENT`, an index on the
   referencing column, a **named integrity owner**, and a **scheduled orphan-detection query**
 
@@ -62,14 +64,14 @@ LIMIT 100;
 def create_chat_history(pool, member_id: int, conversation_id: str,
                         message: str, response: str) -> int:
     """An unlocked SELECT-then-INSERT is a race: the parent can be deleted between the check
-    and the insert. Lock each parent row FOR UPDATE inside the SAME transaction as the insert.
+    and the insert. Lock each parent row FOR SHARE inside the SAME transaction as the insert.
     (At InnoDB's default REPEATABLE READ a plain read sees a snapshot, not the live row.)"""
     conn = pool.get_connection()          # autocommit=False
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT member_id FROM member"
-                " WHERE member_id = %s AND is_active = 1 FOR UPDATE",
+                " WHERE member_id = %s AND is_active = 1 FOR SHARE",
                 (member_id,),
             )
             if cur.fetchone() is None:
@@ -77,7 +79,7 @@ def create_chat_history(pool, member_id: int, conversation_id: str,
 
             cur.execute(
                 "SELECT conversation_id FROM conversation_session"
-                " WHERE conversation_id = %s FOR UPDATE",
+                " WHERE conversation_id = %s FOR SHARE",
                 (conversation_id,),
             )
             if cur.fetchone() is None:
@@ -99,12 +101,18 @@ def create_chat_history(pool, member_id: int, conversation_id: str,
         conn.close()                      # returns the connection to the pool
 ```
 
+Shared parent locks allow sibling inserts concurrently while blocking parent changes until commit.
+They do not prevent a later parent deletion from orphaning committed children: the integrity owner
+must also enforce the relationship on the parent delete/key-update paths.
+
 ## Soft Delete Pattern
 
 Standardize tables requiring soft delete with the `is_active` column.
 
 ```sql
-`is_active` tinyint(1) NOT NULL DEFAULT 1  -- 1: active, 0: deleted
+-- Column and table constraint inside CREATE TABLE; CHECK is enforced on MySQL 8.0.16+.
+`is_active` tinyint unsigned NOT NULL DEFAULT 1,  -- 1: active, 0: deleted
+CONSTRAINT chk_member_is_active CHECK (is_active IN (0, 1))
 ```
 
 - Physical DELETE prohibited (recoverable logical deletion). **This is not an audit trail** — it
@@ -124,7 +132,7 @@ CREATE INDEX idx_member_active_email ON member (is_active, email);  -- lowercase
 > the common case either way.
 
 
-- [ ] No physical FK constraints (logical only, documented with COMMENT)
+- [ ] FK choice matches project policy; every logical FK has all four compensating controls
 - [ ] AUTO_INCREMENT with appropriate unsigned type
 - [ ] Log tables evaluated as partitioning candidates against the evidence rules (see `partitioning.md`)
 - [ ] Appropriate indexes created

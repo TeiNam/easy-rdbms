@@ -21,7 +21,8 @@ their benefit is narrower and they are easy to misapply.
 2. **Every `PRIMARY KEY` and `UNIQUE` index contains the partition key** — an InnoDB requirement, and
    the constraint that most often kills a partitioning plan. Check it before committing to the design.
 3. **No physical `FOREIGN KEY`** — InnoDB does not allow foreign keys on a partitioned table in
-   either direction. (Physical FKs are already prohibited on MySQL; see `dev-practices.md` §5.4.)
+   either direction. Preserve the integrity guarantee when changing a non-partitioned table's FK
+   policy; see `rdbms-modeling/references/foreign-keys.md`.
 4. The partition key appears in the main `WHERE` predicates, or pruning never happens.
 
 ## Log Tables: Monthly RANGE COLUMNS Partitioning
@@ -79,11 +80,10 @@ ALTER TABLE chat_history REORGANIZE PARTITION p_maxvalue INTO (
 
 ```sql
 -- Drop old partition (per retention policy) — in-place, no table copy, so far cheaper than a mass
--- DELETE. It is not ALGORITHM=INSTANT: the partition-drop syntax does not accept an ALGORITHM clause
--- at all (`ALTER TABLE ... DROP PARTITION p, ALGORITHM=INSTANT` is a syntax error), and it still takes
--- a metadata lock, so it can queue behind and block concurrent statements. Run it off peak with a
--- lock_wait_timeout.
-ALTER TABLE chat_history DROP PARTITION p202608;
+-- DELETE. Specify ALGORITHM before DROP PARTITION; INPLACE is supported, INSTANT is not.
+-- A metadata lock is still required, so it can queue behind and block concurrent statements.
+-- Run it off peak with a lock_wait_timeout.
+ALTER TABLE chat_history ALGORITHM=INPLACE, DROP PARTITION p202608;
 ```
 
 ### MAXVALUE Is a Safety Net, Not a Load Target

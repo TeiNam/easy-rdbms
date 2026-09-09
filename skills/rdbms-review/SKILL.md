@@ -98,7 +98,8 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
 - Unparameterized SQL — string-concatenated user input is an injection defect, not a style issue
 - **SELECT-then-act race** — a check with a plain `SELECT` followed by a write assumes the check
   still holds. At the engines' defaults (InnoDB `REPEATABLE READ`, PostgreSQL `READ COMMITTED`)
-  it does not. Require `FOR UPDATE`, a `UNIQUE` constraint, or an advisory lock on the invariant
+  it does not. Require an atomic conditional write, a constraint, or a lock suited to the invariant.
+  Parent existence checks can use shared locks; `FOR UPDATE` needlessly serializes sibling writes
 - **Isolation level assumed, not stated** — the two engines default differently, and InnoDB's RR
   takes gap locks that RC does not. Code ported between engines, or a deadlock analysis, is wrong
   until the level is confirmed. Raised levels (`REPEATABLE READ`+ on PG) without a `40001` retry
@@ -128,16 +129,17 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
 - `OFFSET` pagination on a large table → keyset/cursor pagination. When the UI needs clickable page
   numbers and a cursor is impossible, a **deferred join** (fetch PKs through a covering index, then
   join the wide columns) cuts the random I/O — but the offset scan remains, so say so
-- **`IN (subquery)` running as a `DEPENDENT SUBQUERY`** — `EXPLAIN`'s `select_type` is the tell. A
-  `GROUP BY`/`HAVING`/aggregate, `UNION`, or `LIMIT` in the subquery, or an `IN` sitting under `OR`,
-  disables semi-join optimization and the subquery can re-execute per outer row. Rewrite as an
-  explicit derived-table join
+- **MySQL `IN (subquery)` with repeated expensive execution** — check the actual plan before a
+  rewrite. Losing semi-join eligibility does not imply per-row execution: materialization can
+  still apply, and `GROUP BY` without aggregates is permitted. Eligibility rules and a
+  derived-table alternative are in `mysql-guideline/index-and-query.md`
 - **`IN` with a very long literal list** — past `eq_range_index_dive_limit` (default 200) the
   optimizer stops per-value index dives and estimates from coarse statistics, which makes a wrong
   full-scan choice more likely. Load the values into a temporary table and join
-- **Type mismatch between an `IN` list and its column** — an integer list against a `varchar` column
-  (or the reverse) forces implicit conversion on the column side and defeats the index, exactly like
-  wrapping it in a function
+- **MySQL `IN` parameter types do not match the column** — conversion is not symmetric.
+  A numeric list against a string column can defeat indexed lookup; numeric-looking strings
+  against a numeric column can convert the constants and retain it. Match the types and inspect
+  the plan; details are in `mysql-guideline/index-and-query.md`
 - **`OR` across different columns** — pushes the optimizer onto Index Merge, often slower than a
   `UNION` rewrite or a redesigned composite index
 - Individual inserts in a loop → multi-row `INSERT` (MySQL) or `COPY` (PostgreSQL)
@@ -155,14 +157,11 @@ What to read in the plan:
 
 - **Foreign keys — the policy splits by engine, so establish the engine before judging.**
 
-  **MySQL / InnoDB — a physical `FOREIGN KEY` is a finding.** It adds parent-index I/O to every child
-  write the statement does not show, takes parent-row shared locks that make hot-parent key updates
-  and all child writes block each other, needs special handling in `pt-online-schema-change`/`gh-ost`,
-  and **blocks
-  partitioning outright** — InnoDB cannot have an FK on a partitioned table in either direction.
-  Report the drop, and the follow-up: the auto-created child index **survives** the drop but keeps
-  its auto-generated name — verify with `SHOW INDEX`, rename it to the `idx_` convention (or create
-  a proper one if missing), then the four compensating controls.
+  **MySQL / InnoDB — a physical FK alone is not a finding.** Respect established project policy.
+  Report a concrete unsupported partition/FK combination, measured contention, unsafe cascade,
+  or incompatible migration plan. Keep working constraints unless those costs justify a change;
+  require replacement integrity controls before removal. The policy and index consequences are in
+  `rdbms-modeling/references/foreign-keys.md`.
 
   **PostgreSQL — a physical FK is fine; audit its six conditions instead.** Flag any that fail:
   non-unique parent target; **referencing column unindexed** (PostgreSQL never auto-creates it — the
@@ -192,8 +191,8 @@ What to read in the plan:
 
 - **Logical FK with no compensating controls** — a documented reference with no orphan check and no
   named integrity owner means violations are accumulating unobserved. Run the orphan query during the
-  review and report the count. On MySQL this applies to every relationship; on PostgreSQL, to the
-  ones deliberately left without a constraint
+  review and report the count. This applies to relationships deliberately left without a physical
+  constraint, on either engine
 - **Normalization**: 3NF is the baseline. Flag transitive dependencies and partial dependencies
   on composite PKs. Then check for a **determinant that is not a superkey** (BCNF violation) —
   usually a table with overlapping candidate keys — and flag it only when it can produce a real
@@ -235,7 +234,8 @@ What to read in the plan:
 - **MySQL: a non-negative integer column declared signed** — `UNSIGNED` doubles the positive range for
   the same bytes, so a signed PK or counter is discarding half its runway. Conversely flag **signed and
   unsigned mixed across a join key** (a type mismatch) and **`UNSIGNED` subtraction that can go
-  negative** (it wraps to a huge positive value instead of erroring)
+  negative** (normally ERROR 1690, not wraparound). Check the arithmetic and SQL-mode qualifications
+  in `mysql-guideline/dev-practices.md`; ordinary strict-mode changes do not fix expression overflow
 - `NOT NULL` and `CHECK` constraints present where the domain requires them
 - Identifiers are unquoted lowercase `snake_case` — see `rdbms-naming`
 - Indexes justified by a real query. Each one costs write throughput, migration time, backup size, and

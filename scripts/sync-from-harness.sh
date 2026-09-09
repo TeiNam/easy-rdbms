@@ -71,5 +71,7 @@ if [ "$DRIFT" -eq 0 ]; then
   echo "no drift"
 else
   echo "$DRIFT skill(s) differ"
-  [ "$APPLY" -eq 0 ] && echo "run with --apply to overwrite, then re-apply the plugin edits listed in this script"
+  if [ "$APPLY" -eq 0 ]; then
+    echo "run with --apply to overwrite, then re-apply the plugin edits listed in this script"
+  fi
 fi

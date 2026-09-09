@@ -93,7 +93,7 @@ change on another.
 
 > **Boolean policy.** Use an `is_`/`has_` prefix + a native boolean, **not** the old `use_yn` CHAR(1)
 > 'Y'/'N' pattern. Rename `use_yn` → `is_used`, `del_yn` → `is_deleted`. Storage type by engine: PostgreSQL
-> `BOOLEAN`, MySQL `TINYINT(1)` 0/1. Legacy Y/N data with heavy app coupling may stay for migration-cost
+> `boolean`, MySQL `tinyint unsigned` + a named 0/1 CHECK. Legacy Y/N data with heavy app coupling may stay for migration-cost
 > reasons, but **new designs must follow the standard.** Do not encode a type in a suffix (`_yn`); name by
 > domain meaning.
 
@@ -111,20 +111,20 @@ change on another.
 
 | Type | Rule | Example |
 |------|------|---------|
-| Primary Key | `pk_<table>` — **PostgreSQL only**, see the exception below | `pk_member` |
-| Foreign Key | `fk_<child>_<parent>` | `fk_order_member` — PostgreSQL only; MySQL creates no physical FK |
+| Primary Key | `pk_<table>` — PostgreSQL and SQLite; MySQL exception below | `pk_member` |
+| Foreign Key | `fk_<child>_<parent>` wherever a physical FK is used | `fk_order_member` |
 | Unique | `uq_<table>_<col…>` | `uq_member_email` |
 | Check | `chk_<table>_<rule>` | `chk_order_amount_positive` |
 | General index | `idx_<table>_<col…>` | `idx_book_like_member_id` |
 | Composite index | `idx_<table>_<col1>_<col2>…` | `idx_actor_first_name_last_name` |
 | Fulltext index | `fts_<table>_<col…>` | `fts_book_name` |
 
-> **`pk_<table>` has two engine exceptions — "always name it explicitly" cannot be satisfied there.**
-> On **MySQL/InnoDB** the primary key's index is always named `PRIMARY`; `CONSTRAINT pk_member PRIMARY
-> KEY (...)` parses but the name is discarded, so a bare `PRIMARY KEY (...)` is correct MySQL, not a
-> lapse. On **SQLite** an `INTEGER PRIMARY KEY` has to be written inline to *be* the rowid — naming it
-> turns it into an ordinary key. **PostgreSQL honours the name, so use `pk_<table>` there.** Every other
-> prefix (`fk_`/`uq_`/`chk_`/`idx_`/`fts_`) is nameable on all three engines and must be named.
+> **MySQL/InnoDB is the PK-name exception:** its primary key's index is always named `PRIMARY`;
+> `CONSTRAINT pk_member PRIMARY KEY (...)` parses but the name is discarded, so a bare
+> `PRIMARY KEY (...)` is correct there. PostgreSQL and SQLite accept `pk_<table>`.
+> In SQLite, naming a single-column INTEGER PK inline or at table level preserves its rowid alias;
+> the actual storage exceptions are in `sqlite-guideline`. Every other prefix
+> (`fk_`/`uq_`/`chk_`/`idx_`/`fts_`) applies where the engine supports that object.
 
 **63-char overflow** — when listing every column exceeds 63 chars, shorten in this order:
 1. Apply an abbreviation registered in the dictionary (§4) (e.g. `authentication` → `auth`).
@@ -206,7 +206,7 @@ apply to it unchanged.
 
 | Purpose | MySQL | PostgreSQL |
 |---------|-------|------------|
-| Boolean | `TINYINT(1)` 0/1 (`BOOLEAN`/`BOOL` is an alias). No native boolean. Name `is_`/`has_` | **native `boolean`**. 'Y'/'N' strings prohibited |
+| Boolean | `tinyint unsigned` + named `CHECK (col IN (0,1))` (enforced from 8.0.16). Display width `(1)` does not restrict values. Name `is_`/`has_` | **native `boolean`**. 'Y'/'N' strings prohibited |
 | PK (auto, integer) | **`AUTO_INCREMENT`**. Width by growth class: entity table `int unsigned`, event/log table `bigint unsigned` | **`GENERATED ALWAYS AS IDENTITY`** (SQL standard — do not use `SERIAL`). Same widths: `int` / `bigint` |
 | Amount | `DECIMAL(p,s)` | `numeric(p,s)` |
 | Date+Time | `datetime` (+`DEFAULT CURRENT_TIMESTAMP`); `TIMESTAMP` only for auto-UTC ≤ 2038 | `timestamptz` (timezone required) |
@@ -234,7 +234,7 @@ apply to it unchanged.
 | `tb_user` | `member` | unnecessary prefix |
 | `create_date` (as create time) | `created_at` | past-participle time-column standard |
 | `create_dt` | `created_date` | abbreviation overuse |
-| `use_yn` CHAR(1) | `is_used` TINYINT(1) / BOOLEAN | boolean prefix + native type |
+| `use_yn` CHAR(1) | `is_used` with the engine's boolean type/constraint from the type table | boolean prefix + enforced 0/1 domain |
 | `book_user_id_IDX` | `idx_book_user_id` | lowercase prefix, not uppercase suffix |
 | `DECIMAL(10,2)` for KRW | `DECIMAL(15,0)` | KRW has no minor unit |
 

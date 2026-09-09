@@ -166,8 +166,9 @@ deletion are actually present in the code.
 
 - **MySQL**: `RANGE COLUMNS (recorded_at)` with a trailing `p_maxvalue` partition — but every PK and
   UNIQUE index must contain the partition key, and folding `recorded_at` into `(entity_id, version)`
-  **weakens the guarantee** to per-period uniqueness. It is a genuine either/or: keep
-  database-enforced global `(entity_id, version)` uniqueness and do **not** partition, or partition
+  only makes the full `(entity_id, version, recorded_at)` tuple unique. Two copies of the same
+  version with different timestamps can coexist **even in the same partition**. Either keep
+  database-enforced `(entity_id, version)` uniqueness in this table and do **not** partition, or partition
   and move that uniqueness to an application-enforced invariant with a detection query. Decide it
   explicitly — do not fold the column in and call the constraint intact.
 - **PostgreSQL**: same either/or applies — a partitioned table's `UNIQUE` constraints must also

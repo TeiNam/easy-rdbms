@@ -119,8 +119,8 @@ over-modeling this check exists to prevent.
 A subtype shares the supertype's primary key. The same `customer_id` identifies the customer
 and its individual-customer detail — do not mint a separate surrogate key for the subtype row.
 
-That shared PK is conceptually also a foreign key to the supertype. The FK policy splits by
-engine (see `foreign-keys.md`): on **MySQL** it stays a documented logical reference; on
+That shared PK is conceptually also a foreign key to the supertype. Follow project policy
+(see `foreign-keys.md`): the **MySQL example below** uses a documented logical reference; on
 **PostgreSQL** a physical FK from the subtype PK to the supertype PK is a natural fit for the six
 gates — it typically passes all of them.
 
@@ -135,14 +135,57 @@ CREATE TABLE individual_customer (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-Two integrity rules follow, with different enforceability:
+Three integrity rules follow, with different enforceability:
 
-1. **A subtype row exists only if its supertype row exists.** On PostgreSQL a physical FK enforces
-   this; on MySQL it is application-carried with the four compensating controls of a logical FK.
-2. **Exclusivity/totality** — an exclusive classification permits a detail row in **at most one**
-   subtype table (exactly one, if total). **No foreign key can enforce this on either engine**: an
-   FK guarantees the parent exists, not that the other subtype table is empty. Always
-   application-carried, always with its own detection query:
+1. **A subtype row exists only if its supertype row exists.** A physical FK can enforce this.
+   Under a logical-FK policy it is application-carried with the four compensating controls.
+2. **Exclusivity** permits a detail row in **at most one** subtype table. A simple FK on
+   `customer_id` alone does not enforce it. A parent discriminator, a UNIQUE key on
+   `(customer_id, customer_type)`, and a fixed, non-null discriminator CHECK plus composite FK
+   in each subtype can enforce it in the database. Under a logical-FK policy, the application
+   owns the same invariant and needs the detection query below.
+3. **Totality** requires **at least one** detail row for every supertype row. The composite FK
+   pattern below does not enforce that direction; create parent and detail in one transaction
+   and check for parents missing a detail row.
+
+```sql
+-- PostgreSQL: enforce exclusivity with a discriminator and composite FKs.
+CREATE TABLE customer (
+  customer_id int GENERATED ALWAYS AS IDENTITY,
+  customer_type text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT pk_customer PRIMARY KEY (customer_id),
+  CONSTRAINT uq_customer_id_type UNIQUE (customer_id, customer_type),
+  CONSTRAINT chk_customer_type CHECK (customer_type IN ('INDIVIDUAL', 'CORPORATE'))
+);
+CREATE TABLE individual_customer (
+  customer_id int NOT NULL,
+  customer_type text NOT NULL DEFAULT 'INDIVIDUAL',
+  birth_date date NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT pk_individual_customer PRIMARY KEY (customer_id),
+  CONSTRAINT chk_individual_customer_type CHECK (customer_type = 'INDIVIDUAL'),
+  CONSTRAINT fk_individual_customer_customer FOREIGN KEY (customer_id, customer_type)
+    REFERENCES customer (customer_id, customer_type)
+);
+CREATE TABLE corporate_customer (
+  customer_id int NOT NULL,
+  customer_type text NOT NULL DEFAULT 'CORPORATE',
+  business_registration_number text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT pk_corporate_customer PRIMARY KEY (customer_id),
+  CONSTRAINT chk_corporate_customer_type CHECK (customer_type = 'CORPORATE'),
+  CONSTRAINT fk_corporate_customer_customer FOREIGN KEY (customer_id, customer_type)
+    REFERENCES customer (customer_id, customer_type)
+);
+```
+
+Each subtype uses a different fixed discriminator. The duplicated discriminator is intentional:
+it lets the FK prove which subtype the parent permits. The subtype PK already limits a parent
+lookup to one child row, so an additional child index would be redundant here.
 
 ```sql
 -- Exclusivity violation: a customer with detail rows in more than one subtype table
@@ -162,7 +205,7 @@ in any subtype table.
 | Strategy | Fits | Watch out for |
 |---|---|---|
 | **Single table + discriminator** | Few types, small differences between them, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover it with conditional `CHECK` constraints — and note these multiply with each type |
-| **Supertype table + one table per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Exclusivity across subtype tables is not FK-enforceable on either engine — application rule + detection query |
+| **Supertype table + one table per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Enforce exclusivity with the discriminator/composite-FK pattern where physical FKs are used, otherwise an application rule; totality needs a separate check |
 | **One table per concrete subtype, no supertype table** | Types are used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
 
 **Default for ordinary business systems: supertype table + one table per subtype.** It is the

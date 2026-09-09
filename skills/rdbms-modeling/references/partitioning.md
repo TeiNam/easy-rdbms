@@ -96,7 +96,7 @@ Rules when generating RANGE on MySQL:
    requirement, and it is the constraint that most often kills a partitioning plan — check it before
    recommending, not after.
 4. **No physical `FOREIGN KEY` on a partitioned table** — InnoDB does not permit it in either
-   direction. (The MySQL FK policy already prohibits physical FKs; see `foreign-keys.md`.)
+   direction. Resolve any existing FK and its replacement integrity controls first; see `foreign-keys.md`.
 5. Always end with a **`MAXVALUE`** partition.
 
 ```sql
@@ -156,21 +156,14 @@ CREATE TABLE event_default PARTITION OF event DEFAULT;
 | `PARTITION OF … DEFAULT` | Yes | **Yes** |
 
 A backfill or a corrected timestamp predating the first partition is exactly what a safety partition
-should absorb, and `MAXVALUE` bounds reject it. Both carry the same operational constraint, so
-`DEFAULT` costs nothing extra.
+should absorb. A `MAXVALUE` partition also overlaps every future range even when empty; `DEFAULT`
+can stay attached when it contains no rows for a new regular partition.
 
-**The safety partition covers the range you want to add next.** Creating the new partition directly
-makes PostgreSQL scan the catch-all and succeeds **only if** it holds no rows in that range (a
-matching `CHECK` on the default partition can prove emptiness and skip the scan). On a
-fallen-behind default it fails, so the reliable procedure is:
-
-1. `DETACH` the default partition
-2. Create the new regular partition for the next period
-3. Move any rows that landed in the detached partition into it
-4. Re-`ATTACH` the default partition
-
-(`SPLIT PARTITION` was proposed for core PostgreSQL and reverted before release — do not assume it
-exists. The detach-and-move procedure above is the reliable path on 16, 17, and 18.)
+Use the complete procedure in `postgres-guideline/partitioning.md` for adding partitions.
+If rows need moving, **detach through re-attach must be one transaction**; autocommit leaves a gap
+where out-of-range INSERTs fail. The alternative for an unused future range prepares a separate
+table and uses `ATTACH`, with explicit CHECK and writer preconditions. A CHECK that avoids a scan
+does not make `CREATE TABLE ... PARTITION OF` use a weaker parent lock.
 
 ## Safety-Partition Operating Rules
 

@@ -39,7 +39,9 @@ description: Update the installed easy-rdbms plugin itself in Claude Code or Cod
      claude plugin list --json
    ```
 
-3. 대상 scope의 설치 버전을 다시 확인한다. 현재 세션에서는 `/reload-plugins`를 실행하거나
+3. 대상 scope의 설치 버전을 마켓플레이스 `installLocation`의 `.claude-plugin/plugin.json`
+   `version`과 대조한다. 다르면 갱신이 적용되지 않은 것이므로 성공으로 보고하지 않는다.
+   현재 세션에서는 `/reload-plugins`를 실행하거나
    새 세션을 시작해야 갱신된 플러그인이 적용된다고 안내한다.
 
 ## 예외와 완료 보고

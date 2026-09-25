@@ -583,7 +583,7 @@ python3 scripts/check-examples.py --metadata-only
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **0.5.0**. <!-- x-release-please-version -->
+See [CHANGELOG.md](CHANGELOG.md). Current: **0.5.1**. <!-- x-release-please-version -->
 
 ## License
 
@@ -954,4 +954,4 @@ Docker나 추가 Python 패키지 없이 버전·플러그인 메타데이터만
 python3 scripts/check-examples.py --metadata-only
 ```
 
-현재 배포 버전은 **0.5.0**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. <!-- x-release-please-version -->
+현재 배포 버전은 **0.5.1**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. <!-- x-release-please-version -->

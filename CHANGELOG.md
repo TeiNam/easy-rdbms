@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.0...easy-rdbms--v0.5.1) (2026-09-25)
+
+
+### 수정
+
+* 릴리즈 후속 단계와 CI 이미지 다운로드 안정화 ([#26](https://github.com/TeiNam/easy-rdbms/issues/26)) ([21ab52c](https://github.com/TeiNam/easy-rdbms/commit/21ab52c25903e9ade80fa9e671407354a85378dd))
+
 ## [0.5.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.4.1...easy-rdbms--v0.5.0) (2026-09-25)
 
 ### 기능

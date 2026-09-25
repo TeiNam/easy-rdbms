@@ -39,6 +39,19 @@
   MySQL 8.4.11, Django 5.2.17을 사용한 회귀 검사 9종과 훅 검사 26개가 통과했습니다.
   README 수치 일치와 플러그인 매니페스트 검사도 통과했으며, 테스트 컨테이너는 종료 후 삭제합니다.
 
+## [0.5.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.4.1...easy-rdbms--v0.5.0) (2026-09-25)
+
+
+### 기능
+
+* MySQL 8.4·PostgreSQL 18 지침과 확장 가이드 갱신 ([#23](https://github.com/TeiNam/easy-rdbms/issues/23)) ([35a3062](https://github.com/TeiNam/easy-rdbms/commit/35a3062243e3f616886e6e17adfabee0047a05ac))
+* 릴리즈 자동화와 플러그인 업데이트 명령 추가 ([#24](https://github.com/TeiNam/easy-rdbms/issues/24)) ([ccd4d1f](https://github.com/TeiNam/easy-rdbms/commit/ccd4d1f56938dc2b1bb148d06ff50a37179de734))
+
+
+### 수정
+
+* RDBMS 마이그레이션·무결성 지침 수정과 회귀 검사 추가 ([#22](https://github.com/TeiNam/easy-rdbms/issues/22)) ([11ad3ab](https://github.com/TeiNam/easy-rdbms/commit/11ad3ab981af3406fd615e10f0b1f87cea46f5c1))
+
 ## 0.4.1
 
 Codex compatibility, a flow audit, and the guard scripts that grew out of two user-caught

@@ -35,6 +35,10 @@ identify the top-cost queries
 A composite B-tree candidate starts with equality columns first; then **either** the sort columns (when the query needs the index's ordering — a range column placed earlier makes later columns unusable for ordering) **or** the first range column (when it is highly selective and sorting few rows is cheap); covering columns last. Confirm with the plan. MySQL's classic ESR mnemonic
 (equality → sort → range) is the ordering-first branch of the same rule.
 
+PostgreSQL 18 skip scan과 MySQL의 제한적인 skip scan은 엔진별 지침에서 확인한다.
+선두 컬럼 조건이 없다는 사실만으로 후보 인덱스를 배제하지 않고 선택도·distinct 값과 계획을
+비교한다. 인덱스 탐색에 쓸 수 있다는 것과 별도 정렬을 없앤다는 것은 다른 판단이다.
+
 A low-cardinality column is not automatically useless — combined with other predicates, or restricted
 by a PostgreSQL partial index, it can still be selective.
 

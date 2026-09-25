@@ -1,11 +1,13 @@
 ---
 name: postgres-guideline
 description: >
-  PostgreSQL 16+ schema design, table/index creation, query optimization, partitioning,
-  and psycopg3 connection management. Triggers: CREATE TABLE, GENERATED ALWAYS AS IDENTITY, PK type choice, int vs bigint PK,
-  sequence exhaustion,
-  EXPLAIN ANALYZE, GIN/BRIN/GiST indexes, RLS, PARTITION BY RANGE, pg_partman,
-  LISTEN/NOTIFY, Advisory Lock, UPSERT ON CONFLICT, CTE, timestamptz operations.
+  PostgreSQL 18 schema design, SQL tuning, partitioning, psycopg3 pooling, and upgrades with
+  PostgreSQL 16/17 compatibility gates. Use for CREATE TABLE, GENERATED ALWAYS AS IDENTITY,
+  int vs bigint PK, sequence exhaustion, uuidv7, virtual generated columns, skip scan, async I/O,
+  EXPLAIN ANALYZE, GIN/BRIN/GiST, RLS, PARTITION BY RANGE, pg_partman, LISTEN/NOTIFY,
+  Advisory Lock, UPSERT ON CONFLICT, CTE, timestamptz; PostgreSQL extensions, 확장팩,
+  FDW, postgres_fdw, 외부 DB 연동, PostGIS, 공간 검색, pgvector, 벡터 검색, RAG,
+  HNSW, IVFFlat, pg_stat_statements, pg_trgm, btree_gist, pg_cron, pgstattuple, and pgAudit.
 ---
 
 # PostgreSQL Database Guideline
@@ -19,11 +21,16 @@ description: >
 - Implementing Row Level Security
 - Setting up connection pooling
 - Creating partitioned tables
+- Selecting, installing, upgrading, or tuning PostgreSQL extensions
 
 ## PostgreSQL Version and Defaults
-- PostgreSQL 16.7+
+- **PostgreSQL 18** 기준. 실제 서버의 major/minor와 배포 형태를 먼저 확인한다.
+  기존 16/17은 호환 대상으로 유지하며 18 전용 SQL을 혼용하지 않는다.
+  관리형 서비스의 제공 버전·확장 목록을 Community와 같다고 가정하지 않는다.
 - Character set: UTF-8
 - Schema separation by purpose (`public` schema direct use discouraged)
+- 버전별 기능과 업그레이드: `version-and-upgrade.md`. 최신 패치 번호는 고정하지 말고
+  공식 릴리스 노트와 `SHOW server_version`으로 확인한다.
 
 ```sql
 CREATE DATABASE myapp
@@ -73,8 +80,9 @@ Summary + PostgreSQL-specific:
 
 ## Foreign Keys — Differs from MySQL
 
-Physical `FOREIGN KEY` constraints **are allowed here**, unlike in `mysql-guideline` (InnoDB cannot
-put an FK on a partitioned table, and log/history tables are the usual partitioning candidates).
+Physical `FOREIGN KEY` constraints **are allowed here**. MySQL의 논리 FK 기본 방침과 다르지만
+MySQL도 비파티션 테이블의 물리 FK를 지원한다. 엔진·프로젝트 정책은
+`rdbms-modeling/references/foreign-keys.md`를 따른다.
 Allowed by default is not always create — `schema-design.md` has the six conditions, the costs that
 remain, and the compensating controls for relationships left as logical FKs. PostgreSQL never
 auto-creates the referencing-column index, so condition 2 is the one most often missed.
@@ -95,6 +103,11 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
 - SERIAL type: discouraged — use `GENERATED ALWAYS AS IDENTITY` (SQL standard, prevents accidental override; SERIAL still works but is proprietary). PostgreSQL wiki: "Don't use serial."
 
 ## Reference Files
+- `version-and-upgrade.md` — PostgreSQL 18 기능, 16/17 호환성, major 업그레이드
+- `extensions.md` — 확장 선택, 설치·권한·preload·업데이트, 운영·검색 확장
+- `fdw.md` — postgres_fdw 외부 DB 연동, pushdown, 원격 권한·트랜잭션 한계
+- `postgis.md` — PostGIS 공간 모델, SRID·거리 단위, GiST와 반경 검색
+- `pgvector.md` — 임베딩 모델·차원, exact/HNSW/IVFFlat, 필터·RLS와 recall 검증
 - `schema-design.md` — PK/FK policy, RLS, checklists
 - `index-and-query.md` — Index strategy, query patterns, pagination, queue
 - `partitioning.md` — Partitioning strategy, pg_partman, management

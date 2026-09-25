@@ -1,0 +1,8 @@
+# 문서 예제 검증용. 기존 애플리케이션 DB에는 설치하지 않는다.
+ARG PG_MAJOR=18
+FROM public.ecr.aws/docker/library/postgres:${PG_MAJOR}-bookworm
+ARG PG_MAJOR
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       postgresql-${PG_MAJOR}-postgis-3 postgresql-${PG_MAJOR}-pgvector \
+    && rm -rf /var/lib/apt/lists/*

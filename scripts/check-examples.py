@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Execute the documented regression examples in disposable databases.
 
-Requires Docker, Django 5.2, and psycopg 3. Run: python scripts/check-examples.py
+Requires Docker, OpenSSL, Django 5.2, and psycopg 3. Run: python scripts/check-examples.py
+Default: PostgreSQL 18 / MySQL 8.4. --pg-major 16 checks compatibility.
+--extensions uses scripts/Dockerfile.postgres built as easy-rdbms-examples-pg<major>.
 Only containers created here are changed or removed. PostgreSQL is exposed on a random
 loopback port for the real Django/concurrency checks; MySQL has no external network.
 """
 
+import argparse
 import ast
 from contextlib import contextmanager
 import json
@@ -46,16 +49,24 @@ def sql(engine, text, error=None):
 
 
 @contextmanager
-def databases():
+def databases(pg_major=18, extensions=False):
     owned = []
     password = secrets.token_hex(16)
+    pg_image = (f"easy-rdbms-examples-pg{pg_major}" if extensions else
+                f"public.ecr.aws/docker/library/postgres:{pg_major}-{'bookworm' if pg_major >= 18 else 'alpine'}")
+    if extensions:
+        assert run(["docker", "image", "inspect", pg_image]).returncode == 0, (
+            f"Build first: docker build -f scripts/Dockerfile.postgres "
+            f"--build-arg PG_MAJOR={pg_major} -t {pg_image} ."
+        )
     try:
         for engine, image, data_dir, memory, options, client in [
-            ("pg", "postgres:16-alpine", "/var/lib/postgresql/data", "512m",
+            ("pg", pg_image, "/var/lib/postgresql" if pg_major >= 18 else "/var/lib/postgresql/data", "512m",
              ["-e", "POSTGRES_DB=example_check", "-e", f"POSTGRES_PASSWORD={password}",
+              "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256",
               "-p", "127.0.0.1::5432"],
              ["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "example_check"]),
-            ("mysql", "mysql:8.4", "/var/lib/mysql", "768m",
+            ("mysql", "public.ecr.aws/docker/library/mysql:8.4", "/var/lib/mysql", "768m",
              ["--network", "none", "-e", "MYSQL_DATABASE=example_check",
               "-e", "MYSQL_ALLOW_EMPTY_PASSWORD=1"],
              ["mysql", "--protocol=TCP", "-h", "127.0.0.1", "-u", "root",
@@ -64,7 +75,8 @@ def databases():
             cid = run([
                 "docker", "run", "--rm", "-d", "--name", f"easy-rdbms-smoke-{engine}-{secrets.token_hex(4)}",
                 "--memory", memory, "--cpus", "1", "--tmpfs", data_dir,
-                *options, f"public.ecr.aws/docker/library/{image}",
+                *options, image,
+                *(["-c", "shared_preload_libraries=pg_stat_statements"] if engine == "pg" else []),
             ], check=True).stdout.strip()
             owned.append(cid)
             CLIENTS[engine] = ["docker", "exec", "-i", cid, *client]
@@ -105,6 +117,12 @@ def metadata():
         assert set(re.findall(r"^([\w-]+):", header, re.M)) == {"name", "description"}, path
         description = header.split("description:", 1)[1].strip().lstrip(">").strip()
         assert len(" ".join(description.split())) <= 1024, path
+    # 스킬과 상세 문서의 참조는 같은 폴더 또는 skills/ 기준으로 해석한다.
+    for path in ROOT.glob("skills/**/*.md"):
+        for target in re.findall(r"`([^`\n]+\.md)`", path.read_text()):
+            assert any(candidate.is_file() for candidate in [
+                path.parent / target, ROOT / "skills" / target, ROOT / target,
+            ]), (path.relative_to(ROOT), target)
 
 
 def sqlite_and_sync():
@@ -116,6 +134,23 @@ def sqlite_and_sync():
         db.execute("CREATE TABLE named_pk(id INTEGER, CONSTRAINT pk_named_pk PRIMARY KEY(id)) STRICT")
         db.execute("INSERT INTO named_pk DEFAULT VALUES")
         assert db.execute("SELECT rowid,id FROM named_pk").fetchone() == (1, 1)
+        if sqlite3.sqlite_version_info >= (3, 45):
+            db.executescript(block("skills/sqlite-guideline/SKILL.md", "CREATE TABLE local_payload"))
+            assert db.execute("SELECT typeof(payload),json_extract(payload,'$.type') FROM local_payload").fetchone() == ("blob", "message")
+            try:
+                db.execute("INSERT INTO local_payload(payload) VALUES (x'000102')")
+            except sqlite3.IntegrityError:
+                pass
+            else:
+                raise AssertionError("Invalid JSONB was accepted")
+        else:
+            print("SKIP SQLite JSONB: requires 3.45+", flush=True)
+        if sqlite3.sqlite_version_info >= (3, 46):
+            db.execute("PRAGMA optimize=0x10002")
+            db.execute("PRAGMA optimize")
+        else:
+            print("SKIP modern PRAGMA optimize: requires 3.46+", flush=True)
+        print(f"SQLite {sqlite3.sqlite_version}: rowid, JSONB and optimize version gates checked", flush=True)
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
         plugin, harness = base / "plugin", base / "harness"
@@ -240,11 +275,213 @@ def partitions_and_subtypes():
         CREATE TABLE partition_child(customer_id int, created_at date) PARTITION BY RANGE(created_at);
         CREATE TABLE partition_child_default PARTITION OF partition_child DEFAULT;
     """)
-    sql("pg", """ALTER TABLE partition_child ADD CONSTRAINT fk_partition_child
-                 FOREIGN KEY(customer_id) REFERENCES customer(customer_id) NOT VALID;""",
-        error="cannot add NOT VALID foreign key on partitioned table")
-    sql("pg", """ALTER TABLE partition_child ADD CONSTRAINT fk_partition_child
-                 FOREIGN KEY(customer_id) REFERENCES customer(customer_id);""")
+    constraint = """ALTER TABLE partition_child ADD CONSTRAINT fk_partition_child
+                    FOREIGN KEY(customer_id) REFERENCES customer(customer_id)"""
+    if int(sql("pg", "SHOW server_version_num;")) >= 180000:
+        sql("pg", "INSERT INTO partition_child VALUES (-1,'2026-09-01');")
+        sql("pg", constraint + " NOT VALID;")
+        sql("pg", "INSERT INTO partition_child VALUES (-2,'2026-09-01');", error="fk_partition_child")
+        sql("pg", "ALTER TABLE partition_child VALIDATE CONSTRAINT fk_partition_child;", error="fk_partition_child")
+        sql("pg", "DELETE FROM partition_child WHERE customer_id=-1;")
+        sql("pg", "ALTER TABLE partition_child VALIDATE CONSTRAINT fk_partition_child;")
+        assert sql("pg", "SELECT bool_and(convalidated) FROM pg_constraint WHERE conname='fk_partition_child';") == "t"
+    else:
+        sql("pg", constraint + " NOT VALID;", error="cannot add NOT VALID foreign key on partitioned table")
+        sql("pg", constraint + ";")
+
+
+def pg_version_and_rls(config):
+    import psycopg
+    if int(sql("pg", "SHOW server_version_num;")) >= 180000:
+        path = "skills/postgres-guideline/version-and-upgrade.md"
+        sql("pg", block(path, "CREATE TABLE app.catalog_item"))
+        sql("pg", "INSERT INTO app.catalog_item(quantity,unit_price) VALUES (2,1.50);")
+        assert sql("pg", "SELECT uuid_extract_version(catalog_item_id),total_price FROM app.catalog_item;") == "7|3.00"
+        assert sql("pg", "SELECT attgenerated FROM pg_attribute WHERE attrelid='app.catalog_item'::regclass AND attname='total_price';") == "v"
+        sql("pg", block(path, "SHOW io_method"))
+        sql("pg", """CREATE FUNCTION app.plus_one(integer) RETURNS integer
+                    LANGUAGE sql IMMUTABLE AS 'SELECT $1+1';""")
+        sql("pg", """ALTER TABLE app.catalog_item ADD COLUMN invalid_virtual int
+                    GENERATED ALWAYS AS (app.plus_one(quantity)) VIRTUAL;""",
+            error="user-defined function")
+        sql("pg", "DROP TABLE app.catalog_item; DROP FUNCTION app.plus_one(integer);")
+    else:
+        sql("pg", "SELECT uuidv7();", error="function uuidv7() does not exist")
+        sql("pg", """CREATE TABLE virtual_probe(n int, doubled int
+                    GENERATED ALWAYS AS (n*2) VIRTUAL);""", error="syntax error")
+    # 문서의 RLS 정책을 비소유자 역할과 재사용하는 한 연결에서 실행한다.
+    sql("pg", """CREATE TABLE app.purchase_order(
+                  purchase_order_id bigint GENERATED ALWAYS AS IDENTITY,
+                  member_id int, created_at timestamptz NOT NULL DEFAULT now());
+                INSERT INTO app.purchase_order(member_id) VALUES (1),(2);""")
+    sql("pg", block("skills/postgres-guideline/schema-design.md", "CREATE POLICY member_orders"))
+    sql("pg", block("skills/rdbms-modeling/references/views-and-materialized-views.md", "CREATE VIEW app.member_order"))
+    sql("pg", """GRANT USAGE ON SCHEMA app TO app_runtime;
+                GRANT SELECT ON app.member_order TO app_runtime;
+                GRANT SELECT,INSERT ON app.purchase_order TO app_runtime;""")
+    with psycopg.connect(**config, autocommit=True) as conn:
+        conn.execute("SET ROLE app_runtime")
+        assert conn.execute("SELECT member_id FROM app.purchase_order").fetchall() == []
+        assert conn.execute("SELECT member_id FROM app.member_order").fetchall() == []
+        for member in ["1", "2"]:
+            with conn.transaction():
+                conn.execute("SELECT set_config('app.current_member_id', %s, true)", (member,))
+                assert conn.execute("SELECT member_id FROM app.purchase_order").fetchall() == [(int(member),)]
+                assert conn.execute("SELECT member_id FROM app.member_order").fetchall() == [(int(member),)]
+                try:
+                    with conn.transaction():
+                        conn.execute("INSERT INTO app.purchase_order(member_id) VALUES (99)")
+                except psycopg.errors.InsufficientPrivilege:
+                    pass
+                else:
+                    raise AssertionError("RLS accepted another member's row")
+            assert conn.execute("SELECT member_id FROM app.purchase_order").fetchall() == []
+            assert conn.execute("SELECT member_id FROM app.member_order").fetchall() == []
+    sql("pg", "DROP VIEW app.member_order; DROP TABLE app.purchase_order;")
+
+
+def pg_builtin_extensions():
+    path = "skills/postgres-guideline/extensions.md"
+    sql("pg", block(path, "SELECT name, default_version"))
+    sql("pg", block(path, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"))
+    assert int(sql("pg", "SELECT count(*) FROM pg_stat_statements;")) > 0
+    sql("pg", """CREATE TABLE app.catalog_label(catalog_label_id int PRIMARY KEY,label text);
+                INSERT INTO app.catalog_label VALUES (1,'서울시청 안내'),(2,'부산시청 안내');""")
+    query = block(path, "CREATE INDEX idx_catalog_label_label_trgm")
+    sql("pg", query)
+    result = query.split("EXPLAIN (ANALYZE, BUFFERS)", 1)[1]
+    assert sql("pg", result) == "1|서울시청 안내"
+    sql("pg", "DROP TABLE app.catalog_label;")
+
+
+def pg_fdw():
+    cid = CLIENTS["pg"][3]
+    # 임시 CA 겸 서버 인증서로 문서의 verify-full 연결을 그대로 검사한다.
+    with tempfile.TemporaryDirectory() as directory:
+        cert, key = Path(directory) / "fdw.crt", Path(directory) / "fdw.key"
+        run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+             "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(cert)], check=True)
+        for path in [cert, key]:
+            run(["docker", "cp", str(path), f"{cid}:/tmp/{path.name}"], check=True)
+        run(["docker", "exec", "-u", "0", cid, "chown", "postgres:postgres",
+             "/tmp/fdw.crt", "/tmp/fdw.key"], check=True)
+        run(["docker", "exec", "-u", "0", cid, "chmod", "600", "/tmp/fdw.key"], check=True)
+    sql("pg", """ALTER SYSTEM SET ssl_cert_file='/tmp/fdw.crt';
+                ALTER SYSTEM SET ssl_key_file='/tmp/fdw.key';
+                ALTER SYSTEM SET ssl=on;
+                SELECT pg_reload_conf();""")
+    deadline = time.monotonic() + 5
+    while sql("pg", "SHOW ssl;") != "on":
+        assert time.monotonic() < deadline, "SSL reload failed"
+        time.sleep(0.1)
+    password = secrets.token_hex(16)
+    sql("pg", f"""
+        CREATE ROLE report_reader LOGIN PASSWORD '{password}';
+        CREATE SCHEMA reporting;
+        CREATE TABLE reporting.product_snapshot(product_id int PRIMARY KEY,label text NOT NULL);
+        INSERT INTO reporting.product_snapshot VALUES (42,'remote'),(43,'other');
+        GRANT USAGE ON SCHEMA reporting TO report_reader;
+        GRANT SELECT ON reporting.product_snapshot TO report_reader;
+    """)
+    variables = (
+        "\\set fdw_host localhost\n\\set fdw_port 5432\n\\set fdw_dbname example_check\n"
+        f"\\set fdw_ca /tmp/fdw.crt\n\\set fdw_password {password}\n"
+    )
+    path = "skills/postgres-guideline/fdw.md"
+    sql("pg", variables + block(path, "CREATE SERVER reporting_server"))
+    plan = sql("pg", block(path, "EXPLAIN (VERBOSE, COSTS ON)"))
+    assert "Remote SQL:" in plan and "product_id = 42" in plan, plan
+    assert sql("pg", """
+        SET ROLE integration_reader;
+        SELECT product_id,label FROM integration.product_snapshot WHERE product_id=42;
+        RESET ROLE;
+        SELECT bool_and(s.ssl) FROM pg_stat_ssl s JOIN pg_stat_activity a USING(pid)
+        WHERE a.usename='report_reader';
+    """) == "42|remote\nt"
+    sql("pg", """SET ROLE integration_reader;
+                INSERT INTO integration.product_snapshot VALUES (99,'blocked');""",
+        error="permission denied for table product_snapshot")
+    print("postgres_fdw: verify-full TLS, mapping, pushdown and remote read-only grants verified", flush=True)
+
+
+def pg_spatial_and_vector(config):
+    import psycopg
+    path = "skills/postgres-guideline/postgis.md"
+    print(sql("pg", block(path, "CREATE EXTENSION IF NOT EXISTS postgis")), flush=True)
+    sql("pg", block(path, "CREATE TABLE app.place"))
+    sql("pg", """INSERT INTO app.place(label,location) VALUES
+        ('near',ST_SetSRID(ST_MakePoint(126.9790,37.5665),4326)::geography),
+        ('far',ST_SetSRID(ST_MakePoint(129.0756,35.1796),4326)::geography); ANALYZE app.place;""")
+    query = block(path, "ST_DWithin(location").replace("EXPLAIN (ANALYZE, BUFFERS)", "")
+    rows = sql("pg", query).splitlines()
+    assert [row.split("|")[1] for row in rows] == ["서울시청", "near"], rows
+    # 작은 fixture에서 강제 계획은 인덱스 적격성만 증명하며 성능 수치로 쓰지 않는다.
+    plan = sql("pg", "SET enable_seqscan=off; EXPLAIN (ANALYZE, BUFFERS) " + query)
+    assert "idx_place_location" in plan, plan
+    sql("pg", """INSERT INTO app.place(label,location)
+                VALUES ('wrong-srid',ST_SetSRID(ST_MakePoint(0,0),3857));""", error="Only lon/lat")
+    path = "skills/postgres-guideline/pgvector.md"
+    print("pgvector " + sql("pg", block(path, "CREATE EXTENSION IF NOT EXISTS vector")), flush=True)
+    sql("pg", block(path, "CREATE TABLE app.document_chunk"))
+    sql("pg", """INSERT INTO app.document_chunk(tenant_id,content,embedding)
+                SELECT CASE WHEN i%2=0 THEN 7 ELSE 8 END, 'chunk '||i,
+                       ARRAY[1.0, i/1000.0, i/2000.0]::vector
+                FROM generate_series(1,5000) i;""")
+    sql("pg", "INSERT INTO app.document_chunk(tenant_id,content,embedding) VALUES (7,'zero','[0,0,0]');", error="chk_document_chunk_nonzero")
+    sql("pg", "INSERT INTO app.document_chunk(tenant_id,content,embedding) VALUES (7,'dimension','[1,0]');", error="expected 3 dimensions")
+    exact_query = block(path, "CREATE TABLE app.document_chunk").split("-- ANN 인덱스가 없으면", 1)[1]
+    exact_query = exact_query[exact_query.index("SELECT document_chunk_id"):]
+    exact = sql("pg", exact_query).splitlines()
+    sql("pg", block(path, "CREATE INDEX idx_document_chunk_embedding"))
+    sql("pg", "ANALYZE app.document_chunk;")
+    iterative = block(path, "SET LOCAL hnsw.iterative_scan")
+    approximate = sql("pg", iterative).splitlines()
+    assert [row.split("|")[0] for row in exact] == [row.split("|")[0] for row in approximate]
+    plan = sql("pg", "SET enable_seqscan=off; EXPLAIN (ANALYZE, BUFFERS) " + exact_query)
+    assert "idx_document_chunk_embedding" in plan, plan
+    # 실제 ANN 경로에서도 tenant RLS와 트랜잭션 종료 후 설정 복원을 검사한다.
+    sql("pg", """
+        ALTER TABLE app.document_chunk ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY tenant_chunk ON app.document_chunk
+          USING (tenant_id=(SELECT NULLIF(current_setting('app.tenant_id',true),'')::bigint));
+        GRANT USAGE ON SCHEMA public TO app_runtime;
+        GRANT SELECT ON app.document_chunk TO app_runtime;
+    """)
+    with psycopg.connect(**config, autocommit=True) as conn:
+        conn.execute("SET ROLE app_runtime")
+        with conn.transaction():
+            conn.execute("SELECT set_config('app.tenant_id','7',true)")
+            conn.execute("SET LOCAL enable_seqscan=off")
+            conn.execute("SET LOCAL hnsw.iterative_scan=strict_order")
+            conn.execute("SET LOCAL hnsw.ef_search=100")
+            # WHERE를 빼도 RLS 자체가 테넌트를 격리해야 한다.
+            result = conn.execute(exact_query.replace("WHERE tenant_id = 7\n", "")).fetchall()
+            assert [str(row[0]) for row in result] == [row.split("|")[0] for row in exact]
+            assert all(int(row[0]) % 2 == 0 for row in result)
+        assert conn.execute("SELECT count(*) FROM app.document_chunk").fetchone() == (0,)
+        assert conn.execute("SHOW hnsw.iterative_scan").fetchone() == ("off",)
+    print("PostGIS: meter radius + GiST; pgvector: exact/HNSW, dimensions, filtered recall and RLS verified", flush=True)
+
+
+def mysql_84():
+    assert sql("mysql", "SELECT @@innodb_adaptive_hash_index,@@innodb_change_buffering,@@restrict_fk_on_non_standard_key;") == "0\tnone\t1"
+    sql("mysql", block("skills/mysql-guideline/operations.md", "SELECT @@version,"))
+    assert sql("mysql", "SHOW VARIABLES LIKE 'default_authentication_plugin';") == ""
+    sql("mysql", "CREATE USER 'auth_probe'@'localhost' IDENTIFIED BY 'disposable-test-only';")
+    assert sql("mysql", "SELECT plugin FROM mysql.user WHERE user='auth_probe';") == "caching_sha2_password"
+    sql("mysql", "ALTER USER 'auth_probe'@'localhost' IDENTIFIED WITH mysql_native_password BY 'disposable-test-only';",
+        error="Plugin 'mysql_native_password' is not loaded")
+    sql("mysql", "DROP USER 'auth_probe'@'localhost';")
+    sql("mysql", "SHOW REPLICA STATUS;")
+    sql("mysql", "SHOW SLAVE STATUS;", error="syntax")
+    sql("mysql", "CREATE TABLE nonunique_parent(code int,KEY idx_parent_code(code));")
+    child = "CREATE TABLE fk_probe(code int,FOREIGN KEY(code) REFERENCES nonunique_parent(code));"
+    sql("mysql", child, error="Missing unique key")
+    sql("mysql", "ALTER TABLE nonunique_parent ADD UNIQUE KEY uq_parent_code(code);")
+    sql("mysql", child)
+    sql("mysql", "INSERT INTO fk_probe VALUES(1);", error="foreign key constraint fails")
+    sql("mysql", "ALTER TABLE fk_probe ADD COLUMN label varchar(30), ALGORITHM=INSTANT;")
+    sql("mysql", "DROP TABLE fk_probe; DROP TABLE nonunique_parent;")
 
 
 def parent_locks(config):
@@ -381,16 +618,27 @@ def django_backfill(config):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pg-major", type=int, choices=[16, 18], default=18)
+    parser.add_argument("--extensions", action="store_true", help="Run PostGIS/pgvector examples using the test image")
+    options = parser.parse_args()
     import django  # Fail before starting containers if test dependencies are missing.
     import psycopg
+    assert shutil.which("openssl"), "OpenSSL is required for the FDW TLS check"
     for check in [metadata, sqlite_and_sync]:
         check()
         print(f"PASS {check.__name__}", flush=True)
-    with databases() as config:
+    with databases(options.pg_major, options.extensions) as config:
         for check, args in [
             (pg_cutover, ()), (pg_backfill, (config,)), (showcase, ()),
             (partitions_and_subtypes, ()), (parent_locks, (config,)),
-            (mysql_examples, ()), (django_backfill, (config,)),
+            (pg_version_and_rls, (config,)), (pg_builtin_extensions, ()), (pg_fdw, ()),
+            (mysql_examples, ()), (mysql_84, ()), (django_backfill, (config,)),
         ]:
             check(*args)
             print(f"PASS {check.__name__}", flush=True)
+        if options.extensions:
+            pg_spatial_and_vector(config)
+            print("PASS pg_spatial_and_vector", flush=True)
+        else:
+            print("SKIP PostGIS/pgvector: build scripts/Dockerfile.postgres, then pass --extensions", flush=True)

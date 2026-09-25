@@ -137,7 +137,7 @@ less likely to regret.
 | Row Level Security is part of the authorization model | Aurora MySQL is the standardized platform |
 | Extensions matter (`pg_stat_statements`, `pg_partman`, `pgvector`, `TimescaleDB`) | Vitess-style horizontal scaling is the planned end state |
 | Strict SQL standard conformance and transactional DDL | Existing replication topology and runbooks are MySQL |
-| Vector search is on the roadmap (`pgvector`) | — |
+| 임베딩 검색이 실제 요구이고 pgvector의 지연·recall·운영 비용이 맞음 | — |
 
 Not a tiebreaker: raw single-row read benchmarks. At Tier 0–2 both engines are far faster
 than the application around them.
@@ -145,6 +145,15 @@ than the application around them.
 This plugin's design guidance covers **MySQL, PostgreSQL, and SQLite**. If the project is committed
 to a different relational engine, say that the follow-up guidance here does not apply rather than
 recommending against their platform.
+
+기본 검토 대상은 **PostgreSQL 18 / MySQL 8.4 LTS**이며, 기존 PG 16/17과 관리형 버전은
+별도 호환 조건을 확인한다. MySQL의 다른 LTS 선택은 `mysql-guideline/release-policy.md`,
+SQLite는 실제 번들 버전별 기능을 `sqlite-guideline`에서 확인한다.
+
+PostgreSQL 확장 선택은 `postgres-guideline/extensions.md`로 연결한다. FDW는 외부 조회,
+PostGIS는 공간 검색, pgvector는 임베딩 검색에 적용하며 모두 설치·권한·운영 비용이 있다.
+FDW를 CDC나 분산 원자적 커밋으로 취급하지 않는다. MySQL 8.4 Community에 PostgreSQL
+확장 문법을 적용하거나 HeatWave/다른 major의 벡터 기능이 있다고 가정하지 않는다.
 
 ## Step 4 — Deployment Form
 

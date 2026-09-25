@@ -100,6 +100,20 @@ index policy for a plain view is simply the base tables' index policy.
 - A security view restricts predicate pushdown and limits statistics use — inspect its plan
   separately rather than assuming it matches the non-barrier version
 
+기본 view는 원본 테이블 접근과 RLS를 **view 소유자 기준**으로 평가한다.
+호출자별 원본 권한·RLS를 유지해야 하는 PostgreSQL 15+ view는 `security_invoker`를 사용한다.
+`security_barrier`는 predicate 평가 경계를 위한 것으로 이 설정을 대신하지 않는다.
+
+```sql
+-- 원본 app.purchase_order의 RLS를 호출자에게 그대로 적용한다.
+CREATE VIEW app.member_order WITH (security_invoker = true) AS
+SELECT purchase_order_id, member_id, created_at FROM app.purchase_order;
+```
+
+호출자는 view와 원본 테이블 모두에 필요한 권한이 있어야 한다. 테이블 직접 조회뿐 아니라
+**실제 앱 역할로 view를 통한 조회**도 검증한다.
+[PostgreSQL CREATE VIEW 권한·RLS 규칙](https://www.postgresql.org/docs/18/sql-createview.html).
+
 ## Indexing a PostgreSQL Materialized View
 
 Two different index sets, serving two different queries:

@@ -2,7 +2,8 @@
 
 ## Primary Key Policy
 - Use `AUTO_INCREMENT` with appropriate unsigned integer type
-- Choose type by expected row count: `tinyint` < `smallint` < `int` < `bigint`
+- PK는 현재 행 수가 아니라 증가 유형으로 결정한다. 상한이 있는 엔터티는 `int unsigned`,
+  이벤트·로그는 `bigint unsigned`; 근거와 전체 정책은 `SKILL.md`.
 
 ```sql
 CREATE TABLE `member` (
@@ -15,6 +16,10 @@ CREATE TABLE `member` (
   CONSTRAINT chk_member_is_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
+
+`utf8mb4_0900_ai_ci`는 accent/case-insensitive다. 로그인 ID·코드·외부 키의 대소문자를
+구분해야 하면 그 컬럼의 collation과 UNIQUE 의미를 먼저 정하고 실제 문자열로 검증한다.
+기존 collation 변경은 비교 결과·중복·인덱스 재구축까지 포함하는 마이그레이션이다.
 
 ## Foreign Key Policy
 - These examples use logical FKs by default; established project policy can use physical FKs on

@@ -34,8 +34,8 @@ the middle (`database-migrations` has the procedure).
 | Write-heavy | `IDENTITY`, or UUIDv7 — not UUIDv4 |
 | Externally visible ID | UUID PK, or an integer PK plus a separate public UID |
 
-**`uuidv7()` is built in from PostgreSQL 18.** This guideline's baseline is 16.7+, so on 16 and 17
-generate v7 in the application or use a vetted extension. `gen_random_uuid()` returns **v4** — do
+**`uuidv7()` is built in from PostgreSQL 18**, this guideline's default target. On existing 16/17
+servers generate v7 in the application or use a vetted extension. `gen_random_uuid()` returns **v4** — do
 not reach for it when ordering is what you wanted.
 
 Never use a raw timestamp as the sole PK (concurrent collisions, clock regression), and never
@@ -74,8 +74,8 @@ below and state why.
 | 2 | Referencing column is **indexed** (PostgreSQL never auto-creates this) | Create the index in the same migration, or every parent delete/key update sequentially scans the child |
 | 3 | No **redundant** index introduced | Reuse an index that already leads with the column |
 | 4 | If `CASCADE`: the child's **lifecycle genuinely depends** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
-| 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if used |
-| 6 | Validation path matches the server version, referencing table, and lock budget | See `rdbms-modeling/references/foreign-keys.md`: PostgreSQL 16 partitioned referencing tables cannot use `NOT VALID` |
+| 5 | **`NOT DEFERRABLE`** unless a circular reference must resolve in one transaction | Keep it non-deferrable. MySQL은 deferred FK를 지원하지 않으며 SQLite는 별도 지원 |
+| 6 | Validation path matches the server version, referencing table, and lock budget | See `rdbms-modeling/references/foreign-keys.md`: partitioned referencing tables support `NOT VALID` from PostgreSQL 18; 16/17 reject it |
 
 ```sql
 -- Condition 2 first, in the same migration
@@ -88,7 +88,7 @@ ALTER TABLE app.purchase_order
 ```
 
 ```sql
--- Condition 6: two-step add on a large existing NON-PARTITIONED referencing table
+-- 비파티션 테이블: 16~18. 파티션 참조 테이블: 18부터 지원한다.
 ALTER TABLE app.purchase_order
   ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)
@@ -262,7 +262,7 @@ ALTER TABLE app.purchase_order FORCE ROW LEVEL SECURITY;
 -- auth.uid() — and make sure the types match the key you compare against.
 CREATE POLICY member_orders ON app.purchase_order
   USING (
-    member_id = (SELECT current_setting('app.current_member_id', true))::int
+    member_id = (SELECT NULLIF(current_setting('app.current_member_id', true), ''))::int
   );
 
 -- Always index RLS policy columns
@@ -271,6 +271,16 @@ CREATE INDEX idx_purchase_order_member_id ON app.purchase_order (member_id);
 
 REVOKE ALL ON SCHEMA public FROM public;
 ```
+
+인증된 요청의 member ID는 **같은 트랜잭션 안에서** 바인딩한
+`SELECT set_config('app.current_member_id', %(member_id)s, true)`로 설정한다.
+마지막 인자 `true`는 트랜잭션 종료 후 설정이 풀의 다음 요청으로 누출되지 않게 한다.
+미설정·reset 후 빈 값은 위 정책에서 NULL이 되어 행을 허용하지 않는다.
+값은 신뢰할 수 있는 인증 계층이 정해야 한다. 앱 역할이 임의 SQL을 실행할 수 있다면 custom
+GUC도 바꿀 수 있으므로 이 패턴만으로 SQL injection이나 임의 SQL 사용자를 격리할 수는 없다.
+FDW의 원격 역할에는 로컬 GUC가 자동 전달되지 않는다(`fdw.md`).
+view 경유 시에는 소유자 권한으로 RLS를 우회하지 않는지도 확인한다. `security_invoker`의
+선택 조건은 `rdbms-modeling/references/views-and-materialized-views.md`를 따른다.
 
 ## JSONB Usage
 
@@ -299,8 +309,11 @@ WHERE member_id = 1;
 SELECT member_id, setting_data FROM app.member_setting WHERE setting_data ? 'theme';
 ```
 
+생성 컬럼은 `VIRTUAL`/`STORED`를 명시한다. 18의 VIRTUAL 기본값, 확장 타입·함수 제한과
+16/17 호환 경로는 `version-and-upgrade.md`; 공간·벡터 컬럼은 `postgis.md`와 `pgvector.md`.
+
 ## Table Creation Checklist
-- [ ] PK uses `GENERATED ALWAYS AS IDENTITY` (not SERIAL)
+- [ ] PK uses `GENERATED ALWAYS AS IDENTITY` or a justified UUID strategy (not SERIAL by reflex)
 - [ ] FK: physical constraint only where all six conditions hold (PK/UNIQUE target, referencing
       column indexed, no redundant index, `CASCADE` justified by lifecycle dependency,
       `NOT DEFERRABLE`, version/partition-aware validation within the lock budget)

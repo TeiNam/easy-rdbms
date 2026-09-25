@@ -114,7 +114,7 @@ used in search conditions → `TEXT`.
   ```sql
   SELECT UUID_TO_BIN(UUID(), 1);  -- time-ordered binary
   ```
-  > MySQL `UUID()` is **v1-only** (no v7 as of 2026-07). For time-sortable + globally-unique keys, generate
+  > MySQL **8.4**의 `UUID()`는 **v1-only**다. For time-sortable + globally-unique keys, generate
   > **UUID v7 in the application** and store as `BINARY(16)` (see 5.2).
 
 ## 3. Avoid Stored Procedure · Trigger · Event Scheduler

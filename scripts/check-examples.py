@@ -132,6 +132,8 @@ def metadata():
     for path in ROOT.glob("skills/*/SKILL.md"):
         header = path.read_text().split("---", 2)[1]
         assert set(re.findall(r"^([\w-]+):", header, re.M)) == {"name", "description"}, path
+        # 호출명은 frontmatter name 이므로 디렉터리명과 같아야 아래 충돌 검사가 유효하다.
+        assert re.search(r"^name:\s*(\S+)", header, re.M)[1] == path.parent.name, path
         description = header.split("description:", 1)[1].strip().lstrip(">").strip()
         assert len(" ".join(description.split())) <= 1024, path
     # Claude Code에서 같은 이름의 command는 스킬 description(유일한 트리거)을 가린다.

@@ -26,7 +26,7 @@ jobs:
       # 루트 CLAUDE.md 경고는 개발용 파일이라 의도된 것이므로 --strict 없이 오류만 실패로 본다.
       - name: Claude Code plugin validate
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g @anthropic-ai/claude-code@2.1.282
           claude plugin validate .
           claude plugin validate .claude-plugin/plugin.json
 

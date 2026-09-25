@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- GitHub Actions CI와 release-please를 추가했습니다. 릴리즈 PR에서 두 매니페스트·README
+  양쪽 버전·변경 이력을 함께 올리고, 검증 후 병합한 커밋에 기존 형식의 태그와 Release를 만듭니다.
+- Claude Code의 `/easy-rdbms:update`와 Codex의 `$easy-rdbms:update`를 추가했습니다.
+  마켓플레이스 갱신과 실제 플러그인 갱신을 구분하고 설치 버전·세션 적용 여부를 확인합니다.
+- Docker 없이 실행하는 `--metadata-only` 검사와 릴리즈 버전 파일의 일치 검사를 추가했습니다.
 - MySQL 8.4 LTS·PostgreSQL 18을 기본 검토 대상으로 정리하고 기존 PostgreSQL 16/17의
   호환 경계를 추가했습니다. UUIDv7·생성 컬럼·skip scan·비동기 I/O·파티션 FK 검증과
   MySQL 인증·InnoDB 기본값·비표준 FK·제거된 명령을 반영했습니다.

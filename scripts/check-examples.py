@@ -4,6 +4,7 @@
 Requires Docker, OpenSSL, Django 5.2, and psycopg 3. Run: python scripts/check-examples.py
 Default: PostgreSQL 18 / MySQL 8.4. --pg-major 16 checks compatibility.
 --extensions uses scripts/Dockerfile.postgres built as easy-rdbms-examples-pg<major>.
+--metadata-only checks plugin/release metadata without Docker or third-party packages.
 Only containers created here are changed or removed. PostgreSQL is exposed on a random
 loopback port for the real Django/concurrency checks; MySQL has no external network.
 """
@@ -109,9 +110,18 @@ def metadata():
     }
     assert len(versions) == 1, versions
     version = versions.pop()
+    assert (ROOT / "version.txt").read_text().strip() == version
+    assert json.loads((ROOT / ".release-please-manifest.json").read_text()) == {".": version}
+    release_config = json.loads((ROOT / "release-please-config.json").read_text())["packages"]["."]
+    assert set(release_config["extra-files"]) == {
+        ".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "README.md",
+    }
     readme = (ROOT / "README.md").read_text()
     assert f"Current: **{version}**" in readme
     assert f"현재 배포 버전은 **{version}**" in readme
+    for line in readme.splitlines():
+        if "Current: **" in line or "현재 배포 버전은 **" in line:
+            assert "<!-- x-release-please-version -->" in line, line
     for path in ROOT.glob("skills/*/SKILL.md"):
         header = path.read_text().split("---", 2)[1]
         assert set(re.findall(r"^([\w-]+):", header, re.M)) == {"name", "description"}, path
@@ -621,13 +631,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pg-major", type=int, choices=[16, 18], default=18)
     parser.add_argument("--extensions", action="store_true", help="Run PostGIS/pgvector examples using the test image")
+    parser.add_argument("--metadata-only", action="store_true", help="Check plugin and release metadata only")
     options = parser.parse_args()
+    metadata()
+    print("PASS metadata", flush=True)
+    if options.metadata_only:
+        raise SystemExit(0)
     import django  # Fail before starting containers if test dependencies are missing.
     import psycopg
     assert shutil.which("openssl"), "OpenSSL is required for the FDW TLS check"
-    for check in [metadata, sqlite_and_sync]:
-        check()
-        print(f"PASS {check.__name__}", flush=True)
+    sqlite_and_sync()
+    print("PASS sqlite_and_sync", flush=True)
     with databases(options.pg_major, options.extensions) as config:
         for check, args in [
             (pg_cutover, ()), (pg_backfill, (config,)), (showcase, ()),

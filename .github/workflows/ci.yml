@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Plugin metadata and hooks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: |
+          python3 scripts/check-examples.py --metadata-only
+          python3 scripts/check-readme-bilingual.py
+          sh hooks/detect-db.test.sh
+
+  examples:
+    name: PostgreSQL ${{ matrix.postgres }} and MySQL 8.4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [16, 18]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python3 -m pip install 'Django>=5.2,<5.3' 'psycopg[binary]>=3,<4'
+      - name: 문서 예제 실행
+        env:
+          PG_MAJOR: ${{ matrix.postgres }}
+        run: |
+          args=(--pg-major "$PG_MAJOR")
+          if [ "$PG_MAJOR" = 18 ]; then
+            docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
+            args+=(--extensions)
+          fi
+          python3 scripts/check-examples.py "${args[@]}"

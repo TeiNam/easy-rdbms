@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "easy-rdbms",
-      "description": "From database selection to schema design. Scale-aware engine choice, naming conventions, 3NF modeling, and schema/query review for MySQL and PostgreSQL.",
+      "description": "From database selection to schema design. Scale-aware engine choice, naming conventions, 3NF modeling, and schema/query review for MySQL, PostgreSQL, and SQLite.",
       "source": "./",
       "category": "database"
     }

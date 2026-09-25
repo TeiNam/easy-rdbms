@@ -134,6 +134,10 @@ def metadata():
         assert set(re.findall(r"^([\w-]+):", header, re.M)) == {"name", "description"}, path
         description = header.split("description:", 1)[1].strip().lstrip(">").strip()
         assert len(" ".join(description.split())) <= 1024, path
+    # Claude Code에서 같은 이름의 command는 스킬 description(유일한 트리거)을 가린다.
+    skills = {path.name for path in ROOT.glob("skills/*") if path.is_dir()}
+    commands = {path.stem for path in ROOT.glob("commands/*.md")}
+    assert not skills & commands, skills & commands
     # 스킬과 상세 문서의 참조는 같은 폴더 또는 skills/ 기준으로 해석한다.
     for path in ROOT.glob("skills/**/*.md"):
         for target in re.findall(r"`([^`\n]+\.md)`", path.read_text()):

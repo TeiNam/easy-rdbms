@@ -52,6 +52,9 @@ recommendation toward the boring, replaceable option.
 If the requester cannot answer volume and traffic even to an order of magnitude, they are at
 prototype scale. Treat it as Tier 0 and say so.
 
+If the project already has a database (the session hook may have said so), do not re-litigate
+the choice unless asked. Review whether the current scale tier still fits instead.
+
 ## Step 1 — Is an RDBMS Even Right?
 
 **Default answer: yes, and specifically PostgreSQL.** Relational is the correct default

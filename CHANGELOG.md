@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.1...easy-rdbms--v0.5.2) (2026-09-25)
+
+
+### 수정
+
+* 2-way 교차 리뷰 3라운드 보정 — 플러그인 검증 강화 ([#30](https://github.com/TeiNam/easy-rdbms/issues/30)) ([e61af79](https://github.com/TeiNam/easy-rdbms/commit/e61af79a969139529514a9c94304bdd1424730e6))
+* Claude Code에서 스킬을 가리던 동명 command 제거와 플러그인 검증 추가 ([#28](https://github.com/TeiNam/easy-rdbms/issues/28)) ([68fef03](https://github.com/TeiNam/easy-rdbms/commit/68fef031f187c7386549e7bc8bf78bb16b358255))
+
 ## [0.5.1](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.0...easy-rdbms--v0.5.1) (2026-09-25)
 
 

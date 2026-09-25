@@ -1,7 +1,7 @@
 # Easy RDBMS
 
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
-![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%20%26%20Release-2088FF.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
 
@@ -73,15 +73,31 @@ Either harness also installs from a local checkout — pass the path instead of 
 
 ### Updating
 
+In Claude Code, run `/easy-rdbms:update`; in Codex, invoke `$easy-rdbms:update`.
+The shared update skill refreshes this marketplace, updates the installed plugin, and verifies
+the installed version. It operates on the current harness unless you request both.
+
+For an older installation that does not have the update skill yet, use the native CLI commands:
+
 ```bash
+# Claude Code
 claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
-codex plugin marketplace upgrade
+claude plugin list --json
+
+# Codex: refresh the catalog, then update the installed plugin
+codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
+codex plugin list --marketplace easy-rdbms --json
 ```
+
+Start a new Codex session afterwards. In Claude Code, run `/reload-plugins` or start a new session.
+Local paths and pinned refs retain their configured source. Claude Code also supports marketplace
+auto-update: `/plugin` → Marketplaces → easy-rdbms → Enable auto-update. This is opt-in for
+third-party marketplaces; the plugin does not change that setting.
 
 ## What's inside
 
-Eight skills, shared by both harnesses. They activate on their own when a task mentions relevant
-work; you can also name one explicitly.
+Nine skills, shared by both harnesses: eight for database work and one for plugin updates.
+They activate when a task mentions relevant work; you can also name one explicitly.
 
 | Skill | Use it for |
 |---|---|
@@ -93,6 +109,7 @@ work; you can also name one explicitly.
 | `postgres-guideline` | PostgreSQL 18, 16/17 compatibility, managed/Aurora, FDW/PostGIS/pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — embedded, local, prototype |
 | `database-migrations` | Zero-downtime schema change and rollback strategy |
+| `update` | Update this plugin and verify its installed version |
 
 `rdbms-modeling` carries **ten reference files** loaded on demand, so the policy detail costs
 nothing until the model actually needs it.
@@ -106,6 +123,7 @@ Skills activate automatically when the task matches. To invoke one explicitly:
 | Database selection | `/db-select` | `$easy-rdbms:db-select` |
 | Schema design | `/schema-design` | `$easy-rdbms:rdbms-modeling` |
 | Schema review | `/schema-review` | `$easy-rdbms:rdbms-review` |
+| Plugin update | `/easy-rdbms:update` | `$easy-rdbms:update` |
 
 Codex users can browse installed skills with `/skills`. Codex plugins do not register custom slash
 commands.
@@ -471,7 +489,7 @@ subagents, so modeling and review procedures live in the skill bodies and Claude
 agent wrappers pointing at them.
 
 **Progressive loading.** Modeling and cost detail stays in eleven files under `references/`.
-The eight skill descriptions route to the relevant engine and extension guides, which are loaded
+The eight database skill descriptions route to the relevant engine and extension guides, which are loaded
 when needed.
 
 **Scale-aware, not scale-maximal.** `db-select` tells you *not* to add read replicas, partitioning,
@@ -531,9 +549,39 @@ HNSW results, and RLS. Small fixtures prove behavior, not production latency or 
 Runs print actual server/extension versions; tags and package repositories can move. The image
 is kept for reuse, while test containers/data are removed. No existing application DB is changed.
 
+## Release automation
+
+Merging to `main` runs the same metadata, hook, PostgreSQL 16/18, MySQL 8.4, PostGIS, and pgvector
+checks in GitHub Actions. After they pass, release-please creates or updates a release PR:
+
+1. `feat:` raises the minor version; `fix:` or `perf:` raises the patch version.
+   `feat!:` or `BREAKING CHANGE:` raises the major version. Docs/chore commits alone do not release.
+2. The release PR updates `version.txt`, `.release-please-manifest.json`, both plugin manifests,
+   both README version lines, and `CHANGELOG.md` together.
+3. CI also runs on the release PR. Merge it after checks pass; Actions then publishes the matching
+   `easy-rdbms--vX.Y.Z` tag and GitHub Release from that versioned commit.
+
+Write release notes in the conventional commit/PR squash message. Do not create a release tag
+before bumping the manifests or edit the version files independently. The action is pinned to a
+commit and reuses release-please's release tracking when a run is retried.
+
+Repository setup: allow GitHub Actions to create pull requests under Settings → Actions → General.
+The workflow uses `GITHUB_TOKEN` and explicitly dispatches release-PR CI, so no additional PAT is
+required. To retry the process from the repository root:
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+For metadata-only checks without Docker or third-party Python packages:
+
+```bash
+python3 scripts/check-examples.py --metadata-only
+```
+
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **0.4.1**.
+See [CHANGELOG.md](CHANGELOG.md). Current: **0.4.1**. <!-- x-release-please-version -->
 
 ## License
 
@@ -596,7 +644,32 @@ codex plugin add easy-rdbms@easy-rdbms
 Codex는 플러그인 훅을 자동으로 신뢰하지 않습니다. 설치 후 `/hooks`에서 Easy RDBMS의
 `SessionStart` 훅을 검토하고 승인해야 자동 엔진 감지가 켜집니다.
 
+### 업데이트
+
+Claude Code에서는 `/easy-rdbms:update`, Codex에서는 `$easy-rdbms:update`를 호출합니다.
+현재 실행 환경에서 easy-rdbms 마켓플레이스와 설치된 플러그인을 차례로 갱신하고 버전을 확인합니다.
+두 환경 모두 갱신하려면 호출할 때 이를 명시합니다.
+
+업데이트 스킬이 없는 이전 버전은 아래 CLI 명령으로 한 번 갱신합니다.
+
+```bash
+# Claude Code
+claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
+claude plugin list --json
+
+# Codex: 목록 갱신 후 설치된 플러그인도 갱신
+codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
+codex plugin list --marketplace easy-rdbms --json
+```
+
+Codex는 새 대화에서 적용됩니다. Claude Code는 `/reload-plugins`를 실행하거나 새 세션을 시작합니다.
+로컬 경로·고정 ref는 기존 출처를 유지합니다. Claude Code의 `/plugin` → Marketplaces →
+easy-rdbms → Enable auto-update로 자동 갱신을 켤 수도 있습니다. 외부 마켓플레이스는 기본적으로
+꺼져 있으며, 플러그인이 사용자 설정을 임의로 변경하지 않습니다.
+
 ### 구성
+
+DB 작업용 8개와 플러그인 업데이트용 1개, 총 9개 스킬을 두 환경에서 공유합니다.
 
 | 스킬 | 용도 |
 |---|---|
@@ -608,11 +681,13 @@ Codex는 플러그인 훅을 자동으로 신뢰하지 않습니다. 설치 후 
 | `postgres-guideline` | PostgreSQL 18, 기존 16/17 호환, 관리형/Aurora, FDW·PostGIS·pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — 임베디드·로컬·프로토타입 |
 | `database-migrations` | 무중단 스키마 변경, 롤백 전략 |
+| `update` | 플러그인 갱신과 설치 버전 확인 |
 
 스킬은 관련 작업이 언급되면 자동 발동합니다. 명시적으로 호출할 때는 Claude Code에서
 `/db-select`, `/schema-design`, `/schema-review`를, Codex에서 `$easy-rdbms:db-select`,
 `$easy-rdbms:rdbms-modeling`, `$easy-rdbms:rdbms-review`를 사용합니다. Codex의 `/skills`에서
 설치된 스킬을 찾아볼 수도 있습니다.
+플러그인 업데이트는 Claude Code의 `/easy-rdbms:update`, Codex의 `$easy-rdbms:update`로 호출합니다.
 
 Claude Code 전용 서브에이전트 `rdbms-modeler`·`rdbms-reviewer`는 스킬을 가리키는 얇은 래퍼입니다.
 Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어서, 같은 절차를 스킬 본문에 넣었습니다.
@@ -845,4 +920,34 @@ Claude 자체 리뷰 + Codex 독립 리뷰 **11라운드, 292건** 반영
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.
 
-현재 배포 버전은 **0.4.1**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+### 릴리즈 자동화
+
+`main`에 병합하면 GitHub Actions가 메타데이터·훅·PostgreSQL 16/18·MySQL 8.4·PostGIS·pgvector
+검사를 실행합니다. 통과 후 release-please가 릴리즈 PR을 생성하거나 갱신합니다.
+
+1. `feat:`는 minor, `fix:`·`perf:`는 patch, `feat!:`·`BREAKING CHANGE:`는 major를 올립니다.
+   문서·관리용 `docs:`·`chore:`만으로는 릴리즈하지 않습니다.
+2. 릴리즈 PR에서 `version.txt`·`.release-please-manifest.json`·두 플러그인 매니페스트·
+   README의 양쪽 버전·`CHANGELOG.md`를 함께 갱신합니다.
+3. 릴리즈 PR의 CI까지 통과하면 병합합니다. Actions가 버전을 올린 해당 커밋에
+   `easy-rdbms--vX.Y.Z` 태그와 GitHub Release를 생성합니다.
+
+변경 이력은 Conventional Commit 형식의 커밋 또는 PR squash 메시지에 작성합니다.
+버전 파일을 따로 수정하거나 매니페스트를 올리기 전에 태그부터 만들지 않습니다.
+액션은 커밋 SHA로 고정하며, 재실행 시 release-please의 기존 릴리즈 기록을 이용합니다.
+
+저장소의 Settings → Actions → General에서 GitHub Actions의 PR 생성을 허용해야 합니다.
+`GITHUB_TOKEN`과 릴리즈 PR의 명시적 CI 실행을 사용하므로 별도 PAT는 필요하지 않습니다.
+저장소 루트에서 재실행하려면:
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+Docker나 추가 Python 패키지 없이 버전·플러그인 메타데이터만 검사할 수도 있습니다.
+
+```bash
+python3 scripts/check-examples.py --metadata-only
+```
+
+현재 배포 버전은 **0.4.1**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. <!-- x-release-please-version -->

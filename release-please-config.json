@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "4a5efd245537c79ea8825f4d868528faf48ccef9",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "easy-rdbms",
+      "component": "easy-rdbms",
+      "include-component-in-tag": true,
+      "tag-separator": "--",
+      "extra-files": [
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        "README.md"
+      ],
+      "changelog-sections": [
+        {"type": "feat", "section": "기능"},
+        {"type": "fix", "section": "수정"},
+        {"type": "perf", "section": "성능"},
+        {"type": "revert", "section": "되돌림"}
+      ]
+    }
+  }
+}

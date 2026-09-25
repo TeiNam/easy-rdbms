@@ -81,12 +81,14 @@ For an older installation that does not have the update skill yet, use the nativ
 
 ```bash
 # Claude Code
-claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
-claude plugin list --json
+claude plugin marketplace update easy-rdbms && \
+  claude plugin update easy-rdbms@easy-rdbms && \
+  claude plugin list --json
 
 # Codex: refresh the catalog, then update the installed plugin
-codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
-codex plugin list --marketplace easy-rdbms --json
+codex plugin marketplace upgrade easy-rdbms && \
+  codex plugin add easy-rdbms@easy-rdbms && \
+  codex plugin list --marketplace easy-rdbms --json
 ```
 
 Start a new Codex session afterwards. In Claude Code, run `/reload-plugins` or start a new session.
@@ -581,7 +583,7 @@ python3 scripts/check-examples.py --metadata-only
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Current: **0.4.1**. <!-- x-release-please-version -->
+See [CHANGELOG.md](CHANGELOG.md). Current: **0.5.0**. <!-- x-release-please-version -->
 
 ## License
 
@@ -654,12 +656,14 @@ Claude Code에서는 `/easy-rdbms:update`, Codex에서는 `$easy-rdbms:update`�
 
 ```bash
 # Claude Code
-claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
-claude plugin list --json
+claude plugin marketplace update easy-rdbms && \
+  claude plugin update easy-rdbms@easy-rdbms && \
+  claude plugin list --json
 
 # Codex: 목록 갱신 후 설치된 플러그인도 갱신
-codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
-codex plugin list --marketplace easy-rdbms --json
+codex plugin marketplace upgrade easy-rdbms && \
+  codex plugin add easy-rdbms@easy-rdbms && \
+  codex plugin list --marketplace easy-rdbms --json
 ```
 
 Codex는 새 대화에서 적용됩니다. Claude Code는 `/reload-plugins`를 실행하거나 새 세션을 시작합니다.
@@ -950,4 +954,4 @@ Docker나 추가 Python 패키지 없이 버전·플러그인 메타데이터만
 python3 scripts/check-examples.py --metadata-only
 ```
 
-현재 배포 버전은 **0.4.1**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. <!-- x-release-please-version -->
+현재 배포 버전은 **0.5.0**입니다. 변경 이력은 [CHANGELOG.md](CHANGELOG.md)에 있습니다. <!-- x-release-please-version -->

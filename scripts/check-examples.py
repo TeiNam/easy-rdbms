@@ -20,6 +20,7 @@ import secrets
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -37,7 +38,13 @@ def block(path, needle):
 
 
 def run(args, text="", **kwargs):
-    return subprocess.run(args, input=text, text=True, capture_output=True, timeout=90, **kwargs)
+    try:
+        return subprocess.run(args, input=text, text=True, capture_output=True, timeout=90, **kwargs)
+    except subprocess.CalledProcessError as error:
+        # 인수에는 임시 DB 비밀번호가 들어갈 수 있으므로 실제 오류 출력만 보고한다.
+        raise RuntimeError(
+            f"{args[0]} failed ({error.returncode}):\n{error.stderr or error.stdout}"
+        ) from None
 
 
 def sql(engine, text, error=None):
@@ -133,6 +140,14 @@ def metadata():
             assert any(candidate.is_file() for candidate in [
                 path.parent / target, ROOT / "skills" / target, ROOT / target,
             ]), (path.relative_to(ROOT), target)
+    # CI에서 외부 명령의 실패 원문이 사라졌던 회귀를 실제 실패 프로세스로 확인한다.
+    try:
+        run([sys.executable, "-c", "import sys; sys.stderr.write('diagnostic-probe'); sys.exit(7)",
+             "do-not-log-argument"], check=True)
+    except RuntimeError as error:
+        assert "diagnostic-probe" in str(error) and "do-not-log-argument" not in str(error), error
+    else:
+        raise AssertionError("A failed command was accepted")
 
 
 def sqlite_and_sync():

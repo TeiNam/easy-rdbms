@@ -18,9 +18,9 @@ description: Update the installed easy-rdbms plugin itself in Claude Code or Cod
    실행해야 설치된 플러그인도 갱신된다.
 
    ```bash
-   codex plugin marketplace upgrade easy-rdbms
-   codex plugin add easy-rdbms@easy-rdbms --json
-   codex plugin list --marketplace easy-rdbms --json
+   codex plugin marketplace upgrade easy-rdbms && \
+     codex plugin add easy-rdbms@easy-rdbms --json && \
+     codex plugin list --marketplace easy-rdbms --json
    ```
 
 3. 설치 결과와 마지막 목록의 플러그인 ID·버전을 대조한다. 다운로드 완료와 현재 대화에
@@ -34,9 +34,9 @@ description: Update the installed easy-rdbms plugin itself in Claude Code or Cod
    지정한 scope 또는 현재 프로젝트에 적용되는 scope를 `plugin update --scope`로 명시한다.
 
    ```bash
-   claude plugin marketplace update easy-rdbms
-   claude plugin update easy-rdbms@easy-rdbms
-   claude plugin list --json
+   claude plugin marketplace update easy-rdbms && \
+     claude plugin update easy-rdbms@easy-rdbms && \
+     claude plugin list --json
    ```
 
 3. 대상 scope의 설치 버전을 다시 확인한다. 현재 세션에서는 `/reload-plugins`를 실행하거나

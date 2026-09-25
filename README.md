@@ -81,12 +81,14 @@ For an older installation that does not have the update skill yet, use the nativ
 
 ```bash
 # Claude Code
-claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
-claude plugin list --json
+claude plugin marketplace update easy-rdbms && \
+  claude plugin update easy-rdbms@easy-rdbms && \
+  claude plugin list --json
 
 # Codex: refresh the catalog, then update the installed plugin
-codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
-codex plugin list --marketplace easy-rdbms --json
+codex plugin marketplace upgrade easy-rdbms && \
+  codex plugin add easy-rdbms@easy-rdbms && \
+  codex plugin list --marketplace easy-rdbms --json
 ```
 
 Start a new Codex session afterwards. In Claude Code, run `/reload-plugins` or start a new session.
@@ -654,12 +656,14 @@ Claude Code에서는 `/easy-rdbms:update`, Codex에서는 `$easy-rdbms:update`�
 
 ```bash
 # Claude Code
-claude plugin marketplace update easy-rdbms && claude plugin update easy-rdbms@easy-rdbms
-claude plugin list --json
+claude plugin marketplace update easy-rdbms && \
+  claude plugin update easy-rdbms@easy-rdbms && \
+  claude plugin list --json
 
 # Codex: 목록 갱신 후 설치된 플러그인도 갱신
-codex plugin marketplace upgrade easy-rdbms && codex plugin add easy-rdbms@easy-rdbms
-codex plugin list --marketplace easy-rdbms --json
+codex plugin marketplace upgrade easy-rdbms && \
+  codex plugin add easy-rdbms@easy-rdbms && \
+  codex plugin list --marketplace easy-rdbms --json
 ```
 
 Codex는 새 대화에서 적용됩니다. Claude Code는 `/reload-plugins`를 실행하거나 새 세션을 시작합니다.

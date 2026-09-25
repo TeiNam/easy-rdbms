@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## [0.5.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.4.1...easy-rdbms--v0.5.0) (2026-09-25)
+
+### 기능
+
+* MySQL 8.4·PostgreSQL 18 지침과 확장 가이드 갱신 ([#23](https://github.com/TeiNam/easy-rdbms/issues/23)) ([35a3062](https://github.com/TeiNam/easy-rdbms/commit/35a3062243e3f616886e6e17adfabee0047a05ac))
+* 릴리즈 자동화와 플러그인 업데이트 명령 추가 ([#24](https://github.com/TeiNam/easy-rdbms/issues/24)) ([ccd4d1f](https://github.com/TeiNam/easy-rdbms/commit/ccd4d1f56938dc2b1bb148d06ff50a37179de734))
+
+### 수정
+
+* RDBMS 마이그레이션·무결성 지침 수정과 회귀 검사 추가 ([#22](https://github.com/TeiNam/easy-rdbms/issues/22)) ([11ad3ab](https://github.com/TeiNam/easy-rdbms/commit/11ad3ab981af3406fd615e10f0b1f87cea46f5c1))
+
+### 상세 변경
 
 - GitHub Actions CI와 release-please를 추가했습니다. 릴리즈 PR에서 두 매니페스트·README
   양쪽 버전·변경 이력을 함께 올리고, 검증 후 병합한 커밋에 기존 형식의 태그와 Release를 만듭니다.
@@ -20,7 +31,7 @@
   벡터 차원·HNSW·필터·RLS 검증을 추가했습니다. 확장 검증용 Dockerfile과 재현 명령을
   README 양쪽 언어에 제공합니다.
 - PostgreSQL 18.6·MySQL 8.4.11·PostGIS 3.6.4·pgvector 0.8.6의 확장 포함 검사와
-  PostgreSQL 16.15 호환 검사, 훅 32개·스킬 8개·README 수치 검증을 통과했습니다.
+  PostgreSQL 16.15 호환 검사, 훅 32개·스킬 9개·README 수치 검증을 통과했습니다.
 
 - 후속 리뷰 20건을 반영했습니다. README의 영어·한국어 누적 기록을 **11라운드, 292건**으로
   맞추고 검증 명령과 Python·Docker 배지를 갱신했습니다.
@@ -38,19 +49,6 @@
 - 문서 예제를 읽어 실행하는 `scripts/check-examples.py`를 추가했습니다. PostgreSQL 16.15,
   MySQL 8.4.11, Django 5.2.17을 사용한 회귀 검사 9종과 훅 검사 26개가 통과했습니다.
   README 수치 일치와 플러그인 매니페스트 검사도 통과했으며, 테스트 컨테이너는 종료 후 삭제합니다.
-
-## [0.5.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.4.1...easy-rdbms--v0.5.0) (2026-09-25)
-
-
-### 기능
-
-* MySQL 8.4·PostgreSQL 18 지침과 확장 가이드 갱신 ([#23](https://github.com/TeiNam/easy-rdbms/issues/23)) ([35a3062](https://github.com/TeiNam/easy-rdbms/commit/35a3062243e3f616886e6e17adfabee0047a05ac))
-* 릴리즈 자동화와 플러그인 업데이트 명령 추가 ([#24](https://github.com/TeiNam/easy-rdbms/issues/24)) ([ccd4d1f](https://github.com/TeiNam/easy-rdbms/commit/ccd4d1f56938dc2b1bb148d06ff50a37179de734))
-
-
-### 수정
-
-* RDBMS 마이그레이션·무결성 지침 수정과 회귀 검사 추가 ([#22](https://github.com/TeiNam/easy-rdbms/issues/22)) ([11ad3ab](https://github.com/TeiNam/easy-rdbms/commit/11ad3ab981af3406fd615e10f0b1f87cea46f5c1))
 
 ## 0.4.1
 

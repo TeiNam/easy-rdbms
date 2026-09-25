@@ -42,6 +42,18 @@ jobs:
         env:
           PG_MAJOR: ${{ matrix.postgres }}
         run: |
+          pg_tag="${PG_MAJOR}-alpine"
+          if [ "$PG_MAJOR" = 18 ]; then
+            pg_tag="${PG_MAJOR}-bookworm"
+          fi
+          # ECR 요청 제한 시 같은 공식 이미지를 Docker Hub에서 받는다.
+          for image in "postgres:$pg_tag" "mysql:8.4"; do
+            mirror="public.ecr.aws/docker/library/$image"
+            if ! docker pull "$mirror"; then
+              docker pull "$image"
+              docker tag "$image" "$mirror"
+            fi
+          done
           args=(--pg-major "$PG_MAJOR")
           if [ "$PG_MAJOR" = 18 ]; then
             docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .

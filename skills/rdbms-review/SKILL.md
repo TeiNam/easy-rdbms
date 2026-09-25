@@ -9,7 +9,7 @@ description: >
   retention; FKs, cascade, orphans, EAV, subtypes, and nullability; history, audit, temporal,
   event-sourcing, trigger, or procedure design; stale denormalized or aggregate data; deadlocks,
   lock wait timeout, bloat, VACUUM, pool exhaustion or too many connections, and replica lag; RLS, GRANT, security; SQLite PRAGMA or
-  STRICT tables; and safe deployment.
+  STRICT tables; FDW, PostGIS, pgvector, HNSW, extension upgrades; and safe deployment.
 ---
 
 # RDBMS Review
@@ -70,6 +70,10 @@ SELECT relname, n_dead_tup, last_vacuum, last_autovacuum
 FROM pg_stat_user_tables WHERE n_dead_tup > 1000 ORDER BY n_dead_tup DESC;
 ```
 
+`pg_stat_statements` 설치·preload는 `postgres-guideline/extensions.md`를 먼저 확인한다.
+`idx_scan=0`은 제거 후보일 뿐이다. reset 시점·대표 관측 기간·replica 읽기·제약을 확인한다.
+`n_dead_tup`는 dead tuple 추정치이며 실제 bloat 비율이 아니다.
+
 ### MySQL
 
 ```sql
@@ -121,9 +125,9 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
   depend on it. PostgreSQL never auto-indexes the referencing side even when an FK exists
 - Sequential/full scan on a large table in an interactive path
 - N+1 query patterns
-- Composite index column order wrong — equality columns must lead; then sort-before-range when the
-  query needs the index's ordering, or range-first when it is highly selective. A range column in
-  the middle silently disables seek and ordering for everything after it
+- Composite index order — equality→sort/range를 후보로 만들고 실제 계획으로 판단한다.
+  MySQL의 제한적인 skip scan과 PostgreSQL 18 skip scan을 구분한다. 선두 조건 누락 또는
+  중간 range만으로 “인덱스가 쓸모없다”고 판정하지 않는다
 - A column wrapped in a function is not seekable (`WHERE YEAR(created_at) = 2026`) — needs a
   functional index or generated column
 - `OFFSET` pagination on a large table → keyset/cursor pagination. When the UI needs clickable page
@@ -133,22 +137,22 @@ Work top to bottom. A CRITICAL finding outranks any number of style notes.
   rewrite. Losing semi-join eligibility does not imply per-row execution: materialization can
   still apply, and `GROUP BY` without aggregates is permitted. Eligibility rules and a
   derived-table alternative are in `mysql-guideline/index-and-query.md`
-- **`IN` with a very long literal list** — past `eq_range_index_dive_limit` (default 200) the
+- **MySQL `IN` with a very long literal list** — reaching `eq_range_index_dive_limit` (default 200) the
   optimizer stops per-value index dives and estimates from coarse statistics, which makes a wrong
   full-scan choice more likely. Load the values into a temporary table and join
 - **MySQL `IN` parameter types do not match the column** — conversion is not symmetric.
   A numeric list against a string column can defeat indexed lookup; numeric-looking strings
   against a numeric column can convert the constants and retain it. Match the types and inspect
   the plan; details are in `mysql-guideline/index-and-query.md`
-- **`OR` across different columns** — pushes the optimizer onto Index Merge, often slower than a
-  `UNION` rewrite or a redesigned composite index
+- **`OR` across different columns** — MySQL Index Merge/PostgreSQL BitmapOr 등의 실제 계획과
+  비용을 확인한다. UNION 재작성은 중복·NULL 의미를 보존하면서 더 싼 경우에만 제안한다
 - Individual inserts in a loop → multi-row `INSERT` (MySQL) or `COPY` (PostgreSQL)
 
 What to read in the plan:
 
 | PostgreSQL | MySQL | Signal |
 |---|---|---|
-| `Seq Scan` on a large table | `type: ALL` | No usable index |
+| `Seq Scan` on a large table | `type: ALL` | 인덱스 부재 또는 scan이 더 싼 계획. 선택도·추정·실제 지연 확인 |
 | `rows` estimate far from actual | `rows` very high | Stale statistics or an unselective index |
 | `Sort` / external merge | `Using filesort` | Index does not satisfy the ordering |
 | `Nested Loop` with a high outer count | `Using temporary` | Join strategy or missing index |
@@ -287,7 +291,25 @@ What to read in the plan:
   Policies on a table the app owns are decoration; check the role, not just the policy. Policy
   functions wrapped as `(SELECT fn())` so they evaluate once per query rather than once per row;
   policy columns indexed; `REVOKE ALL ON SCHEMA public FROM public`
+- PostgreSQL view 경유 권한: 기본 소유자 기준 RLS와 `security_invoker`를 구분하고 실제
+  앱 역할의 조회를 검사. `security_barrier`만 설정해서 호출자 RLS가 유지된다고 가정하지 않음
 - MySQL: anonymous accounts removed; no direct DML against `mysql.user`
+- MySQL 8.4: 비활성 `mysql_native_password`를 다시 켜는 대신 driver/TLS/계정 전환 검증
+- PostgreSQL: custom GUC 기반 RLS는 인증 계층이 값을 정하고 같은 트랜잭션에서 SET LOCAL로
+  설정. reset 후 미설정·빈 값, pool 재사용, 소유자 우회, 임의 SQL 권한을 검사
+
+### PostgreSQL 확장 검토
+
+용도·버전·preload·권한·업데이트 경로는 `postgres-guideline/extensions.md`를 따른다.
+확장이 없는 DB에 진단 SQL부터 실행하거나 preload 목록을 덮어쓰는 변경은 수정한다.
+
+- **FDW**: `postgres-guideline/fdw.md`. 원격 GRANT/RLS와 mapping, TLS, pushdown·전송량,
+  원격 장애·timeout, 로컬 GUC 미전파, 분산 커밋 보장 가정을 확인한다.
+- **PostGIS**: `postgres-guideline/postgis.md`. SRID·미터/도·경위도 순서, ST_SetSRID와
+  ST_Transform 혼동, ST_DWithin/GiST 계획과 경계값을 확인한다.
+- **pgvector**: `postgres-guideline/pgvector.md`. 모델·차원·거리/operator class·ORDER BY 형태,
+  테넌트 필터/RLS, iterative scan 한도, exact 대비 recall·행 수·p95를 확인한다.
+  근사 검색 결과의 누락과 권한 누출은 다른 결함으로 구분한다.
 
 ### 5. Operations (MEDIUM)
 

@@ -187,7 +187,8 @@ apply to it unchanged.
   | Exchange rate / unit price | `DECIMAL(19, 6)` | match to required precision |
   | Ratio (0.1234 = 12.34%) | `DECIMAL(5, 4)` | |
 
-- **JOIN keys**: integer types, and **both sides of a join must have identical types**.
+- **JOIN keys**: 부모 키와 **양쪽 타입을 일치**시킨다. 정수 키에는 같은 정수 타입을,
+  UUID 키에는 같은 UUID 표현을 쓴다.
 - **Strings**: bounded → `VARCHAR(n)` (`n` sized to real max length); unbounded long text → engine-specific
   large type. `CHAR(n)` only for truly fixed widths (e.g. country code `CHAR(2)`); PostgreSQL gives `CHAR` no
   performance benefit, so do not overuse it.
@@ -198,8 +199,10 @@ apply to it unchanged.
   **`CHECK (col >= 0)`**. Use `CHECK` on MySQL too when cross-engine portability is a stated
   requirement — but do not give up `UNSIGNED` for a portability need nobody has. See
   `mysql-guideline/dev-practices.md` for the signed/unsigned mixing caveats.
-- **Avoid NULL**: for indexed columns prefer `NOT NULL` and normalize optional attributes into a joined table.
-  Allow NULL only when the data is small or rarely used.
+- **NULL은 도메인으로 결정**: 필수 값은 `NOT NULL`, 알려지지 않았거나 선택적인 값은 NULL을
+  허용한다. 인덱스가 있다는 이유만으로 임의 기본값이나 별도 테이블을 만들지 않는다.
+  MySQL/PostgreSQL 인덱스도 NULL을 다룬다. nullable UNIQUE의 중복 의미를 확인하고,
+  PostgreSQL 15+에서 NULL도 같은 값으로 취급해야 하면 `NULLS NOT DISTINCT`를 검토한다.
 - **Charset**: standardize on UTF-8 — MySQL `utf8mb4`, PostgreSQL `UTF8`.
 
 ### Type Mapping

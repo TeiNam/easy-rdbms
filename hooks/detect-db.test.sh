@@ -150,6 +150,32 @@ check "mariadb demands confirmation" "ask which one" \
   db:
     image: mariadb:11"
 
+check "postgis image routes to postgres" "engine rules in postgres-guideline" \
+  "compose.yaml:services:
+  db:
+    image: postgis/postgis:18-3.6"
+
+check "pgvector image routes to postgres" "engine rules in postgres-guideline" \
+  "compose.yaml:services:
+  db:
+    image: pgvector/pgvector:pg18-bookworm"
+
+check "mariadb does not hide mysql" "MariaDB (MySQL-compatible; verify divergence) and MySQL" \
+  "compose.yaml:services:
+  legacy:
+    image: mariadb:11
+  db:
+    image: mysql:8.4"
+
+check "multiple engines preserve the user's target" "Use the target already specified by the user" \
+  "package.json:{\"dependencies\":{\"pg\":\"8\",\"mysql2\":\"3\"}}"
+
+check "postgres jdbc in maven" "engine rules in postgres-guideline" \
+  "pom.xml:<dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>"
+
+check "mysql jdbc in gradle kotlin" "engine rules in mysql-guideline" \
+  "build.gradle.kts:runtimeOnly(\"com.mysql:mysql-connector-j:9.7.0\")"
+
 MODE=git-subdir
 check "codex from nested git directory without CLAUDE_PROJECT_DIR" "PostgreSQL" \
   "package.json:{\"dependencies\":{\"pg\":\"8\"}}"

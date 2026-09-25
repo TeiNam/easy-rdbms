@@ -171,23 +171,33 @@ def listen(conninfo: str, channel: str):
             print(f"Received: {notify.payload}")
 ```
 
-## Server Configuration Template
+## Pooling과 설정 범위
+
+PgBouncer의 transaction pooling에서는 한 요청이 같은 서버 세션을 계속 쓴다고 가정하지
+않는다. 요청별 설정은 트랜잭션의 `SET LOCAL`/`set_config(..., true)`로 전달한다.
+LISTEN과 session advisory lock처럼 세션 유지가 필요한 작업은 전용 연결 또는 session
+pooling을 사용한다. 드라이버의 prepared statement 지원은 설치한 PgBouncer 버전과
+`max_prepared_statements` 설정까지 확인한다.
+
+## Server Configuration
+
+설정값을 일괄 적용하기 전에 현재 값과 재기동 여부를 확인한다.
 
 ```sql
--- Reloadable — takes effect with pg_reload_conf()
-ALTER SYSTEM SET work_mem = '8MB';
-ALTER SYSTEM SET idle_in_transaction_session_timeout = '30s';
-ALTER SYSTEM SET statement_timeout = '30s';
-SELECT pg_reload_conf();
-
--- Restart-required — pg_reload_conf() does NOT apply these
-ALTER SYSTEM SET max_connections = 100;
-ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements';
--- ...restart the server, then:
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-
-REVOKE ALL ON SCHEMA public FROM public;
+SELECT name, setting, unit, context, pending_restart
+FROM pg_settings
+WHERE name IN ('work_mem', 'maintenance_work_mem', 'max_connections',
+               'statement_timeout', 'idle_in_transaction_session_timeout',
+               'shared_preload_libraries', 'io_method', 'track_io_timing')
+ORDER BY name;
 ```
+
+`work_mem`은 동시 연산·worker를 포함한 예산으로 정한다. `statement_timeout`은 서비스의
+요청 deadline에 맞추고 긴 배치·마이그레이션 역할과 구분한다. reload 가능한 설정도
+적용 범위와 기존 세션의 역할별 override를 확인한다.
+`max_connections`, `shared_preload_libraries`, `io_method` 변경은 재기동이 필요하다.
+preload 목록을 보존하는 확장 설치 절차는 `extensions.md`, 18의 I/O는
+`version-and-upgrade.md`를 따른다.
 
 ## Performance Checklist
 - [ ] Connection pooling configured (psycopg_pool or PgBouncer)

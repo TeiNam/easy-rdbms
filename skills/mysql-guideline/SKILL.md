@@ -1,7 +1,7 @@
 ---
 name: mysql-guideline
 description: >
-  MySQL 8.0+ and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
+  MySQL 8.4 LTS and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
   transactions, connections, security, migrations, and JDBC. Use for CREATE or ALTER TABLE,
   utf8mb4, InnoDB, data types, INET_ATON, UUID_TO_BIN, DATETIME or TIMESTAMP, JSON, UPSERT, PK choice, int vs bigint,
   AUTO_INCREMENT exhaustion, UNSIGNED, normalization, composite or covering indexes, FULLTEXT,
@@ -9,7 +9,7 @@ description: >
   OFFSET, deferred join or keyset pagination, COUNT(*), stored procedures, SKIP LOCKED queues,
   deadlocks, replica lag and read-after-write, Aurora failover, AWS Advanced JDBC Wrapper,
   Connector/J, pool sizing, GRANT, my.cnf, RANGE partitioning, MariaDB differences, and IoT or
-  log tables.
+  log tables; caching_sha2_password, mysql_native_password, INSTANT DDL, and GTID waits.
 ---
 
 # MySQL Database Guideline
@@ -24,9 +24,12 @@ description: >
 - Setting up connection management
 
 ## MySQL Version and Defaults
-- MySQL 8.4 LTS (or 9.7 LTS) — pick an **LTS track** for production; see `release-policy.md`
+- **MySQL 8.4 LTS 기준**. 9.7 LTS 선택은 `release-policy.md`에서 별도로 평가한다.
+  8.0·MariaDB·Aurora에 8.4 SQL/기본값을 그대로 적용하지 않는다.
 - Character set: utf8mb4, collation `utf8mb4_0900_ai_ci` (team standard; `utf8mb4_general_ci` is legacy)
 - Engine: InnoDB
+- 인증·FK 참조 키 제한·InnoDB 기본값·제거된 옵션은 `operations.md`의 8.4 점검을 따른다.
+  `SELECT VERSION()`과 배포 형태를 확인한 뒤 해당 LTS의 최신 패치를 검토한다.
 
 ## Naming Rules
 
@@ -188,7 +191,7 @@ Two things to keep straight:
   session-local SP cache, index anti-patterns, COUNT(*) MVCC reason, random PK (UUID v7), composite PK,
   FK project policy and logical-FK controls (full criteria in
   `rdbms-modeling/references/foreign-keys.md`), JSON (multi-valued index)
-- `jdbc-driver.md` — Java driver selection (2026-07): AWS Advanced JDBC Wrapper (top choice) vs Connector/J
+- `jdbc-driver.md` — Java driver selection: AWS Advanced JDBC Wrapper vs Connector/J
   9.x; MariaDB Connector/J Aurora EOL, Aurora JDBC Driver EOL; failover tuning
 - `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 Innovation; production = LTS
 - `operations.md` — MySQL vs MariaDB SQL divergence, the `OFFSET` trap with keyset pagination and

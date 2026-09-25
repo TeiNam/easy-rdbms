@@ -218,13 +218,13 @@ If the engine is decided but unstated, ask:
 > 1. **Aurora MySQL** (AWS, MySQL-compatible)
 > 2. **MySQL Community** (8.4 LTS+)
 > 3. **Aurora PostgreSQL** (AWS, PostgreSQL-compatible)
-> 4. **PostgreSQL Community** (16.7+)
+> 4. **PostgreSQL Community** (18 기준, 기존 16/17 호환 확인)
 > 5. **SQLite** (3.37+, embedded / local / Tier 0)
 
 If the **session context already names the engine** — the `detect-db` session hook reports it when
 the repository declares one — take it as given and do **not** re-ask which database this is; the
 hook's detection does not reveal the *version or deployment form* (managed / Aurora / community /
-container), so confirm only that. If there is no such context but repo files hint at an engine
+container), so establish those from configuration/runtime and ask only if unresolved. If there is no such context but repo files hint at an engine
 (`docker-compose.yml`, `alembic.ini`, `flyway.conf`, `prisma/schema.prisma`, `DATABASE_URL` in
 `.env`), confirm instead of asking cold: "The repo looks like `<DB>`. Correct?"
 
@@ -235,6 +235,10 @@ container), so confirm only that. If there is no such context but repo files hin
 | Aurora MySQL / MySQL Community | `mysql-guideline` | InnoDB + utf8mb4, `AUTO_INCREMENT` + `UNSIGNED` with width **by growth class** (entity `int unsigned`, event/log `bigint unsigned`), `datetime`, `json`, FK choice per project policy |
 | Aurora PostgreSQL / PostgreSQL Community | `postgres-guideline` | `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `boolean`, `jsonb`, schema separation (`app`/`log`/`ref`), partial indexes, RLS |
 | SQLite | `sqlite-guideline` | `STRICT` tables, PRAGMA baseline (`foreign_keys=ON`, WAL), `INTEGER PRIMARY KEY` rowid, integer-cents money, physical FKs allowed, no partitioning |
+
+PostgreSQL의 외부 연동·공간·임베딩 모델은 `postgres-guideline/extensions.md`에서 필요한
+확장을 선택하고 FDW/PostGIS/pgvector 상세 지침을 적용한다. 설치 여부가 모델의 권한·정합성
+요구를 대신하지 않는다. 18 전용 DDL은 `postgres-guideline/version-and-upgrade.md`로 확인한다.
 
 Aurora variants follow the base guideline plus:
 

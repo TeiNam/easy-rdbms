@@ -16,9 +16,9 @@ Do not remove a working FK merely because the engine is MySQL.
 | Aspect | MySQL / InnoDB | PostgreSQL |
 |---|---|---|
 | **Child (referencing) index** | Auto-created by the FK if no index leads with that column | **Never auto-created** |
-| **Parent (referenced) target** | Historically permitted a non-unique index; deprecated | **PK or UNIQUE only** |
+| **Parent (referenced) target** | MySQL 8.4는 기본적으로 PK/UNIQUE 요구. 과거 non-unique/partial 참조는 deprecated | **PK or UNIQUE only** |
 | **Check timing** | Immediate | Immediate, or deferrable to end of transaction |
-| **Adding an FK to a large table** | Validates immediately — budget the scan and locks | Non-partitioned referencing table: `NOT VALID`, then `VALIDATE CONSTRAINT`; partition/version exception below |
+| **Adding an FK to a large table** | Validates immediately — budget the scan and locks | `NOT VALID` 후 `VALIDATE CONSTRAINT`; 파티션 참조 테이블은 18부터 지원 |
 | **`NO ACTION` vs `RESTRICT`** | Effectively identical; both check immediately | `NO ACTION` can defer to end of transaction; `RESTRICT` blocks immediately |
 | **Partitioned tables** | InnoDB **cannot** have an FK on a partitioned table, either direction | Supported (referencing a partitioned table from PG 12+); `ATTACH PARTITION` validates, taking stronger locks |
 
@@ -33,6 +33,10 @@ is documented in a `COMMENT`. Where project policy uses physical FKs, keep both 
 non-partitioned, reference a PK/UNIQUE target with matching types, verify the child index, bound
 cascades, and plan validated additions within the lock budget. Do not disable `foreign_key_checks`
 and assume re-enabling it validates existing rows.
+
+MySQL 8.4의 `restrict_fk_on_non_standard_key=ON` 기본값은 non-unique/partial 부모 키를
+참조하는 FK 생성을 거부한다. 호환 옵션을 끄는 것을 해결책으로 삼지 말고 부모의 중복을
+정리한 뒤 PK/UNIQUE 대상으로 바꾼다. 기존 스키마는 8.4 업그레이드 검사에서 함께 확인한다.
 
 Why, beyond partitioning: an FK adds a parent-index lookup to every child write that the statement
 never shows and slow-query analysis cannot attribute; FK checks take shared locks on the parent row —
@@ -88,8 +92,9 @@ they happen; it is not a substitute for enforcing an invariant that must always 
 
 ## PostgreSQL — Allowed by Default, Created When Conditions Are Met
 
-PostgreSQL supports FKs on partitioned tables and staged validation on non-partitioned referencing
-tables. **The default posture is to allow physical FKs**, while measuring their write and lock costs.
+PostgreSQL supports FKs on partitioned tables. Staged validation also supports partitioned
+referencing tables from **18**. **The default posture is to allow physical FKs**, while measuring
+their write and lock costs.
 
 "Allowed by default" is not "always create". Create the constraint when **all** of these hold —
 each is a gate, and a failing gate means either fix it first or fall back to a logical FK with the
@@ -101,14 +106,14 @@ four compensating controls.
 | 2 | Referencing column is **indexed** — create it unless an existing index already leads with that column | Create it **in the same rollout, before the FK**. On an empty or new table the same migration is fine. On a populated table use `CREATE INDEX CONCURRENTLY` in its own migration with no transaction wrapper — most runners wrap migrations in a transaction, which `CONCURRENTLY` rejects. Without the index, every parent delete or key update sequentially scans the child |
 | 3 | No **redundant** index introduced | Reuse the existing leading-column index; do not add a duplicate |
 | 4 | If `CASCADE`: the child's **lifecycle is genuinely dependent** on the parent (order → purchase_order_item) | Use `RESTRICT` and delete explicitly. Never cascade across an aggregate boundary or from a high-fan-out parent |
-| 5 | `NOT DEFERRABLE` unless a **circular reference must resolve inside one transaction** | Keep it non-deferrable. Deferred constraints are PostgreSQL-only — mark the schema non-portable if you use them |
-| 6 | Use a validation path supported by the **server version and referencing table** within the lock budget | On a populated, non-partitioned referencing table, default to `NOT VALID` then `VALIDATE CONSTRAINT`. A validated single-step add needs a timed scan and an explicit lock budget |
+| 5 | `NOT DEFERRABLE` unless a **circular reference must resolve inside one transaction** | Keep it non-deferrable. MySQL에는 이 deferred FK 경로가 없으며 SQLite는 별도 지원 |
+| 6 | Use a validation path supported by the **server version and referencing table** within the lock budget | Populated table: `NOT VALID` then `VALIDATE CONSTRAINT`; partitioned referencing tables require 18+. A validated single-step add needs a timed scan and an explicit lock budget |
 
-**PostgreSQL 16 partition exception:** a partitioned **referencing** table cannot use
-`ADD FOREIGN KEY ... NOT VALID` (a partitioned *referenced* parent is a different case).
-Use a validated add only after measuring it within a maintenance window, or retain the logical
-controls until a supported rollout is ready. Check the exact server version before assuming this
-restriction or its removal; adding FKs to individual leaves is not a parent-wide constraint.
+**버전 경계:** PostgreSQL **16/17**의 파티션 **참조(child)** 테이블은
+`ADD FOREIGN KEY ... NOT VALID`를 거부한다. 이 경우 유지보수 창에서 측정한 검증된 추가
+또는 논리 통제를 유지한다. **18부터는 부모 파티션 테이블에 NOT VALID로 추가하고
+VALIDATE할 수 있다.** 유효성 검사 완료까지 기존 행의 정합성을 보장하지 않는다는 점은 같다.
+참조 대상(parent)이 파티션인 경우와 혼동하지 않는다. leaf별 FK는 부모 전체 FK의 대체가 아니다.
 
 ```sql
 -- Condition 2 first, in the same rollout (CREATE INDEX CONCURRENTLY in a separate,
@@ -122,7 +127,7 @@ ALTER TABLE app.purchase_order
 ```
 
 ```sql
--- Condition 6: two-step add on a large existing NON-PARTITIONED referencing table
+-- 비파티션 테이블: 16~18. 파티션 참조 테이블: 18부터 지원한다.
 ALTER TABLE app.purchase_order
   ADD CONSTRAINT fk_purchase_order_customer
   FOREIGN KEY (customer_id) REFERENCES app.customer (customer_id)

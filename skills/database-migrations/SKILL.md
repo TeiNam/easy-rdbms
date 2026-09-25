@@ -206,8 +206,8 @@ COMMIT;
 ```
 
 Verify the first INSERT after cutover, the FK targets, and that only the new PK index remains.
-Partitioned parents do not support this `PRIMARY KEY USING INDEX` procedure on the PostgreSQL 16
-baseline; their unique key must also include the partition key. Plan and test that rollout
+Partitioned parents do not support this `PRIMARY KEY USING INDEX` procedure on PostgreSQL 16–18;
+their unique key must also include the partition key. Plan and test that rollout
 separately instead of copying this block.
 
 *MySQL* — **DDL cannot be wrapped in a transaction.** Put the parent-column changes in **one**
@@ -656,6 +656,19 @@ Day 6: Verify no writer references status (grep the deployed revision, check
        pg_stat_statements / performance_schema for the column name)
 Day 7: Migration drops old status column
 ```
+
+## 엔진·확장 버전 변경
+
+- PostgreSQL major 전환은 `postgres-guideline/version-and-upgrade.md`의 사전 검사·복원·전환
+  경로를 따른다. 18 전용 VIRTUAL/uuidv7/파티션 FK DDL은 기존 16/17에 적용하지 않는다.
+- 확장 패키지 설치와 `CREATE/ALTER EXTENSION`은 다른 단계다. 바이너리·SQL 버전·preload
+  목록·재기동·업데이트 경로는 `postgres-guideline/extensions.md`로 확인한다.
+  downgrade나 `DROP EXTENSION ... CASCADE`를 자동 rollback으로 생성하지 않는다.
+- pgvector 모델 변경은 재임베딩과 품질 검증, PostGIS는 좌표계·라이브러리 변경에 따른 결과
+  검증, FDW는 원격 DDL과 mapping 호환성을 포함한다.
+- MySQL 8.4로 전환할 때는 `mysql-guideline/operations.md`의 인증·제거된 옵션·비표준 FK
+  검사를 실행한다. `ALGORITHM=INSTANT`는 지원 작업에만 쓰며, 명시해서 실패하면 COPY/잠금
+  영향과 온라인 이관 도구를 별도로 검토한다.
 
 ## Anti-Patterns
 

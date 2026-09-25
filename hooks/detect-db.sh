@@ -27,7 +27,8 @@ FILES="docker-compose.yml docker-compose.yaml compose.yml compose.yaml
 .env .env.example .env.sample
 alembic.ini flyway.conf flyway.toml liquibase.properties
 prisma/schema.prisma knexfile.js knexfile.ts ormconfig.json
-package.json requirements.txt pyproject.toml Cargo.toml go.mod"
+package.json requirements.txt pyproject.toml Cargo.toml go.mod
+pom.xml build.gradle build.gradle.kts"
 
 HAYSTACK=$(
   while :; do
@@ -47,15 +48,16 @@ FOUND=""
 
 # PostgreSQL: images, URL schemes, drivers, migration tools
 if printf '%s' "$HAYSTACK" | grep -qiE \
-  'postgres|postgresql|psycopg|asyncpg|pgbouncer|"pg"|lib/pq|pq\.|sqlx.*postgres|provider *= *"postgresql"|jdbc:postgresql'; then
+  'postgres|postgis|pgvector|psycopg|asyncpg|pgbouncer|"pg"|lib/pq|pq\.|sqlx.*postgres|provider *= *"postgresql"|jdbc:postgresql'; then
   FOUND="PostgreSQL"
 fi
 
 # MariaDB — detect separately so MySQL-specific advice gets a compatibility check first
 if printf '%s' "$HAYSTACK" | grep -qiE 'mariadb'; then
   if [ -n "$FOUND" ]; then FOUND="$FOUND and MariaDB (MySQL-compatible; verify divergence)"; else FOUND="MariaDB (MySQL-compatible; verify divergence)"; fi
+fi
 # MySQL
-elif printf '%s' "$HAYSTACK" | grep -qiE \
+if printf '%s' "$HAYSTACK" | grep -qiE \
   'mysql|aiomysql|pymysql|mysqlclient|mysql2|go-sql-driver|sqlx.*mysql|provider *= *"mysql"|jdbc:mysql'; then
   if [ -n "$FOUND" ]; then FOUND="$FOUND and MySQL"; else FOUND="MySQL"; fi
 fi
@@ -77,11 +79,11 @@ elif printf '%s' "$HAYSTACK" | grep -qiE 'supabase|neon\.tech|planetscale'; then
 fi
 
 # One engine → the dialect is settled, so suppress the confirmation question.
-# Several engines (or MariaDB, which diverges from MySQL) → the agent MUST confirm which
-# one the current task targets; guessing the dialect produces DDL that does not run.
+# 여러 엔진 또는 MariaDB에서는 이미 지정된 대상을 유지한다.
+# 아직 대상이 불명확할 때만 질문해 잘못된 dialect의 SQL을 막는다.
 case "$FOUND" in
-  *" and "*|*MariaDB*) CLOSING="More than one engine (or a MySQL-compatible variant) is present — ask which one the current task targets before writing any dialect-specific SQL." ;;
-  *)                   CLOSING="The engine is inferred from the repository, so take it as given and do not re-ask which database this project uses. Still confirm the *version* and deployment form (managed / Aurora / container) before emitting version-specific SQL -- this detection does not reveal them." ;;
+  *" and "*|*MariaDB*) CLOSING="More than one engine (or a MySQL-compatible variant) is present. Use the target already specified by the user; otherwise ask which one the current task targets before writing dialect-specific SQL. Verify the target version and deployment form from configuration or runtime." ;;
+  *)                   CLOSING="The engine is inferred from the repository, so take it as given and do not re-ask which database this project uses. Still confirm the *version* and deployment form (managed / Aurora / container) from configuration or runtime before emitting version-specific SQL; ask only for unresolved facts -- this detection does not reveal them." ;;
 esac
 
 # Name the guideline skill(s) outright. The engine is already known here, so making the

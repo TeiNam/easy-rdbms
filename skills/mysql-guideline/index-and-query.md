@@ -36,7 +36,12 @@ CREATE INDEX idx_purchase_order_status_member_created ON purchase_order (status,
 ```
 
 > **Common mistake:** leading with a range column (`(created_at, status)`) — after `created_at` scans a wide
-> range, `status` degrades to a per-row filter and the composite index barely helps.
+> range, `status` may become an index-condition filter. Check how many rows the plan actually reads.
+
+`IN`의 여러 값은 단일 등가값과 달리 여러 정렬 구간을 만들 수 있으므로 뒤 컬럼의
+ORDER BY가 자동 충족된다고 가정하지 않는다. MySQL 8.4에도 제한적인 **skip scan**이 있다.
+단일 테이블·covering index 등 적격 조건을 확인하고 `EXPLAIN`의 `Using index for skip scan`을
+검증한다. 이는 임의의 조인·GROUP BY·비커버링 쿼리에서 선두 컬럼을 생략해도 된다는 뜻이 아니다.
 
 A column wrapped in a function is not seekable (`WHERE YEAR(created_at)=2026` → no index); work around with a
 **functional index** (8.0.13+, `CREATE INDEX idx_t_created_year ON t ((YEAR(created_at)))`) or a generated column. The
@@ -182,10 +187,14 @@ JOIN (
 
 The optimizer normally performs an **index dive** per `IN` value — it peeks at the index to
 estimate how many rows that value matches. When the number of equality ranges **reaches** the
-nonzero `eq_range_index_dive_limit` (default **200** on MySQL 8.0) it stops diving and falls back to
+nonzero `eq_range_index_dive_limit` (default **200** on MySQL 8.4) it stops diving and falls back to
 coarse index statistics. It is a threshold, not an inclusive maximum: to keep diving for up to N
 values the limit has to be N+1, so at the default a 200-value list already uses statistics. The
 estimate degrades, and the optimizer becomes more likely to decide a full scan is cheaper.
+
+8.4는 특정 단일 테이블 쿼리의 단일 인덱스 `FORCE INDEX` 조건에서 이 threshold와 별개로
+index dive를 생략할 수 있다. 강제 힌트를 일반 해법으로 추가하지 말고 실행계획/optimizer
+trace를 확인한다. [8.4 range optimization](https://dev.mysql.com/doc/refman/8.4/en/range-optimization.html).
 
 Also, with thousands of values the statement's own parse and plan cost grows — and if the matched
 rows really are a large fraction of the table, the full scan may genuinely be faster.

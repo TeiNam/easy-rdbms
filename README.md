@@ -1,6 +1,6 @@
 # Easy RDBMS
 
-![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
 ![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
@@ -41,8 +41,9 @@ things you only learn by running databases:
 Works in both **Claude Code** and **Codex** from one shared `skills/` directory. The plugin picks
 the database for your scale and budget, keeps naming consistent, takes requirements through
 conceptual → logical → physical modeling instead of straight to DDL, and reviews schemas, queries,
-and migrations before they ship. Covers MySQL 8.4 LTS+ and PostgreSQL 16+ (including Aurora
-variants), plus SQLite for the embedded and prototype end.
+and migrations before they ship. Targets MySQL **8.4 LTS** and PostgreSQL **18**, with explicit
+compatibility gates for existing PostgreSQL 16/17 and managed/Aurora variants, plus SQLite for
+embedded and prototype workloads. A newer major is a separate upgrade decision.
 
 The recurring theme: **structural cost is never paid without evidence.** Denormalization needs a
 measurement, partitioning needs the queries and retention code, and an index needs the plan.
@@ -89,7 +90,7 @@ work; you can also name one explicitly.
 | `rdbms-review` | Reviewing existing SQL, schemas, and migrations |
 | `rdbms-naming` | Table, column, index, and constraint naming; data type selection |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL mechanics |
-| `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL mechanics |
+| `postgres-guideline` | PostgreSQL 18, 16/17 compatibility, managed/Aurora, FDW/PostGIS/pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — embedded, local, prototype |
 | `database-migrations` | Zero-downtime schema change and rollback strategy |
 
@@ -118,9 +119,9 @@ register named subagents, so on Codex the same procedures live entirely in the s
 
 On session start the hook reads `docker-compose.yml`, `.env`, `alembic.ini`,
 `prisma/schema.prisma`, `package.json`, `requirements.txt`, `Cargo.toml`, `go.mod`, and similar,
-then reports the engine once. It distinguishes **MariaDB** and **SQLite** from MySQL/PostgreSQL,
-and when more than one engine is present it tells the agent to **ask which one the task targets**
-rather than guessing a dialect. Silent when nothing is found.
+then reports the engine once. It recognizes PostGIS/pgvector images and Java build files, and
+keeps both **MariaDB and MySQL** when both are configured. With multiple engines it preserves the
+user's specified target and asks only when the target is unresolved. Silent when nothing is found.
 An explicit project path takes priority; otherwise the hook checks the current directory and its
 ancestors through the Git root. Outside Git it checks only the current directory.
 
@@ -247,7 +248,7 @@ deliberate and manual. (On an inherited schema, dropping an FK *leaves* its auto
 **The six PostgreSQL gates:** parent is PK/UNIQUE · referencing column indexed · no redundant index
 · `CASCADE` only for genuine lifecycle dependency · `NOT DEFERRABLE` · a validation path within the
 lock budget. Populated non-partitioned referencing tables can use `NOT VALID` then `VALIDATE`;
-PostgreSQL 16 partitioned referencing tables cannot. Full version and rollout rules are in
+PostgreSQL 16/17 partitioned referencing tables cannot; PostgreSQL 18 supports it. Full version and rollout rules are in
 `skills/rdbms-modeling/references/foreign-keys.md`.
 
 Every **logical** FK carries four compensating controls: the reference in a `COMMENT`, the index, a
@@ -356,10 +357,36 @@ ordering you chose v7 for; and `uuidv7()` is built in only from **PostgreSQL 18*
 | | Covered |
 |---|---|
 | **MySQL** | 8.4 LTS track and release policy, InnoDB + utf8mb4 defaults, per-currency `decimal` precision, `DATETIME` vs `TIMESTAMP` (Y2038), `INET6_ATON`, composite index order, range-column pair optimization, `RANGE COLUMNS` partitioning with `REORGANIZE`, `REPEATABLE READ` and gap locks, deadlock checklist, `SKIP LOCKED` queues, keyset pagination, `FULLTEXT` with the `ngram` parser, replica lag and read-after-write routing, GRANT least privilege and TLS, `my.cnf` baseline, pool sizing against `wait_timeout`, JDBC driver selection for Aurora |
-| **PostgreSQL** | 16.7+ defaults, schema separation (`app`/`log`/`ref`), `GENERATED ALWAYS AS IDENTITY` over `SERIAL`, `timestamptz`, `jsonb`, GIN/GiST/BRIN/partial/expression indexes, `READ COMMITTED` default and `40001` retries, RLS with the role prerequisites that actually make it enforce, advisory locks and the pooling leak, `LISTEN`/`NOTIFY` done safely, declarative partitioning with a `DEFAULT` partition, pg_partman 5.x, reload-vs-restart configuration |
+| **PostgreSQL** | 18 baseline: native UUIDv7, VIRTUAL/STORED gates, skip scan and async I/O; 16/17 compatibility; schema separation, identity, timestamptz/jsonb, GIN/GiST/BRIN, RLS and pool scope, partitioned FK validation, pg_partman; FDW/PostGIS/pgvector and extension operations below |
 | **SQLite** | 3.37+ `STRICT` tables, the PRAGMA baseline (`foreign_keys` is OFF by default), conventions where no native type exists (integer cents for money), `INTEGER PRIMARY KEY` as rowid and why `AUTOINCREMENT` is usually unnecessary, single-writer design with `BEGIN IMMEDIATE`, why network filesystems are out, FTS5, `VACUUM INTO` backups, and the growth path back to `db-select` |
 
+MySQL 8.4 guidance covers authentication changes, InnoDB defaults, standard FK targets, bounded
+GTID waits and removed commands. SQLite keeps 3.37 as the compatibility floor, with JSONB gated
+at 3.45 and modern `PRAGMA optimize` guidance at 3.46.
+
+### PostgreSQL extensions
+
+The existing `postgres-guideline` routes directly to these guides; no extra skill is required.
+Choose extensions by workload and verify the provider's supported versions before installation.
+
+| Need | Guide |
+|---|---|
+| Inventory, installation, permissions, preload, upgrades; pg_stat_statements, pg_trgm, btree_gist, pg_cron, pg_partman, pgstattuple, pgAudit | [Extension operations](skills/postgres-guideline/extensions.md) |
+| External PostgreSQL access with postgres_fdw: TLS, mappings, pushdown, remote RLS and transaction limits | [FDW](skills/postgres-guideline/fdw.md) |
+| Spatial types, SRID, meters vs degrees, GiST, ST_DWithin and KNN | [PostGIS](skills/postgres-guideline/postgis.md) |
+| Embedding models/dimensions, exact/HNSW/IVFFlat, filtered ANN, RLS and recall | [pgvector](skills/postgres-guideline/pgvector.md) |
+| PostgreSQL 18 features, 16/17 compatibility, major upgrades and Docker data paths | [Version and upgrade](skills/postgres-guideline/version-and-upgrade.md) |
+
+Example requests: “Connect a read-only external PostgreSQL with FDW”, “Find locations within 1 km
+using PostGIS”, or “Check pgvector recall with tenant filters”. There is no install-everything
+bundle; pgvector stores/searches embeddings and does not run the embedding model.
+
 ## How it was verified
+
+The updated suite passed on **2026-09-25** with PostgreSQL **18.6**, MySQL **8.4.11**, PostGIS
+**3.6.4**, pgvector **0.8.6**, Django **5.2.17**, and the runner's SQLite **3.53.1**. The separate
+PostgreSQL **16.15** compatibility run also passed; PostGIS/pgvector were exercised on 18.
+The commands are in Development below. The earlier observations are retained separately:
 
 ### Executed against real servers
 
@@ -425,15 +452,15 @@ subcommand form), the plugin **does not assert either form** — it points at `k
 Automated gates, all passing:
 
 ```bash
-sh hooks/detect-db.test.sh    # 26 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
+sh hooks/detect-db.test.sh    # 32 cases: PostgreSQL / MySQL / MariaDB / SQLite / Aurora /
                               # managed platforms / multi-engine confirmation / cwd and Git-root fallback
 python3 scripts/check-readme-bilingual.py
 python scripts/check-examples.py  # Docker and test dependencies required; see Development
 claude plugin validate .      # official manifest validation
 ```
 
-The example suite also parses Python snippets, validates JSON manifests and skill frontmatter,
-and checks plugin-version agreement. Reference paths and example names are reviewed separately.
+The example suite also parses Python snippets, validates JSON manifests, skill frontmatter,
+plugin-version agreement and skill reference paths.
 
 ## Design decisions
 
@@ -443,9 +470,9 @@ Codex invokes the same procedures through namespaced skills. Codex plugins canno
 subagents, so modeling and review procedures live in the skill bodies and Claude Code gets thin
 agent wrappers pointing at them.
 
-**Progressive loading.** Eleven reference files keep the policy detail out of the always-on cost.
-Always-on is roughly 2.1k tokens across all eight skills; the heaviest skill costs ~7k only when it
-actually fires.
+**Progressive loading.** Modeling and cost detail stays in eleven files under `references/`.
+The eight skill descriptions route to the relevant engine and extension guides, which are loaded
+when needed.
 
 **Scale-aware, not scale-maximal.** `db-select` tells you *not* to add read replicas, partitioning,
 or sharding you have not earned. Each tier costs roughly an order of magnitude more operational
@@ -462,7 +489,7 @@ says so rather than pretending to advise on them.
 ## Development
 
 ```bash
-sh hooks/detect-db.test.sh          # hook detection tests (26 cases)
+sh hooks/detect-db.test.sh          # hook detection tests (32 cases)
 python3 scripts/check-readme-bilingual.py
 python scripts/check-examples.py   # documented SQL + Django regressions in disposable databases
 sh scripts/sync-from-harness.sh     # show upstream drift for the four ported skills
@@ -474,11 +501,13 @@ Four skills are ported from a private harness and carry deliberate local edits (
 prefixes, stripped harness-only frontmatter, cross-references repointed). `sync-from-harness.sh` is
 diff-only for that reason — never blind-copy over them. See `AGENTS.md` for repo conventions.
 
-The example check requires Docker and test dependencies in a virtual environment:
+The example check requires Docker, OpenSSL, and test dependencies in a virtual environment:
 `python -m pip install 'Django>=5.2,<5.3' 'psycopg[binary]>=3,<4'`.
-It starts isolated PostgreSQL 16 and MySQL 8.4 containers and removes them afterwards; it does not
+It starts isolated PostgreSQL 18 and MySQL 8.4 containers and removes them afterwards; it does not
 connect to an existing application database. It exercises post-cutover inserts, locked-row backfills,
-concurrent edits, DB alias selection, partition writes, constraints, and pagination plans.
+concurrent edits, DB alias selection, partition writes, constraints, pagination plans, PostgreSQL
+version gates, RLS session reuse, pg_stat_statements/pg_trgm, FDW TLS and read-only grants, and MySQL
+8.4 authentication/FK defaults. Use `--pg-major 16` for the compatibility run.
 
 With `uv` installed, run the same checks in an isolated dependency environment from the repo root:
 
@@ -486,6 +515,21 @@ With `uv` installed, run the same checks in an isolated dependency environment f
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
   python scripts/check-examples.py
 ```
+
+For PostGIS and pgvector, build the disposable-test image and run the same harness:
+
+```bash
+docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py --extensions
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py --pg-major 16
+```
+
+The extension run checks spatial radius results/GiST, vector dimensions, exact versus filtered
+HNSW results, and RLS. Small fixtures prove behavior, not production latency or recall.
+Runs print actual server/extension versions; tags and package repositories can move. The image
+is kept for reuse, while test containers/data are removed. No existing application DB is changed.
 
 ## Changelog
 
@@ -531,8 +575,8 @@ AI 에이전트는 애플리케이션 코드를 잘 씁니다. 티가 잘 안 �
 
 **Claude Code**와 **Codex** 양쪽에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로
-설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. MySQL 8.4 LTS+ / PostgreSQL 16+
-(Aurora 포함), 그리고 임베디드·프로토타입용 SQLite를 다룹니다.
+설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. MySQL **8.4 LTS**와 PostgreSQL
+**18**을 기준으로 Aurora 등 관리형의 호환 조건, 임베디드·프로토타입용 SQLite를 다룹니다.
 
 일관된 원칙 하나: **구조적 비용은 근거 없이 지불하지 않습니다.** 비정규화는 측정, 파티셔닝은
 쿼리와 보관 코드, 인덱스는 실행계획이 있어야 합니다.
@@ -561,7 +605,7 @@ Codex는 플러그인 훅을 자동으로 신뢰하지 않습니다. 설치 후 
 | `rdbms-review` | 기존 SQL·스키마·마이그레이션 리뷰 |
 | `rdbms-naming` | 테이블·컬럼·인덱스·제약 네이밍, 데이터 타입 |
 | `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL |
-| `postgres-guideline` | PostgreSQL 16+ / Aurora PostgreSQL |
+| `postgres-guideline` | PostgreSQL 18, 기존 16/17 호환, 관리형/Aurora, FDW·PostGIS·pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — 임베디드·로컬·프로토타입 |
 | `database-migrations` | 무중단 스키마 변경, 롤백 전략 |
 
@@ -579,7 +623,9 @@ Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어�
 **MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
 말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
 명시된 프로젝트 경로가 없으면 현재 디렉토리부터 Git 루트까지 확인합니다.
-Git 밖에서는 현재 디렉토리만 검사합니다. 현재 `sh hooks/detect-db.test.sh`의 26개 케이스가 통과합니다.
+Git 밖에서는 현재 디렉토리만 검사합니다. PostGIS·pgvector 이미지와 Java 빌드 파일도 감지하고,
+MySQL·MariaDB가 함께 있으면 둘 다 표시합니다. 사용자가 지정한 대상은 다시 묻지 않습니다.
+현재 `sh hooks/detect-db.test.sh`의 32개 케이스가 통과합니다.
 
 ### 반영된 내용
 
@@ -649,8 +695,30 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 | | 내용 |
 |---|---|
 | **MySQL** | 8.4 LTS 트랙과 릴리스 정책, InnoDB + utf8mb4 기본값, 통화별 `decimal` 정밀도, `DATETIME` vs `TIMESTAMP`(Y2038), `INET6_ATON`, 복합 인덱스 순서, 기간 컬럼 쌍 최적화, `RANGE COLUMNS` 파티셔닝과 `REORGANIZE`, `REPEATABLE READ`와 갭락, 데드락 체크리스트, `SKIP LOCKED` 큐, 키셋 페이지네이션, `ngram` 파서 `FULLTEXT`, 리플리카 지연과 read-after-write 라우팅, GRANT 최소권한과 TLS, `my.cnf` 기준선, `wait_timeout` 대비 풀 사이징, Aurora용 JDBC 드라이버 선정 |
-| **PostgreSQL** | 16.7+ 기본값, 스키마 분리(`app`/`log`/`ref`), `SERIAL` 대신 `GENERATED ALWAYS AS IDENTITY`, `timestamptz`, `jsonb`, GIN/GiST/BRIN/부분/표현식 인덱스, `READ COMMITTED` 기본값과 `40001` 재시도, RLS가 **실제로 강제되게 하는 역할 전제**, advisory lock과 풀링 누수, 안전한 `LISTEN`/`NOTIFY`, `DEFAULT` 파티션이 있는 선언적 파티셔닝, pg_partman 5.x, 재기동 필요 설정과 리로드 설정 구분 |
+| **PostgreSQL** | 18 기준 UUIDv7·VIRTUAL/STORED·skip scan·비동기 I/O, 16/17 호환 경계, 스키마 분리·identity·timestamptz/jsonb·GIN/GiST/BRIN, RLS·풀 설정 범위, 파티션 FK 단계별 검증, pg_partman, FDW·PostGIS·pgvector와 확장 운영 |
 | **SQLite** | 3.37+ `STRICT` 테이블, PRAGMA 기준선(`foreign_keys`는 **기본 OFF**), 네이티브 타입이 없는 것들의 관례(돈은 정수 센트), rowid로서의 `INTEGER PRIMARY KEY`와 `AUTOINCREMENT`가 대개 불필요한 이유, `BEGIN IMMEDIATE` 기반 단일 라이터 설계, 네트워크 파일시스템을 배제하는 이유, FTS5, `VACUUM INTO` 백업, 그리고 `db-select`로 되돌아가는 전환 경로 |
+
+MySQL 8.4의 인증·InnoDB 기본값·비표준 FK 제한·GTID 대기·제거된 명령도 구분합니다.
+SQLite는 3.37 호환 하한을 유지하면서 JSONB는 3.45+, 최신 `PRAGMA optimize`는 3.46+로
+나눕니다. PostgreSQL 16/17과 관리형/Aurora는 제공 버전과 호환 조건을 따로 확인합니다.
+최신 major로 바꾸는 것은 별도의 업그레이드 판단입니다.
+
+#### PostgreSQL 확장 가이드
+
+기존 `postgres-guideline` 스킬이 아래 문서를 필요할 때 불러옵니다. 모두 설치하는 묶음이
+아니라 실제 요구에 맞춰 선택하고, 관리형 서비스의 허용 버전부터 확인합니다.
+
+| 필요한 기능 | 가이드 |
+|---|---|
+| 설치·권한·preload·업데이트, pg_stat_statements·pg_trgm·btree_gist·pg_cron·pg_partman·pgstattuple·pgAudit | [확장 선택과 운영](skills/postgres-guideline/extensions.md) |
+| postgres_fdw 외부 DB 연동, TLS·mapping·pushdown·원격 RLS·트랜잭션 한계 | [FDW](skills/postgres-guideline/fdw.md) |
+| 좌표 타입·SRID·미터/도·GiST·ST_DWithin·KNN | [PostGIS](skills/postgres-guideline/postgis.md) |
+| 임베딩 모델·차원·exact/HNSW/IVFFlat·필터·RLS·recall | [pgvector](skills/postgres-guideline/pgvector.md) |
+| PostgreSQL 18 기능·16/17 호환·major 전환·Docker 데이터 경로 | [버전과 업그레이드](skills/postgres-guideline/version-and-upgrade.md) |
+
+“FDW로 외부 PostgreSQL을 읽기 전용 연결해줘”, “PostGIS로 1km 내 장소를 찾아줘”,
+“테넌트 필터가 있는 pgvector 검색의 recall을 점검해줘”처럼 요청하면 됩니다.
+pgvector는 임베딩을 저장·검색하며 임베딩 모델 자체는 앱이나 배치에서 실행합니다.
 
 ### 핵심 방침
 
@@ -669,8 +737,8 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
   주문 당시 가격은 상품 가격의 캐시가 아니라 거래 자체의 데이터입니다.
 - **FK는 엔진과 프로젝트 정책을 함께 봅니다.** MySQL 예제는 논리 FK가 기본이지만, 비파티션
   테이블의 기존 물리 FK를 이유 없이 제거하지 않습니다. 프로젝트 규칙과 측정된 쓰기·잠금 비용을
-  먼저 확인합니다. PostgreSQL은 6개 게이트 통과 시 허용하며, 16의 파티션 참조 테이블에는
-  `NOT VALID`를 쓸 수 없으므로 검증 경로를 따로 잡습니다. SQLite는 연결마다
+  먼저 확인합니다. PostgreSQL은 6개 게이트 통과 시 허용하며, 16/17의 파티션 참조 테이블에는
+  `NOT VALID`를 쓸 수 없고 18부터 지원하므로 검증 경로를 나눕니다. SQLite는 연결마다
   `PRAGMA foreign_keys = ON`이 필요합니다. FK 없는 정책에서는 참조 컬럼 인덱스를 직접 만듭니다.
 - **이력은 구조보다 목적이 먼저.** 감사 / 비즈니스 / 유효시간은 서로 다른 질문이고 `updated_at`은
   셋 다 답하지 못합니다. 방식과 무관하게 두 규칙 고정: 현재 행과 이력은 한 트랜잭션, 엔터티와
@@ -706,12 +774,19 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 
 ### 검증
 
+2026-09-25 갱신본은 PostgreSQL **18.6**, MySQL **8.4.11**, PostGIS **3.6.4**, pgvector
+**0.8.6**, Django **5.2.17**, 검증 runner의 SQLite **3.53.1**에서 통과했습니다.
+PostgreSQL **16.15** 호환 검사도 별도로 통과했으며, PostGIS·pgvector는 18에서 실행했습니다.
+아래에는 재현 명령과 이전 서버 검증 기록을 구분해 남겼습니다.
+
 `python scripts/check-examples.py`는 문서의 SQL·Django 예제를 직접 읽어 실행합니다.
-Docker와 가상환경에 설치한 `Django>=5.2,<5.3`, `psycopg[binary]>=3,<4`가 필요합니다.
-검사용 PostgreSQL 16·MySQL 8.4 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
-PK 교체 직후 INSERT, 잠긴 행의 backfill, 동시 수정, DB 별칭 선택, 파티션 쓰기, 제약과 실행계획을 검사합니다.
+Docker·OpenSSL과 가상환경에 설치한 `Django>=5.2,<5.3`, `psycopg[binary]>=3,<4`가 필요합니다.
+검사용 PostgreSQL 18·MySQL 8.4 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
+PK 교체·동시 백필·DB 별칭·파티션·제약·실행계획에 더해 PG 버전 경계, RLS 세션 재사용,
+pg_stat_statements·pg_trgm, FDW TLS·읽기 전용 권한, MySQL 8.4 인증·FK 기본값을 검사합니다.
+`--pg-major 16`으로 기존 버전 호환성도 검사합니다.
 같은 스크립트가 Python 예제 문법, 매니페스트·스킬 frontmatter·버전 일치, SQLite PK와 동기화
-스크립트도 검사합니다. 참조 경로와 예제의 이름 해석은 별도로 검토합니다.
+스크립트, SQLite JSONB·optimize 버전 경계와 스킬 참조 경로도 검사합니다.
 
 `uv`가 설치되어 있다면 저장소 루트에서 다음과 같이 의존성을 분리해 실행할 수 있습니다.
 
@@ -721,6 +796,21 @@ python3 scripts/check-readme-bilingual.py
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
   python scripts/check-examples.py
 ```
+
+PostGIS·pgvector 예제까지 실행하려면 검증용 이미지를 만들고 같은 스크립트를 사용합니다.
+
+```bash
+docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py --extensions
+uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+  python scripts/check-examples.py --pg-major 16
+```
+
+공간 반경 결과·GiST, 벡터 차원·exact/필터 HNSW 결과·RLS를 검사합니다. 작은 검증 데이터의
+통과를 운영 지연·recall 보장으로 제시하지 않습니다. 실행 시 실제 서버·확장 버전을 출력하며
+이미지 태그와 패키지 저장소는 갱신될 수 있습니다. 이미지는 재사용을 위해 보관하고 검증용
+컨테이너와 데이터는 삭제합니다.
 
 **실제 서버에서 실행했습니다.** 스키마를 좌우하는 주장은 **MySQL 8.4.11** / **PostgreSQL 16.15**
 컨테이너와 로컬 **SQLite 3.51**에서 직접 돌려 확인했습니다.

@@ -12,11 +12,20 @@
 | Time-series ranges | BRIN | `CREATE INDEX idx_t_col ON t USING brin (col)` Note: Effective only when physical insertion order correlates with values (append-only logs). Can be slower than B-tree if insertion order is mixed |
 | Range/geo data | GiST | `CREATE INDEX idx_t_col ON t USING gist (col)` |
 
+PostGIS의 거리 단위·공간 predicate는 `postgis.md`, pgvector의 HNSW/IVFFlat과 거리
+operator class는 `pgvector.md`를 따른다. GiST가 벡터 ANN 인덱스를 대신하지 않는다.
+`pg_trgm`은 `extensions.md`의 설치·문자열 검색 조건을 먼저 확인한다.
+
 ## Key Index Patterns
 
 These are **shapes, not prescriptions** — every index still needs its justifying query, the plan
 that shows the improvement, its write cost, and a rollback (see
 `rdbms-modeling/references/index-design.md`).
+
+PostgreSQL 18의 B-tree skip scan은 선두 컬럼 조건이 없는 일부 쿼리도 효율적으로 처리한다.
+후행 컬럼 조건이 탐색 범위를 줄이는 경우도 있으므로 “range 뒤 컬럼은 항상 필터뿐”이라고
+단정하지 않는다. distinct 값·선택도와 실제 계획으로 판단하며, 기존 인덱스를 제거할 근거는
+별도로 필요하다(`version-and-upgrade.md`).
 
 ```sql
 -- Composite: equality first, then range
@@ -148,7 +157,8 @@ WHERE c.contype = 'f'
   );
 -- Multi-column FKs: compare the full conkey vector against the index prefix by hand
 
--- Find slow queries
+-- extensions.md의 preload·DB별 설치를 완료한 경우에만 실행한다.
+-- 평균 지연뿐 아니라 누적 비용·호출 수를 함께 확인한다.
 SELECT query, mean_exec_time, calls
 FROM pg_stat_statements WHERE mean_exec_time > 100
 ORDER BY mean_exec_time DESC;

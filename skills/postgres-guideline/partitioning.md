@@ -180,7 +180,7 @@ DROP TABLE log.chat_history_2026_08;
 
 ### Precreating a Partition With a Weaker Parent Lock
 
-Prepare a standalone table, then `ATTACH PARTITION`: on PostgreSQL 16 the parent lock is
+Prepare a standalone table, then `ATTACH PARTITION`: on PostgreSQL 16–18 the parent lock is
 `SHARE UPDATE EXCLUSIVE`, whereas `CREATE TABLE ... PARTITION OF` takes `ACCESS EXCLUSIVE`.
 The attached table and default partition still need locks; validated CHECKs avoid their scans,
 not every lock.

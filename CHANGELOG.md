@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- MySQL 8.4 LTS·PostgreSQL 18을 기본 검토 대상으로 정리하고 기존 PostgreSQL 16/17의
+  호환 경계를 추가했습니다. UUIDv7·생성 컬럼·skip scan·비동기 I/O·파티션 FK 검증과
+  MySQL 인증·InnoDB 기본값·비표준 FK·제거된 명령을 반영했습니다.
+- PostgreSQL 확장 선택·설치·권한·preload·업데이트 가이드와 FDW·PostGIS·pgvector의 실행
+  예제를 추가했습니다. pg_stat_statements·pg_trgm·btree_gist·pg_cron·pg_partman·pgstattuple·
+  pgAudit도 용도별로 안내합니다.
+- 훅의 PostGIS/pgvector 이미지·Java 빌드 파일 탐색과 MySQL/MariaDB 동시 감지를 보완하고
+  사용자 지정 대상을 보존합니다. preload 목록 덮어쓰기, RLS의 pool 설정 누출·빈 값·view 권한,
+  인덱스 판단·nullable 컬럼·SQLite JSONB/optimize 지침을 함께 수정했습니다.
+- 기존 예제 검사에 PostgreSQL 18/16 분기, FDW TLS·원격 권한·pushdown, 공간 반경·GiST,
+  벡터 차원·HNSW·필터·RLS 검증을 추가했습니다. 확장 검증용 Dockerfile과 재현 명령을
+  README 양쪽 언어에 제공합니다.
+- PostgreSQL 18.6·MySQL 8.4.11·PostGIS 3.6.4·pgvector 0.8.6의 확장 포함 검사와
+  PostgreSQL 16.15 호환 검사, 훅 32개·스킬 8개·README 수치 검증을 통과했습니다.
+
 - 후속 리뷰 20건을 반영했습니다. README의 영어·한국어 누적 기록을 **11라운드, 292건**으로
   맞추고 검증 명령과 Python·Docker 배지를 갱신했습니다.
 - PostgreSQL·MySQL의 PK 교체 후 INSERT가 실패하지 않도록 기존 키의 NOT NULL을 해제하고,

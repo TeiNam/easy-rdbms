@@ -2,7 +2,7 @@
 name: sqlite-guideline
 description: >
   SQLite 3.37+ schema design, type affinity and STRICT tables, PRAGMA baseline, single-writer
-  concurrency, indexes, identifiers, FTS5, JSON, and the growth path to a server engine.
+  concurrency, indexes, identifiers, FTS5, JSON/JSONB, PRAGMA optimize, and the growth path to a server engine.
   Triggers: SQLite, sqlite3, better-sqlite3, rusqlite, aiosqlite, STRICT table, type affinity,
   PRAGMA journal_mode WAL, PRAGMA foreign_keys, busy_timeout, database is locked, SQLITE_BUSY,
   rowid, INTEGER PRIMARY KEY, AUTOINCREMENT, WITHOUT ROWID, FTS5, json_extract, VACUUM INTO,
@@ -28,6 +28,9 @@ server engine.
 ## Version and Baseline
 
 - SQLite **3.37+** (for `STRICT` tables; 2021). Prefer the newest bundled with the driver.
+- `SELECT sqlite_version()`으로 **드라이버에 실제 연결된 라이브러리**를 확인한다.
+  JSONB는 3.45+, 최신 `PRAGMA optimize` 권고는 3.46+로 구분한다. OS의 sqlite3 CLI와
+  Python/Node 앱에 번들된 SQLite 버전이 같다고 가정하지 않는다.
 - Configuration is PRAGMAs, not a server config file — and scope matters: some persist in the
   database, most are per-connection:
 
@@ -114,8 +117,8 @@ so there an integer primary key is an ordinary key column.
   problem (e.g., IDs leaked to an external system that must never see a recycled one).
 - `WITHOUT ROWID` tables suit small lookup tables with a natural non-integer PK; measure before
   using them elsewhere.
-- Distributed generation is not SQLite's problem — if multiple nodes generate IDs, you have
-  outgrown SQLite (see the growth path below).
+- 여러 장치가 UUID를 생성해 각자의 로컬 DB에 저장할 수 있다. ID 생성 방식만으로 SQLite
+  전환을 결정하지 않는다. 여러 머신이 **한 DB 파일에 직접 쓰는 요구**는 서버 엔진으로 넘긴다.
 
 ## Concurrency — One Writer, Full Stop
 
@@ -161,7 +164,10 @@ B-tree only — no GIN/BRIN/hash. What carries over and what replaces them:
 - Covering: put the extra columns at the end of the composite index (no `INCLUDE`).
 - Verify with `EXPLAIN QUERY PLAN` — look for `SCAN` on large tables where you expected
   `SEARCH`.
-- `PRAGMA optimize;` at connection close keeps the planner statistics fresh.
+- SQLite 3.46+에서는 짧은 연결 종료 전 `PRAGMA optimize;`, 장기 연결을 열 때
+  `PRAGMA optimize=0x10002;` 후 주기적 `PRAGMA optimize;`를 검토한다.
+  인덱스 변경 후에도 실행한다. 최신 optimize는 작업량을 제한하므로 큰 DB 전체 ANALYZE를
+  무조건 매번 실행하지 않는다. [공식 권고](https://www.sqlite.org/lang_analyze.html).
 
 ## Full-Text Search and JSON
 
@@ -185,6 +191,28 @@ ALTER TABLE event ADD COLUMN event_type TEXT
   GENERATED ALWAYS AS (json_extract(payload, '$.type')) VIRTUAL;
 CREATE INDEX idx_event_type ON event (event_type);
 ```
+
+### JSONB — SQLite 3.45+
+
+SQLite JSONB는 SQLite 내부 바이너리 표현을 BLOB으로 저장한다. PostgreSQL `jsonb`와
+**바이너리 호환이 없고**, 대부분의 연산은 여전히 O(N)이다. JSONB로 바꾼다고 조회 경로가
+자동 색인되는 것은 아니다. `STRICT` 테이블에서는 `BLOB`으로 선언한다.
+
+```sql
+-- SQLite 3.45+ 전용. 두 번째 인자 8은 엄격한 JSONB 검증이다.
+CREATE TABLE local_payload (
+  local_payload_id INTEGER CONSTRAINT pk_local_payload PRIMARY KEY,
+  payload BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CONSTRAINT chk_local_payload_jsonb CHECK (json_valid(payload, 8))
+) STRICT;
+INSERT INTO local_payload (payload) VALUES (jsonb('{"type":"message"}'));
+SELECT json_extract(payload, '$.type') FROM local_payload;
+```
+
+외부 교환·다른 DB로 이관할 때는 JSON 텍스트로 변환한다.
+[SQLite JSONB와 버전별 JSON 함수](https://www.sqlite.org/json1.html).
 
 ## Operations
 

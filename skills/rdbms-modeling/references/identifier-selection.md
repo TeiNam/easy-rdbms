@@ -109,12 +109,12 @@ Policy:
 - Distributed generation: native `uuid` type with **UUIDv7**.
 - Write-heavy tables: UUIDv7 over UUIDv4, for the same index-locality reason.
 - Natural keys stay out of the PK when they can change.
-- **`uuidv7()` is built in from PostgreSQL 18.** On 16 and 17 (this plugin's baseline is 16.7+),
+- **`uuidv7()` is built in from PostgreSQL 18**, the default target. On existing 16 and 17 servers,
   generate v7 in the application or use a vetted extension. `gen_random_uuid()` is v4 — do not
   reach for it when you wanted ordering.
 
 ```sql
--- PostgreSQL 18+
+-- PostgreSQL 18+. 아래 16/17 DDL과 둘 중 하나만 선택한다.
 CREATE TABLE app.purchase_order (
   purchase_order_id   uuid NOT NULL DEFAULT uuidv7(),
   created_at timestamptz NOT NULL DEFAULT current_timestamp,

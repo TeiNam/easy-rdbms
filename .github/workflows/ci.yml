@@ -23,12 +23,22 @@ jobs:
           python3 scripts/check-examples.py --metadata-only
           python3 scripts/check-readme-bilingual.py
           sh hooks/detect-db.test.sh
-      # 루트 CLAUDE.md 경고는 개발용 파일이라 의도된 것이므로 --strict 없이 오류만 실패로 본다.
+      # 루트 CLAUDE.md 경고는 개발용 파일이라 의도된 것이므로 그 경고만 빼고 모두 실패로 본다.
       - name: Claude Code plugin validate
         run: |
-          npm install -g @anthropic-ai/claude-code
-          claude plugin validate .
-          claude plugin validate .claude-plugin/plugin.json
+          npm install -g @anthropic-ai/claude-code@2.1.282
+          claude plugin validate --strict .
+          claude plugin validate --json .claude-plugin/plugin.json | python3 -c '
+          import json, sys
+          report = json.load(sys.stdin)
+          issues = [
+              item["message"]
+              for entry in [report["manifest"], *report["contents"]]
+              for item in entry["errors"] + entry["warnings"]
+              if not item["message"].startswith("CLAUDE.md at the plugin root")
+          ]
+          sys.exit("\n".join(issues) if issues or not report["success"] else 0)
+          '
 
   examples:
     name: PostgreSQL ${{ matrix.postgres }} and MySQL 8.4

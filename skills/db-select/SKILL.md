@@ -17,6 +17,21 @@ description: >
 Choose the engine, the topology, and the cost position **before** writing DDL. Retrofitting
 a wrong choice costs far more than the ten minutes this takes.
 
+## Contents
+
+- When to Activate
+- Gate: Facts You Need First
+- Step 1 — Is an RDBMS Even Right?
+  - Objections That Do Not Justify Leaving
+- Step 2 — Scale Tier
+- Step 3 — MySQL or PostgreSQL
+- Step 4 — Deployment Form
+  - Multi-Tenancy Shape
+- Step 5 — Three-Year Cost
+- Output Format
+- Next Step
+- Reference Files
+
 ## When to Activate
 
 - Starting a new project or service that needs persistence
@@ -253,6 +268,12 @@ Assumptions (correct these if wrong):
 ```
 
 Every re-evaluation trigger must be **measurable**. "When we get bigger" is not a trigger.
+
+Before sending, check the draft: up to three candidates and exactly one default; each candidate's
+reason traces to a gate fact; every trigger is measurable; no invented prices; every estimate you
+supplied yourself appears under Assumptions. Fix what fails and check again. If the fix changes the
+tier, engine, or deployment form, go back to that step and redo the steps after it instead of
+editing only the output.
 
 ## Next Step
 

@@ -1,5 +1,17 @@
 # Schema Design
 
+## Contents
+
+- Primary Key Policy
+- Foreign Key Policy — Allowed by Default, Created When Conditions Are Met
+  - Costs That Remain
+  - When Using a Logical FK Instead
+  - Application-Level Referential Integrity
+- Soft Delete Pattern
+- Row Level Security (RLS)
+- JSONB Usage
+- Table Creation Checklist
+
 ## Primary Key Policy
 - Use `GENERATED ALWAYS AS IDENTITY` (not SERIAL)
 - UUID allowed for distributed or external-facing IDs

@@ -3,6 +3,21 @@
 **Indexes are not created on a guess.** Each one costs write throughput, storage, backup size, and
 buffer-pool space forever. Recommend from evidence, and say what evidence you had.
 
+## Contents
+
+- Evidence Required
+- Design Order
+- Write-Heavy Tables
+  - MySQL / InnoDB
+  - PostgreSQL
+- Covering Indexes
+- ORDER BY and GROUP BY
+- Pattern Matching and Avoiding Full Scans
+- Full-Text Search (FTS)
+- When to Signal a Move to a Search Engine
+- Verification
+- Output Requirement
+
 ## Evidence Required
 
 Ask for what is missing. With gaps, output `needs measurement` — **do not state an expected

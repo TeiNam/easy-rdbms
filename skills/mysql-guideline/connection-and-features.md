@@ -1,5 +1,17 @@
 # Connection Management and MySQL Features
 
+## Contents
+
+- Connection Handling — Use a Pool, Not a Shared Connection
+- Connection Pool (mysql-connector-python)
+- Transaction Management
+- Async Support (aiomysql)
+- MySQL-Specific Features
+  - JSON Column Operations
+  - Generated Columns
+  - Window Functions
+- Performance Checklist
+
 ## Connection Handling — Use a Pool, Not a Shared Connection
 
 > A single module-level connection with transaction state on the object is **not safe** outside a

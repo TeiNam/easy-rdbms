@@ -3,6 +3,27 @@
 Principles to follow and anti-patterns to avoid in MySQL projects.
 Order: normalization → optimal data types → avoid SP/Trigger → indexes → anti-patterns.
 
+## Contents
+
+- 1. Data Normalization Required
+- 2. Data Type Selection
+  - 2.0 `UNSIGNED` Whenever Negatives Are Impossible
+  - 2.1 Use the Smallest Type
+  - 2.2 String Types
+  - 2.3 DATETIME vs TIMESTAMP
+  - 2.4 Space and Integrity via Functions
+- 3. Avoid Stored Procedure · Trigger · Event Scheduler
+- 4. Indexes
+  - Why They Slow DML
+  - Creation Guidelines
+- 5. Anti-Patterns (What Not to Do)
+  - 5.1 Using `COUNT(*)` in Validation Logic
+  - 5.2 Random Keys as PK
+  - 5.3 Composite Keys as PK
+  - 5.4 Foreign Keys — Establish Project Policy First
+  - 5.5 JSON Column Overuse
+- Dev Practices Checklist
+
 ## 1. Data Normalization Required
 
 The essence of relational DB is "split, store, join to output".

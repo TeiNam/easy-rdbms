@@ -1,5 +1,18 @@
 # Partitioning Strategy
 
+## Contents
+
+- Do Not Partition by Default
+- Scope: RANGE Family Only — a Deliberate Limitation
+- Requirements Before Partitioning a Table
+- Log Tables: Monthly RANGE COLUMNS Partitioning
+- Candidate Tables
+- Partition Management
+  - MAXVALUE Is a Safety Net, Not a Load Target
+- Partition Info Query
+- Partition Pruning
+- Verify Partition Pruning
+
 ## Do Not Partition by Default
 
 Partitioning is **recommended from evidence in the code**, not applied because a table looks like it

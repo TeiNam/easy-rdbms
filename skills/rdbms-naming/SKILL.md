@@ -16,6 +16,21 @@ index/constraint naming, case-folding) is common across MySQL and PostgreSQL, ma
 **single source**. **Data types** differ by engine, so apply only the target DB column from the
 "Data Types (by DB)" table below; see `mysql-guideline` / `postgres-guideline` for deeper details.
 
+## Contents
+
+- When to Activate
+- 0. Case Folding — the portability rule to understand first
+- 1. Common Rules
+- 2. Table / Column
+  - Column Prefix/Suffix System
+- 3. Constraint / Index Naming — lowercase prefix
+- 4. Abbreviation Dictionary
+- 5. Data Types (by DB)
+  - Common Principles (DB-agnostic)
+  - Type Mapping
+- Bad / Good Summary
+- Related
+
 ## When to Activate
 
 When creating tables, columns, or indexes; authoring or reviewing DDL; or deciding naming conventions.

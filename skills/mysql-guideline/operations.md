@@ -4,6 +4,24 @@ Covers the runtime and operational side that `schema-design.md` / `index-and-que
 `connection-and-features.md` do not: engine divergence, lock diagnostics, replica lag,
 grants, and server configuration.
 
+## Contents
+
+- Engine and Version Check First
+- MySQL 8.4 LTS 점검
+- Pagination — the `OFFSET` Trap
+  - Fix 1 — keyset (seek) pagination
+  - Fix 2 — deferred join, when a cursor is impossible
+- Full-Text Search Query
+- Transaction Isolation — InnoDB Defaults to REPEATABLE READ
+- Locking, Deadlocks, and Queues
+- Connection Pool Sizing (Node.js and the wait_timeout Rule)
+- Diagnostics
+- Replication and Replica Lag
+- Security and Grants
+- Server Configuration Baseline
+- 공식 근거
+- Operational Anti-Patterns
+
 ## Engine and Version Check First
 
 ```sql

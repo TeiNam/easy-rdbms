@@ -4,6 +4,18 @@ Read this when a recommendation needs a defensible cost position: budget is a st
 constraint, a migration is on the table, or the choice is between self-managed, managed, and
 serverless.
 
+## Contents
+
+- Principles
+- Cost Components
+  - Upfront
+  - Ongoing
+- Formula
+- Option Comparison
+- Default Recommendation by Scale
+- Decision Rules
+- Final Criterion
+
 ## Principles
 
 1. **A free open-source database is not free.** It still needs someone to patch, tune,

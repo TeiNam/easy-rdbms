@@ -2,6 +2,9 @@
 """Execute the documented regression examples in disposable databases.
 
 Requires Docker, OpenSSL, Django 5.2, and psycopg 3. Run: python scripts/check-examples.py
+Without installing anything globally (CI installs the same pins with pip):
+  uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+    python scripts/check-examples.py
 Default: PostgreSQL 18 / MySQL 8.4. --pg-major 16 checks compatibility.
 --extensions uses scripts/Dockerfile.postgres built as easy-rdbms-examples-pg<major>.
 --metadata-only checks plugin/release metadata without Docker or third-party packages.
@@ -26,6 +29,68 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENTS = {}
+# 스킬 작성 규칙: 100줄을 넘는 문서는 맨 위에 목차, SKILL.md 본문은 500줄 이하.
+TOC_REQUIRED_OVER = 100
+TOC_MAX_START = 25
+SKILL_BODY_MAX = 500
+
+
+MD_REFERENCE = re.compile(r"`([^`\n]+?\.md)(?:#[^`\n]*)?`|\]\(([^()\s#]+?\.md)(?:#[^()\s]*)?\)")
+FENCE = re.compile(r"\s*(`{3,}|~{3,})")
+
+
+def md_targets(path):
+    """Local `*.md` references, backticked or as Markdown links, resolved like the plugin does."""
+    resolved = {}
+    for match in MD_REFERENCE.finditer(path.read_text()):
+        target = match[1] or match[2]
+        if "://" in target:
+            continue
+        found = [c for c in (path.parent / target, ROOT / "skills" / target, ROOT / target) if c.is_file()]
+        resolved[target] = found[0].resolve() if found else None
+    return resolved
+
+
+def body_lines(path):
+    """A SKILL.md's lines after its frontmatter; every line of any other document."""
+    lines = path.read_text().splitlines()
+    if path.name == "SKILL.md" and lines[:1] == ["---"]:
+        return lines[lines.index("---", 1) + 1:]
+    return lines
+
+
+def headings_outside_fences(lines):
+    """(line number, line) for ##/### headings. A fence closes only on its own character and length."""
+    found, fence = [], None
+    for number, line in enumerate(lines):
+        marker = FENCE.match(line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) \
+                    and not line[marker.end():].strip():
+                fence = None
+        elif marker:
+            fence = marker[1]
+        elif line.startswith(("## ", "### ")):
+            found.append((number, line))
+    return found
+
+
+def toc_problem(path):
+    """Why a long skill document's top-of-file Contents block is missing or stale, else None."""
+    if len(path.read_text().splitlines()) <= TOC_REQUIRED_OVER:
+        return None
+    lines = body_lines(path)
+    headings = headings_outside_fences(lines)
+    if not headings or headings[0][1] != "## Contents" or headings[0][0] > TOC_MAX_START:
+        return f"over {TOC_REQUIRED_OVER} lines, so '## Contents' must be its first section, near the top"
+    listed = []
+    for line in lines[headings[0][0] + 2:]:
+        if not line.startswith(("- ", "  - ")):
+            break
+        listed.append(line)
+    expected = [("- " if line.startswith("## ") else "  - ") + line.split(" ", 1)[1]
+                for _, line in headings[1:]]
+    return None if listed == expected else "Contents must list the ##/### headings:\n" + "\n".join(expected)
 
 
 def block(path, needle):
@@ -142,10 +207,39 @@ def metadata():
     assert not skills & commands, skills & commands
     # 스킬과 상세 문서의 참조는 같은 폴더 또는 skills/ 기준으로 해석한다.
     for path in ROOT.glob("skills/**/*.md"):
-        for target in re.findall(r"`([^`\n]+\.md)`", path.read_text()):
-            assert any(candidate.is_file() for candidate in [
-                path.parent / target, ROOT / "skills" / target, ROOT / target,
-            ]), (path.relative_to(ROOT), target)
+        for target, resolved in md_targets(path).items():
+            assert resolved, (path.relative_to(ROOT), target)
+        problem = toc_problem(path)
+        assert problem is None, f"{path.relative_to(ROOT)}: {problem}"
+    # 목차 검사가 조용히 통과하지 않는지 실제 위반 문서로 확인한다.
+    with tempfile.TemporaryDirectory() as directory:
+        probe, filler = Path(directory) / "probe.md", "text\n" * TOC_REQUIRED_OVER
+        probe.write_text(f"# T\n\n## Contents\n\n- A\n  - B\n\n## A\n\n### B\n\n```\n## fenced\n```\n{filler}")
+        assert toc_problem(probe) is None, toc_problem(probe)
+        probe.write_text(f"# T\n\n## Contents\n\n- A\n\n## A\n\n## C\n{filler}")
+        assert "- C" in (toc_problem(probe) or ""), "a stale Contents block was accepted"
+        probe.write_text(f"# T\n\n## A\n{filler}")
+        assert toc_problem(probe), "a long document without Contents was accepted"
+        probe.write_text(f"# T\n\n## Contents\n\n- A\n\n## A\n\n~~~\n```\n~~~\n\n## B\n{filler}")
+        assert "- B" in (toc_problem(probe) or ""), "a heading after a mixed fence was hidden"
+        probe.write_text(f"# T\n\n## Contents\n\n- A\n\n## A\n\n````\n```\n## fenced\n```\n````\n{filler}")
+        assert toc_problem(probe) is None, toc_problem(probe)
+        probe.write_text("# T\n\n## A\n" + "text\n" * (TOC_REQUIRED_OVER - 3) + "end")
+        assert toc_problem(probe), "a 101-line document without a final newline skipped the rule"
+        probe.write_text("[self](probe.md#a) `probe.md` [web](https://example.com/x.md)")
+        assert md_targets(probe) == {"probe.md": probe.resolve()}, md_targets(probe)
+    # 참조는 한 단계만: 상세 문서와 그 문서가 가리키는 파일은 모두 SKILL.md가 직접 가리켜야 한다.
+    for skill in ROOT.glob("skills/*/SKILL.md"):
+        length = len(body_lines(skill))
+        assert length <= SKILL_BODY_MAX, (skill.relative_to(ROOT), length)
+        direct = set(md_targets(skill).values())
+        for detail in skill.parent.rglob("*.md"):
+            if detail == skill:
+                continue
+            assert detail.resolve() in direct, ("not linked from its SKILL.md", detail.relative_to(ROOT))
+            nested = {p for p in md_targets(detail).values() if p.name != "SKILL.md"} - direct - {detail.resolve()}
+            assert not nested, (detail.relative_to(ROOT), "reaches past SKILL.md:",
+                                sorted(str(p.relative_to(ROOT)) for p in nested))
     # CI에서 외부 명령의 실패 원문이 사라졌던 회귀를 실제 실패 프로세스로 확인한다.
     try:
         run([sys.executable, "-c", "import sys; sys.stderr.write('diagnostic-probe'); sys.exit(7)",
@@ -202,7 +296,7 @@ def sqlite_and_sync():
 
 
 def pg_cutover():
-    path = "skills/database-migrations/SKILL.md"
+    path = "skills/database-migrations/widen-primary-key.md"
     preparation = block(path, "CREATE UNIQUE INDEX CONCURRENTLY uq_chat_history_id_new")
     cutover = block(path, "PRIMARY KEY USING INDEX uq_chat_history_id_new")
     for old_id in [2147483647, None]:
@@ -555,7 +649,7 @@ def mysql_examples():
             REFERENCES chat_history(chat_history_id_new));
         INSERT INTO chat_reference VALUES (4294967295);
     """)
-    path = "skills/database-migrations/SKILL.md"
+    path = "skills/database-migrations/widen-primary-key.md"
     sql("mysql", block(path, "DROP FOREIGN KEY fk_chat_reference_history"))
     sql("mysql", block(path, "CHANGE chat_history_id chat_history_id_old"))
     sql("mysql", block(path, "ADD CONSTRAINT fk_chat_reference_history"))
@@ -616,7 +710,7 @@ def django_backfill(config):
         existing = members.create(username="existing_original", display_name="existing_choice")
         members.bulk_create([Member(username=f"user_{i}") for i in range(5001)])
         namespace = {}
-        exec(block("skills/database-migrations/SKILL.md", "def backfill_display_names"), namespace)
+        exec(block("skills/database-migrations/django.md", "def backfill_display_names"), namespace)
         updates = 0
 
         def interleave(execute, statement, params, many, context):

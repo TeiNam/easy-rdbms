@@ -1,5 +1,22 @@
 # Index Strategy and Query Patterns
 
+## Contents
+
+- Index Types
+- Composite Index Column Order — "equality → sort → range"
+- Key Index Patterns
+- Range-Column Pair Optimization (`start_date` / `end_date`)
+- When an Index Helps, and When It Does Not
+- `IN` — Two Ways It Silently Loses the Index
+  - 1. `IN (subquery)` — when semi-join optimization does not apply
+  - 2. `IN (many literals)` — when the row estimate stops being accurate
+- Query Patterns
+  - Parameterized Queries (Required)
+  - UPSERT (INSERT ... ON DUPLICATE KEY)
+  - Batch Insert
+  - EXPLAIN for Query Analysis
+- Query Checklist
+
 ## Index Types
 
 | Index Type | Use Case | Example |

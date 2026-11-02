@@ -17,6 +17,23 @@ description: >
 Review database code that already exists — MySQL, PostgreSQL, or SQLite. For designing something new, use `rdbms-modeling`
 instead; for choosing the engine, `db-select`.
 
+## Contents
+
+- When to Activate
+- Step 0 — Establish the Engine and Version
+- Diagnostics
+  - PostgreSQL
+  - MySQL
+- Review Order
+  - 1. Correctness and Concurrency (CRITICAL)
+  - 2. Query Performance (CRITICAL)
+  - 3. Schema Design (HIGH)
+  - 4. Security (CRITICAL)
+  - PostgreSQL 확장 검토
+  - 5. Operations (MEDIUM)
+- Output Format
+- Related
+
 ## When to Activate
 
 - Reviewing SQL, DDL, or a migration before it merges or deploys
@@ -42,6 +59,13 @@ SHOW VARIABLES LIKE 'version_comment';
 SELECT sqlite_version();
 PRAGMA foreign_keys;    -- 0 means every REFERENCES clause in the schema is decorative
 ```
+
+These and the diagnostics below need a live connection and the engine's client. When you have a
+connection but not the client, install it rather than guessing at output: `psql` — `brew install libpq` (keg-only, so run
+`$(brew --prefix libpq)/bin/psql`) or `apt-get install postgresql-client`; `mysql` —
+`brew install mysql-client` (keg-only, same pattern) or `apt-get install mysql-client` on Ubuntu;
+SQLite needs nothing beyond Python's built-in `sqlite3` module. With no access at all, give the
+user the queries and mark every finding that depends on them `unverified`.
 
 Then load the matching skill: `postgres-guideline`, `mysql-guideline`, or `sqlite-guideline`.
 On SQLite, check the PRAGMA baseline first — `foreign_keys` off and missing `STRICT` are the
@@ -382,6 +406,12 @@ a config file rather than a live query, say that — a wrong assumption invalida
 findings.
 
 If nothing is wrong, say so in one line. Do not manufacture findings to fill the report.
+
+Before sending, check every finding once more against the source: it cites a real `file:line` or a
+measured number, it holds for the engine and version in `Engine assumed`, and its `Fix` agrees with
+the guideline you loaded. Rewrite or drop a finding that fails, then re-check what remains. A finding
+that needs a live database you cannot reach stays in, marked `unverified`, with the query that would
+confirm it.
 
 ## Related
 

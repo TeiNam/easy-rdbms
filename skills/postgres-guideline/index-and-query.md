@@ -1,5 +1,18 @@
 # Index Strategy and Query Patterns
 
+## Contents
+
+- Index Cheat Sheet
+- Key Index Patterns
+- Query Patterns
+  - Cursor Pagination (index seek per page, vs OFFSET scanning and discarding)
+  - Queue Processing (SKIP LOCKED)
+  - UPSERT
+  - CTE for Readability
+  - Bulk Insert (COPY)
+- Anti-Pattern Detection Queries
+- Query Checklist
+
 ## Index Cheat Sheet
 
 | Query Pattern | Index Type | Example |

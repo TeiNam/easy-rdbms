@@ -17,6 +17,22 @@ mobile apps, CI, and Tier-0 prototypes (see `db-select`). It is not a smaller My
 system, concurrency model, and FK behaviour all differ in ways that bite anyone arriving from a
 server engine.
 
+## Contents
+
+- When to Activate
+- Version and Baseline
+- Type System — Affinity, Not Types
+- Identifiers
+- Concurrency — One Writer, Full Stop
+- Foreign Keys — Physical FKs Are Fine Here
+- Indexes
+- Full-Text Search and JSON
+  - JSONB — SQLite 3.45+
+- Operations
+- The Growth Path
+- Anti-Patterns
+- Related
+
 ## When to Activate
 
 - Physical DDL or review for a schema stored in SQLite — **new table design still starts in

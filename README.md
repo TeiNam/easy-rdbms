@@ -480,7 +480,10 @@ claude plugin validate .      # official manifest validation
 ```
 
 The example suite also parses Python snippets, validates JSON manifests, skill frontmatter,
-plugin-version agreement and skill reference paths.
+plugin-version agreement and skill reference paths, and enforces the skill layout rules: a
+table of contents on every skill file over 100 lines, a 500-line cap on each `SKILL.md` body,
+and a skill's own detail files — plus everything they point to — linked directly from its
+`SKILL.md`.
 
 ## Design decisions
 
@@ -865,7 +868,10 @@ PK 교체·동시 백필·DB 별칭·파티션·제약·실행계획에 더해 P
 pg_stat_statements·pg_trgm, FDW TLS·읽기 전용 권한, MySQL 8.4 인증·FK 기본값을 검사합니다.
 `--pg-major 16`으로 기존 버전 호환성도 검사합니다.
 같은 스크립트가 Python 예제 문법, 매니페스트·스킬 frontmatter·버전 일치, SQLite PK와 동기화
-스크립트, SQLite JSONB·optimize 버전 경계와 스킬 참조 경로도 검사합니다.
+스크립트, SQLite JSONB·optimize 버전 경계와 스킬 참조 경로도 검사합니다. 스킬 파일 구조
+규칙도 함께 강제합니다. 100줄 넘는 스킬 파일은 맨 위에 목차가 있어야 하고, `SKILL.md` 본문은
+500줄을 넘지 않습니다. 스킬이 가진 상세 파일과 그 파일이 가리키는 파일은 모두 `SKILL.md`에서
+바로 연결됩니다.
 
 `uv`가 설치되어 있다면 저장소 루트에서 다음과 같이 의존성을 분리해 실행할 수 있습니다.
 

@@ -7,6 +7,26 @@ description: Database migration best practices for schema changes, data migratio
 
 Safe, reversible database schema changes for production systems.
 
+## Contents
+
+- When to Activate
+- Core Principles
+- Migration Safety Checklist
+- How Much Latitude Each Step Has
+- PostgreSQL Patterns
+  - Adding a Column Safely
+  - Adding an Index Without Downtime
+  - Renaming a Column (Zero-Downtime)
+  - Widening a Primary Key — Not an Ordinary Migration
+  - Removing a Column Safely
+  - Large Data Migrations
+- Tool Workflows
+- Zero-Downtime Migration Strategy
+  - Timeline Example
+- 엔진·확장 버전 변경
+- Anti-Patterns
+- Related
+
 ## When to Activate
 
 - Creating or altering database tables
@@ -35,7 +55,14 @@ Before applying any migration:
 - [ ] Indexes created concurrently (not inline with CREATE TABLE for existing tables)
 - [ ] Data backfill is a separate migration from schema change
 - [ ] Tested against a copy of production data
-- [ ] Rollback plan documented
+
+## How Much Latitude Each Step Has
+
+| Step | Latitude |
+|---|---|
+| Tool, file layout, migration names, batch size | **Yours** — follow the project's existing tool and conventions |
+| Expand → backfill → contract order, the `NOT NULL` path, a PK cutover | **None** — run the statements in the order shown. Do not merge or reorder steps, and do not add options such as `CASCADE` or `IF NOT EXISTS` |
+| Anything that deletes data (`DROP COLUMN`, `DROP TABLE`, a purge) | **None** — only after that step's verification passes, in its own migration |
 
 ## PostgreSQL Patterns
 
@@ -125,142 +152,14 @@ UPDATE member SET display_name = username WHERE display_name IS NULL;
 ALTER TABLE member DROP COLUMN username;
 ```
 
-### Widening a Primary Key (MySQL and PostgreSQL) — Not an Ordinary Migration
+### Widening a Primary Key — Not an Ordinary Migration
 
-If a request is "change the PK from `int` to `bigint`", stop and size the work before writing the
-migration. There is no cheap path on either engine:
-
-| Engine | What actually happens |
-|---|---|
-| MySQL | No in-place path exists for changing an integer's type, so `ALTER TABLE … MODIFY` runs with **`ALGORITHM=COPY`**: full table rebuild, plus a rebuild of **every secondary index** (InnoDB appends the PK to all of them) |
-| PostgreSQL | `ALTER COLUMN … TYPE bigint` rewrites the whole table under **`ACCESS EXCLUSIVE`** and rebuilds every index on the column |
-
-And it is never one table. Every referencing column has to change in lockstep — under a logical-FK
-policy those are plain columns with no catalog record, so they must be found by grep and migrated
-separately, and a signed/unsigned or `int`/`bigint` mismatch left behind silently degrades the join.
-
-The expand-contract route moves the long backfill and index build out of the final cutover.
-The cutover still needs a bounded lock window and a coordinated writer deployment:
-
-```sql
--- 1. Add the wide column, nullable, no default (no rewrite on PostgreSQL; brief lock still required)
---    PostgreSQL — no UNSIGNED exists here:
-ALTER TABLE log.chat_history ADD COLUMN chat_history_id_new bigint;
---    MySQL:
--- ALTER TABLE chat_history ADD COLUMN chat_history_id_new bigint unsigned NULL,
---   ALGORITHM=INSTANT;
-
--- 2. DEPLOY dual writes: both columns carry the SAME ID. Must precede the backfill.
--- 3. Backfill in bounded batches (see "Large Data Migrations" below), monitoring replica lag
--- 4. SET NOT NULL on the new column, add uq_chat_history_id_new, and verify:
---    equal IDs, no NULLs, no duplicates. PostgreSQL preparation is shown below.
--- 5. Widen EVERY referencing column before IDs can exceed the old range.
---    PostgreSQL: rebind physical FKs to the new UNIQUE key and validate before dropping the old PK.
---    MySQL: prepare the wide references and record every FK definition for the write-pause plan below.
--- 6. Drain writers and switch their column mapping with the engine-specific cutover below.
---    Afterwards writers use only the new PK; no reader or FK may depend on the old column.
--- 7. Remove the old column in a later contract migration.
-```
-
-**Cutover differs by engine, and "swap it in one transaction" is only true on one of them.**
-
-*PostgreSQL, non-partitioned table* — prepare the new key while dual writes still maintain it.
-Run the concurrent index build outside a transaction wrapper. The validated CHECK avoids a
-full-table scan during `SET NOT NULL`.
-
-```sql
-ALTER TABLE log.chat_history ADD CONSTRAINT chk_chat_history_id_new_not_null
-  CHECK (chat_history_id_new IS NOT NULL) NOT VALID;
-ALTER TABLE log.chat_history VALIDATE CONSTRAINT chk_chat_history_id_new_not_null;
-ALTER TABLE log.chat_history ALTER COLUMN chat_history_id_new SET NOT NULL;
-ALTER TABLE log.chat_history DROP CONSTRAINT chk_chat_history_id_new_not_null;
-CREATE UNIQUE INDEX CONCURRENTLY uq_chat_history_id_new
-  ON log.chat_history (chat_history_id_new);
-```
-
-For each physical FK, add its replacement referencing `chat_history_id_new`, validate it, then
-remove the old FK; use the version/partition rules in
-`rdbms-modeling/references/foreign-keys.md`. Do this **before** the cutover, never with
-`DROP ... CASCADE`. Once old readers and writers are drained, the following DDL is atomic.
-Deploy the new writer mapping before resuming writes. The old column becomes nullable because
-new INSERTs no longer populate it.
-
-```sql
-BEGIN;
-SET LOCAL lock_timeout = '5s';
-ALTER TABLE log.chat_history DROP CONSTRAINT pk_chat_history;
-ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP IDENTITY IF EXISTS;
-ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP DEFAULT;
-ALTER TABLE log.chat_history ALTER COLUMN chat_history_id DROP NOT NULL;
-ALTER TABLE log.chat_history RENAME COLUMN chat_history_id TO chat_history_id_old;
-ALTER TABLE log.chat_history RENAME COLUMN chat_history_id_new TO chat_history_id;
-ALTER TABLE log.chat_history
-  ADD CONSTRAINT pk_chat_history PRIMARY KEY USING INDEX uq_chat_history_id_new;
--- New inserts generate the wide ID; the empty-table case must start at 1 too.
-ALTER TABLE log.chat_history
-  ALTER COLUMN chat_history_id ADD GENERATED ALWAYS AS IDENTITY;
-SELECT setval(pg_get_serial_sequence('log.chat_history', 'chat_history_id'),
-              COALESCE(max(chat_history_id), 1), max(chat_history_id) IS NOT NULL)
-FROM log.chat_history;
-COMMIT;
-```
-
-Verify the first INSERT after cutover, the FK targets, and that only the new PK index remains.
-Partitioned parents do not support this `PRIMARY KEY USING INDEX` procedure on PostgreSQL 16–18;
-their unique key must also include the partition key. Plan and test that rollout
-separately instead of copying this block.
-
-*MySQL* — **DDL cannot be wrapped in a transaction.** Put the parent-column changes in **one**
-`ALTER TABLE` so that table is never in a half-swapped state. Plan a write pause for the rebuild.
-The full rollout with physical FKs spans multiple committed statements.
-
-**For this COPY cutover, temporarily remove physical FKs that involve the renamed columns.**
-MySQL rejects renaming an FK column under `ALGORITHM=COPY`; simply switching this entire ALTER to
-`INPLACE` also fails on the tested 8.4 table. Record the definitions, stop **all** writers first,
-then drop the affected FKs. For example, if the prepared wide child is
-`chat_reference.parent_id bigint unsigned`:
-
-```sql
--- Only when this physical FK exists; all writers remain paused until it is restored below.
-ALTER TABLE chat_reference DROP FOREIGN KEY fk_chat_reference_history;
-```
-
-```sql
--- Preparation included a UNIQUE index named uq_chat_history_id_new on the new column.
--- Old key here is int unsigned. Wide references are ready; affected physical FKs are removed.
--- This example explicitly chooses COPY and a maintenance window.
-ALTER TABLE chat_history
-  DROP PRIMARY KEY,
-  CHANGE chat_history_id chat_history_id_old int unsigned NULL,
-  CHANGE chat_history_id_new chat_history_id bigint unsigned NOT NULL AUTO_INCREMENT,
-  DROP INDEX uq_chat_history_id_new,
-  ADD PRIMARY KEY (chat_history_id),
-  ALGORITHM=COPY;
-```
-
-Before resuming writes, recreate and validate every recorded FK against the new wide key.
-Keep `foreign_key_checks=1` so the add actually checks existing data:
-
-```sql
-ALTER TABLE chat_reference ADD CONSTRAINT fk_chat_reference_history
-  FOREIGN KEY (parent_id) REFERENCES chat_history (chat_history_id);
-```
-
-If any step fails, keep writers paused and repair the rollout; a partially restored FK set is not
-completion. Logical-FK tables skip these FK DDL steps but still need every writer and child type
-switched before accepting IDs outside the old range.
-
-An `AUTO_INCREMENT` column must be indexed as a key, which is why the `ADD PRIMARY KEY` has to be in
-the same statement — split it and MySQL rejects the intermediate state. Test the first INSERT here
-too. For an online-tool alternative, verify `gh-ost` / `pt-online-schema-change` support for the
-actual table, FK topology, and ALTER before choosing it.
-
-Expect weeks, with application deploys in the middle. **Do not start this without first confirming
-the target table is not still accumulating rows faster than the backfill drains** — on a hot
-event/log table the backfill can lose the race.
-
-The migration you actually want is the one you avoid: size event/log PKs as `bigint` at
-`CREATE TABLE` time. See `rdbms-modeling/references/identifier-selection.md`.
+Changing a PK from `int` to `bigint` is a multi-week rollout on either engine, not one `ALTER`:
+MySQL rebuilds the table and every secondary index under `ALGORITHM=COPY`, PostgreSQL rewrites it
+under `ACCESS EXCLUSIVE`, and every referencing column has to move in lockstep. Stop, size the work,
+and follow `widen-primary-key.md` step by step. Physical FKs are rebound per
+`rdbms-modeling/references/foreign-keys.md`; the migration you actually want is the one avoided by
+sizing the key at `CREATE TABLE` time (`rdbms-modeling/references/identifier-selection.md`).
 
 ### Removing a Column Safely
 
@@ -270,7 +169,7 @@ The migration you actually want is the one you avoid: size event/log PKs as `big
 -- Step 3: Drop column in next migration
 ALTER TABLE purchase_order DROP COLUMN legacy_status;
 
--- For Django: use SeparateDatabaseAndState to remove from model
+-- For Django: SeparateDatabaseAndState (django.md) to remove from model
 -- without generating DROP COLUMN (then drop in next migration)
 ```
 
@@ -313,335 +212,38 @@ BEGIN
 END $$;
 ```
 
-## Prisma (TypeScript/Node.js)
-
-### Workflow
-
-```bash
-# Create migration from schema changes
-npx prisma migrate dev --name add_user_avatar
-
-# Apply pending migrations in production
-npx prisma migrate deploy
-
-# Reset database (dev only)
-npx prisma migrate reset
-
-# Generate client after schema changes
-npx prisma generate
-```
-
-### Schema Example
-
-```prisma
-model Member {
-  // Integer key by growth class: member is a bounded entity table, so Int is enough.
-  // Do NOT reach for @default(cuid()) or @default(uuid()) here — a random string key on a
-  // single-database entity table buys nothing and costs index locality. Use a UUID (v7) only
-  // for distributed generation or an externally exposed identifier, as a separate column.
-  memberId  Int      @id @default(autoincrement()) @map("member_id")
-  email     String   @map("email")
-  name      String?
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  // a relation like `orders PurchaseOrder[]` needs a matching model — omitted here
-
-  // Named constraint, per rdbms-naming. Prisma's bare `@unique` lets the engine pick the name.
-  @@unique([email], map: "uq_member_email")
-  @@map("member")
-}
-```
-
-### Custom SQL Migration
-
-For operations Prisma cannot express (concurrent indexes, data backfills):
-
-```bash
-# Create empty migration, then edit the SQL manually
-npx prisma migrate dev --create-only --name add_member_last_login_index
-```
-
-```sql
--- migrations/20260815_add_member_last_login_index/migration.sql
--- Prisma cannot generate CONCURRENTLY, so we write it manually.
--- (Not an index on `email` — the model already declares `email @unique`, which
---  creates a unique index; a second one would be pure write cost.)
-CREATE INDEX CONCURRENTLY idx_member_last_login
--- No IF NOT EXISTS here: a failed CONCURRENTLY build leaves an *invalid* index behind, and
--- IF NOT EXISTS would skip it and report success while the index stays unusable. Instead
--- pre-flight: SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid;  -- then DROP and rebuild
-  ON member (last_login_at);
-```
-
-## Drizzle (TypeScript/Node.js)
-
-### Workflow
-
-```bash
-# Generate migration from schema changes
-npx drizzle-kit generate
-
-# Apply migrations
-npx drizzle-kit migrate
-
-# Push schema directly (dev only, no migration file)
-npx drizzle-kit push
-```
-
-### Schema Example
-
-```typescript
-import { pgTable, text, timestamp, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
-
-export const member = pgTable("member", {
-  // Bounded entity table -> integer identity, not uuid().defaultRandom(): that is UUIDv4,
-  // whose insert positions scatter. UUIDv7 (or an integer PK + a public UID column) is the
-  // choice when you actually need distributed or externally visible IDs.
-  memberId: integer("member_id").primaryKey().generatedAlwaysAsIdentity(),
-  email: text("email").notNull(),
-  name: text("name"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({
-  // Named, per rdbms-naming — a bare .unique() lets Drizzle generate the constraint name
-  uqMemberEmail: uniqueIndex("uq_member_email").on(table.email),
-}));
-```
-
-## Kysely (TypeScript/Node.js)
-
-### Workflow (kysely-ctl)
-
-```bash
-# kysely-ctl's subcommand form has changed across versions (space vs colon, e.g.
-# `migrate latest` vs `migrate:latest`). Confirm with `kysely --help` for your version.
-
-# Initialize config file (kysely.config.ts)
-kysely init
-
-# Create a new migration file
-kysely migrate make add_member_avatar
-
-# Apply all pending migrations
-kysely migrate latest
-
-# Rollback last migration
-kysely migrate down
-
-# Show migration status
-kysely migrate list
-```
-
-### Migration File
-
-```typescript
-// migrations/2024_01_15_001_create_member_profile.ts
-import { type Kysely, sql } from 'kysely'
-
-// IMPORTANT: Always use Kysely<any>, not your typed DB interface.
-// Migrations are frozen in time and must not depend on current schema types.
-export async function up(db: Kysely<any>): Promise<void> {
-  await db.schema
-    .createTable('member_profile')
-    // member_profile is a bounded entity table, so 'integer' -- 'bigint' is for event/log
-    // tables whose rows grow as rate x time.
-    .addColumn('member_profile_id', 'integer', (col) =>
-      col.generatedAlwaysAsIdentity().primaryKey())
-    .addColumn('email', 'text', (col) => col.notNull())
-    .addColumn('avatar_url', 'text')
-    .addColumn('created_at', 'timestamptz', (col) =>
-      col.defaultTo(sql`now()`).notNull()
-    )
-    // Named, per rdbms-naming — .unique() on the column would let PostgreSQL pick the name
-    .addUniqueConstraint('uq_member_profile_email', ['email'])
-    .execute()
-
-  await db.schema
-    .createIndex('idx_member_profile_avatar')
-    .on('member_profile')
-    .column('avatar_url')
-    .execute()
-}
-
-export async function down(db: Kysely<any>): Promise<void> {
-  await db.schema.dropTable('member_profile').execute()
-}
-```
-
-### Programmatic Migrator
-
-```typescript
-import { Migrator, FileMigrationProvider } from 'kysely'
-import { promises as fs } from 'fs'
-import * as path from 'path'
-// ESM only — CJS can use __dirname directly
-import { fileURLToPath } from 'url'
-const migrationFolder = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  './migrations',
-)
-
-// `db` is your Kysely<any> database instance
-const migrator = new Migrator({
-  db,
-  provider: new FileMigrationProvider({
-    fs,
-    path,
-    migrationFolder,
-  }),
-  // WARNING: Only enable in development. Disables timestamp-ordering
-  // validation, which can cause schema drift between environments.
-  // allowUnorderedMigrations: true,
-})
-
-const { error, results } = await migrator.migrateToLatest()
-
-results?.forEach((it) => {
-  if (it.status === 'Success') {
-    console.log(`migration "${it.migrationName}" executed successfully`)
-  } else if (it.status === 'Error') {
-    console.error(`failed to execute migration "${it.migrationName}"`)
-  }
-})
-
-if (error) {
-  console.error('migration failed', error)
-  process.exit(1)
-}
-```
-
-## Django (Python)
-
-### Workflow
-
-```bash
-# Generate migration from model changes
-python manage.py makemigrations
-
-# Apply migrations
-python manage.py migrate
-
-# Show migration status
-python manage.py showmigrations
-
-# Generate empty migration for custom SQL
-python manage.py makemigrations --empty app_name -n description
-```
-
-### Data Migration
-
-`atomic = False` is what makes the batching real — without it Django wraps the whole `RunPython`
-in one transaction and the loop becomes a single giant transaction wearing a loop.
-This example assumes non-empty, non-null `username` values and writers that populate `display_name`.
-Use the schema editor's DB alias for every operation. Recheck the empty-value predicate in the
-UPDATE and read `username` there, so a concurrent user edit is not overwritten by a stale object.
-
-```python
-from django.db import migrations, transaction
-from django.db.models import F
-
-def backfill_display_names(apps, schema_editor):
-    Member = apps.get_model("accounts", "Member")
-    alias = schema_editor.connection.alias
-    members = Member.objects.using(alias)
-    batch_size = 5000
-    while True:
-        with transaction.atomic(using=alias):  # one committed transaction per batch
-            ids = list(
-                members.filter(display_name="").order_by("pk")
-                .values_list("pk", flat=True)[:batch_size]
-            )
-            if not ids:
-                break
-            members.filter(pk__in=ids, display_name="").update(display_name=F("username"))
-
-def reverse_backfill(apps, schema_editor):
-    pass  # data migration — nothing to reverse
-
-class Migration(migrations.Migration):
-    atomic = False                          # required: lets each batch commit on its own
-    dependencies = [("accounts", "0015_add_display_name")]
-
-    operations = [
-        migrations.RunPython(backfill_display_names, reverse_backfill),
-    ]
-```
-
-### SeparateDatabaseAndState
-
-Remove a column from the Django model without dropping it from the database immediately:
-
-```python
-class Migration(migrations.Migration):
-    operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(model_name="user", name="legacy_field"),
-            ],
-            database_operations=[],  # Don't touch the DB yet
-        ),
-    ]
-```
-
-## golang-migrate (Go)
-
-### Workflow
-
-```bash
-# Create migration pair
-migrate create -ext sql -dir migrations -seq add_user_avatar
-
-# Apply all pending migrations
-migrate -path migrations -database "$DATABASE_URL" up
-
-# Rollback last migration
-migrate -path migrations -database "$DATABASE_URL" down 1
-
-# Force version (fix dirty state)
-migrate -path migrations -database "$DATABASE_URL" force VERSION
-```
-
-### Migration Files
-
-golang-migrate sends the whole file to PostgreSQL as **one query**, which makes it an implicit
-transaction — and `CREATE INDEX CONCURRENTLY` **cannot run inside a transaction block**. Keep the
-concurrent index alone in its own migration file so nothing else shares that implicit transaction.
-
-```sql
--- migrations/000003_add_member_avatar.up.sql   (transactional: DDL only)
-ALTER TABLE member ADD COLUMN avatar_url TEXT;
-
--- migrations/000003_add_member_avatar.down.sql
-ALTER TABLE member DROP COLUMN IF EXISTS avatar_url;
-```
-
-```sql
--- migrations/000004_index_member_avatar.up.sql   (must be alone in the file)
-CREATE INDEX CONCURRENTLY idx_member_avatar ON member (avatar_url) WHERE avatar_url IS NOT NULL;
-
--- migrations/000004_index_member_avatar.down.sql
-DROP INDEX CONCURRENTLY IF EXISTS idx_member_avatar;
-```
+## Tool Workflows
+
+Open only the file for the migration tool the project already uses. Each starts with its install
+step — run the project's pinned version, not a global or freshly downloaded one.
+
+| Tool | File | Covers |
+|---|---|---|
+| Prisma | `prisma.md` | `migrate dev` / `deploy`, named constraints in `schema.prisma`, hand-written `CONCURRENTLY` migrations |
+| Drizzle | `drizzle.md` | `generate` / `migrate` / `push`, named unique indexes |
+| Kysely | `kysely.md` | `kysely-ctl` commands, `Kysely<any>` migrations, the programmatic `Migrator` |
+| Django | `django.md` | `makemigrations` / `migrate`, batched `RunPython` with `atomic = False`, `SeparateDatabaseAndState` |
+| golang-migrate | `golang-migrate.md` | `up` / `down` / `force`, one `CONCURRENTLY` statement per file |
 
 ## Zero-Downtime Migration Strategy
 
-For critical production changes, follow the expand-contract pattern:
+For critical production changes, follow the expand-contract pattern. The order is the safety
+mechanism, so copy this checklist into your response and tick each step only when it holds:
 
 ```
-Phase 1: EXPAND
-  - Add new column/table (nullable or with default)
-  - Deploy: app writes to BOTH old and new
-  - Backfill existing data
-
-Phase 2: MIGRATE
-  - Deploy: app reads from NEW, writes to BOTH
-  - Verify data consistency
-
-Phase 3: CONTRACT
-  - Deploy: app only uses NEW
-  - Drop old column/table in separate migration
+Expand-contract progress:
+- [ ] 1. EXPAND   — add the new column/table (nullable, or with a constant default)
+- [ ] 2. Deploy   — the app writes BOTH old and new, still reads old
+- [ ] 3. Backfill — existing rows, in bounded batches, as its own migration
+- [ ] 4. Verify   — no row has the new value missing while the old one is set, and a sample
+                    satisfies the backfill rule (new = old for a rename, new = f(old) for a
+                    transform such as LOWER(email)). Mismatch → back to step 3; rows written
+                    since step 2 without the new value → back to step 2
+- [ ] 5. MIGRATE  — deploy reads from NEW, still writing both
+- [ ] 6. Deploy   — the app writes NEW only
+- [ ] 7. Verify   — no deployed reader or writer references the old column (grep the deployed
+                    revision; check pg_stat_statements / performance_schema). Any hit → back to 6
+- [ ] 8. CONTRACT — drop the old column/table in a separate migration
 ```
 
 ### Timeline Example

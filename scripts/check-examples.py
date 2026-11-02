@@ -35,15 +35,21 @@ TOC_MAX_START = 25
 SKILL_BODY_MAX = 500
 
 
-MD_REFERENCE = re.compile(r"`([^`\n]+?\.md)(?:#[^`\n]*)?`|\]\(([^()\s#]+?\.md)(?:#[^()\s]*)?\)")
+MD_REFERENCE = re.compile(
+    r"`([^`\n]+?\.md)(?:#[^`\n]*)?`"  # `file.md`, `file.md#part`
+    r"|\]\(\s*<?([^()<>\s#]+?\.md)(?:#[^()<>\s]*)?>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"  # [x](file.md "t")
+    r"|^ {0,3}\[[^\]\n]+\]:\s*<?([^\s<>#]+?\.md)(?:#[^\s<>]*)?>?",  # [x]: file.md
+    re.M,
+)
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
+HEADING = re.compile(r" {0,3}(#{2,3}) +(\S.*?)\s*$")
 
 
 def md_targets(path):
     """Local `*.md` references, backticked or as Markdown links, resolved like the plugin does."""
     resolved = {}
     for match in MD_REFERENCE.finditer(path.read_text()):
-        target = match[1] or match[2]
+        target = next(group for group in match.groups() if group)
         if "://" in target:
             continue
         found = [c for c in (path.parent / target, ROOT / "skills" / target, ROOT / target) if c.is_file()]
@@ -60,7 +66,10 @@ def body_lines(path):
 
 
 def headings_outside_fences(lines):
-    """(line number, line) for ##/### headings. A fence closes only on its own character and length."""
+    """(line number, level, title) of ##/### headings. A fence closes only on its own character and length."""
+    # shortcut: fences count at any indentation because list-nested fences are common here, so a
+    # 4-space indented code block holding a fence marker would confuse it — use a CommonMark parser
+    # if such a block ever appears.
     found, fence = [], None
     for number, line in enumerate(lines):
         marker = FENCE.match(line)
@@ -70,8 +79,8 @@ def headings_outside_fences(lines):
                 fence = None
         elif marker:
             fence = marker[1]
-        elif line.startswith(("## ", "### ")):
-            found.append((number, line))
+        elif heading := HEADING.match(line):
+            found.append((number, len(heading[1]), heading[2]))
     return found
 
 
@@ -81,15 +90,17 @@ def toc_problem(path):
         return None
     lines = body_lines(path)
     headings = headings_outside_fences(lines)
-    if not headings or headings[0][1] != "## Contents" or headings[0][0] > TOC_MAX_START:
+    if not headings or headings[0][1:] != (2, "Contents") or headings[0][0] > TOC_MAX_START:
         return f"over {TOC_REQUIRED_OVER} lines, so '## Contents' must be its first section, near the top"
+    start = headings[0][0] + 1
+    if start < len(lines) and not lines[start].strip():
+        start += 1
     listed = []
-    for line in lines[headings[0][0] + 2:]:
+    for line in lines[start:]:
         if not line.startswith(("- ", "  - ")):
             break
         listed.append(line)
-    expected = [("- " if line.startswith("## ") else "  - ") + line.split(" ", 1)[1]
-                for _, line in headings[1:]]
+    expected = [("- " if level == 2 else "  - ") + title for _, level, title in headings[1:]]
     return None if listed == expected else "Contents must list the ##/### headings:\n" + "\n".join(expected)
 
 
@@ -226,8 +237,14 @@ def metadata():
         assert toc_problem(probe) is None, toc_problem(probe)
         probe.write_text("# T\n\n## A\n" + "text\n" * (TOC_REQUIRED_OVER - 3) + "end")
         assert toc_problem(probe), "a 101-line document without a final newline skipped the rule"
-        probe.write_text("[self](probe.md#a) `probe.md` [web](https://example.com/x.md)")
-        assert md_targets(probe) == {"probe.md": probe.resolve()}, md_targets(probe)
+        probe.write_text(f"# T\n\n## Contents\n- nonexistent\n- A\n\n## A\n{filler}")
+        assert toc_problem(probe), "a Contents entry right after the heading was skipped"
+        probe.write_text(f"# T\n\n## Contents\n\n- A\n\n## A\n\n  ## B\n{filler}")
+        assert "- B" in (toc_problem(probe) or ""), "an indented heading was ignored"
+        probe.write_text("[self](probe.md#a) `probe.md` [web](https://example.com/x.md)\n"
+                         "[t](<probe.md> \"title\") [x](gone.md 'title')\n[ref]: gone2.md\n")
+        assert md_targets(probe) == {"probe.md": probe.resolve(), "gone.md": None, "gone2.md": None}, \
+            md_targets(probe)
     # 참조는 한 단계만: 상세 문서와 그 문서가 가리키는 파일은 모두 SKILL.md가 직접 가리켜야 한다.
     for skill in ROOT.glob("skills/*/SKILL.md"):
         length = len(body_lines(skill))

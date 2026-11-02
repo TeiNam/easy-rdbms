@@ -60,12 +60,13 @@ SELECT sqlite_version();
 PRAGMA foreign_keys;    -- 0 means every REFERENCES clause in the schema is decorative
 ```
 
-These and the diagnostics below need a live connection and the engine's client. When you have a
-connection but not the client, install it rather than guessing at output: `psql` — `brew install libpq` (keg-only, so run
+These and the diagnostics below need a live connection and the engine's client. A review request
+is not permission to change the machine, so with a connection but no client, ask before
+installing one rather than guessing at output: `psql` — `brew install libpq` (keg-only, so run
 `$(brew --prefix libpq)/bin/psql`) or `apt-get install postgresql-client`; `mysql` —
 `brew install mysql-client` (keg-only, same pattern) or `apt-get install mysql-client` on Ubuntu;
-SQLite needs nothing beyond Python's built-in `sqlite3` module. With no access at all, give the
-user the queries and mark every finding that depends on them `unverified`.
+SQLite needs nothing beyond Python's built-in `sqlite3` module. Without a client or without
+access, give the user the queries and mark every finding that depends on them `unverified`.
 
 Then load the matching skill: `postgres-guideline`, `mysql-guideline`, or `sqlite-guideline`.
 On SQLite, check the PRAGMA baseline first — `foreign_keys` off and missing `STRICT` are the

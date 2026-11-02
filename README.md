@@ -45,6 +45,9 @@ and migrations before they ship. Targets MySQL **8.4 LTS** and PostgreSQL **18**
 compatibility gates for existing PostgreSQL 16/17 and managed/Aurora variants, plus SQLite for
 embedded and prototype workloads. A newer major is a separate upgrade decision.
 
+Tested on Claude **Haiku**, **Sonnet**, and **Opus** with the same review task — see
+[Model coverage](#model-coverage).
+
 The recurring theme: **structural cost is never paid without evidence.** Denormalization needs a
 measurement, partitioning needs the queries and retention code, and an index needs the plan.
 
@@ -485,6 +488,27 @@ table of contents on every skill file over 100 lines, a 500-line cap on each `SK
 and a skill's own detail files — plus everything they point to — linked directly from its
 `SKILL.md`.
 
+### Model coverage
+
+Anthropic's revised skill-authoring guidance asks for a skill to be run on every model it will
+meet. On **2026-11-03**, after the layout rework, the same review task went to Haiku, Sonnet, and
+Opus with `rdbms-review`, and to Opus without it: a PostgreSQL 18 migration plus its application
+code, seeded with eleven defects — an `int` identity on a 3,000-insert/s event table, an
+unindexed FK column, an `ON DELETE CASCADE` into that history table, `real` money, `timestamp`
+without zone, a blocking `CREATE INDEX` on a 40M-row table, an uppercase `_IDX` name, a
+`NOT NULL` column with no default, an unbatched backfill, f-string SQL, and a SELECT-then-act
+race. No run could reach a database or install anything.
+
+| Run | Seeded defects found | What differed |
+|---|---|---|
+| Haiku + skill | 11 / 11 | Stated the engine assumption and its source; marked database-dependent findings `unverified` |
+| Sonnet + skill | 11 / 11 | Most thorough, and opened the most files (18) |
+| Opus + skill | 11 / 11 | Also caught the missing `GRANT`s on the new tables |
+| Opus, no skill | 11 / 11 | Rated the history `CASCADE` MEDIUM and proposed `RESTRICT` — the fix the history policy rejects, since it makes the order undeletable |
+
+On a defect set this visible, recall did not separate the runs; policy did. No instruction needed
+removing for Opus, and Haiku needed none added.
+
 ## Design decisions
 
 **One skill directory, both harnesses.** `skills/` is shared. Frontmatter is `name` + `description`
@@ -630,6 +654,9 @@ AI 에이전트는 애플리케이션 코드를 잘 씁니다. 티가 잘 안 �
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로
 설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. MySQL **8.4 LTS**와 PostgreSQL
 **18**을 기준으로 Aurora 등 관리형의 호환 조건, 임베디드·프로토타입용 SQLite를 다룹니다.
+
+같은 리뷰 과제로 Claude **Haiku**·**Sonnet**·**Opus**에서 시험했습니다 —
+[모델별 검증](#모델별-검증) 참고.
 
 일관된 원칙 하나: **구조적 비용은 근거 없이 지불하지 않습니다.** 비정규화는 측정, 파티셔닝은
 쿼리와 보관 코드, 인덱스는 실행계획이 있어야 합니다.
@@ -929,6 +956,26 @@ Claude 자체 리뷰 + Codex 독립 리뷰 **11라운드, 292건** 반영
 
 리뷰어끼리 상충하고 오프라인 검증이 불가한 건(`kysely-ctl` 커맨드 형식)은 **어느 쪽도 단정하지
 않고** `kysely --help` 확인을 안내합니다.
+
+#### 모델별 검증
+
+Anthropic의 개정 스킬 작성 지침은 스킬이 실제로 쓰일 모델마다 돌려 보라고 합니다. 구조 개편 뒤
+**2026-11-03**에 같은 리뷰 과제를 `rdbms-review`와 함께 Haiku·Sonnet·Opus에, 그리고 스킬 없이
+Opus에 맡겼습니다. 과제는 PostgreSQL 18 마이그레이션과 앱 코드에 결함 11개를 심은 것입니다.
+초당 3,000행이 쌓이는 이벤트 테이블의 `int` identity, 인덱스 없는 FK 컬럼, 그 이력 테이블로 걸린
+`ON DELETE CASCADE`, 금액 `real`, 시간대 없는 `timestamp`, 4천만 행 테이블의 차단형
+`CREATE INDEX`, 대문자 `_IDX` 이름, 기본값 없는 `NOT NULL` 컬럼, 배치 없는 백필, f-string SQL,
+SELECT 후 갱신 경합입니다. 어떤 실행도 DB에 접속하거나 무엇을 설치할 수 없게 했습니다.
+
+| 실행 | 찾은 결함 | 차이 |
+|---|---|---|
+| Haiku + 스킬 | 11 / 11 | 엔진 가정과 그 근거를 밝히고, DB 확인이 필요한 항목을 `unverified`로 표시 |
+| Sonnet + 스킬 | 11 / 11 | 가장 꼼꼼했고 파일도 가장 많이(18개) 열었음 |
+| Opus + 스킬 | 11 / 11 | 새 테이블의 `GRANT` 누락까지 지적 |
+| Opus, 스킬 없음 | 11 / 11 | 이력 `CASCADE`를 MEDIUM으로 보고 `RESTRICT`를 제안 — 주문을 지울 수 없게 만들어 이력 정책이 거부하는 처방 |
+
+이 정도로 드러난 결함에서는 탐지율이 아니라 정책이 실행을 갈랐습니다. Opus에서 지워야 할 지시도,
+Haiku에 더해야 할 지시도 없었습니다.
 
 ### 릴리즈 자동화
 

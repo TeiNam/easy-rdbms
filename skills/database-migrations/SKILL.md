@@ -241,8 +241,10 @@ Expand-contract progress:
                     since step 2 without the new value → back to step 2
 - [ ] 5. MIGRATE  — deploy reads from NEW, still writing both
 - [ ] 6. Deploy   — the app writes NEW only
-- [ ] 7. Verify   — no deployed reader or writer references the old column (grep the deployed
-                    revision; check pg_stat_statements / performance_schema). Any hit → back to 6
+- [ ] 7. Verify   — no deployed reader or writer references the old column: grep the deployed
+                    revision, and count only statements run since the step-6 deploy (the
+                    pg_stat_statements `calls` delta over a window, performance_schema
+                    `LAST_SEEN`) — both keep pre-deploy history. A new call → back to 6
 - [ ] 8. CONTRACT — drop the old column/table in a separate migration
 ```
 
@@ -254,8 +256,8 @@ Day 1: Deploy app v2 - writes BOTH status and new_status, still reads status
 Day 2: Run backfill migration for existing rows (batched)
 Day 3: Deploy app v3 - reads new_status, still writes both
 Day 5: Deploy app v4 - stops writing status          <- REQUIRED before the drop
-Day 6: Verify no writer references status (grep the deployed revision, check
-       pg_stat_statements / performance_schema for the column name)
+Day 6: Verify no writer references status (grep the deployed revision; in
+       pg_stat_statements / performance_schema count only calls made since Day 5)
 Day 7: Migration drops old status column
 ```
 

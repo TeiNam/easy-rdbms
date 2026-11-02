@@ -1,9 +1,11 @@
 # golang-migrate (Go)
 
 The `migrate` CLI is a separate binary from the Go library, built with the drivers you name.
-Install it with `go install -tags 'postgres mysql' github.com/golang-migrate/migrate/v4/cmd/migrate@latest`
-(keep only the tags you need) or `brew install golang-migrate` on macOS, then confirm with
-`migrate -version`.
+Install the version the project pins — its Makefile, CI config, or the
+`github.com/golang-migrate/migrate/v4` line in `go.mod`: `go install -tags 'postgres mysql'
+github.com/golang-migrate/migrate/v4/cmd/migrate@<version>` (keep only the tags you need). With no
+pin, take the latest stable release and record it; `brew install golang-migrate` gives only
+Homebrew's current one. Confirm with `migrate -version`.
 
 ## Workflow
 

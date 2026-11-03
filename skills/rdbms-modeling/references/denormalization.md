@@ -7,6 +7,21 @@ performance or operational efficiency. It is a **physical-model** technique.
 synchronization mechanism, and a rebuild path.** Missing any one of them makes it a future
 data-integrity bug rather than an optimization.
 
+## Contents
+
+- Principles
+- Methods
+  - Snapshots of Business Facts Are Not Denormalization
+- Analysis Order
+- Try These First
+- Synchronization
+- Costs
+- Apply Only When All of These Hold
+- Code Analysis Signals
+- Integrity and Verification
+- Prohibited
+- Final Policy
+
 ## Principles
 
 - The logical model is normalized to 3NF. Denormalization never happens there.

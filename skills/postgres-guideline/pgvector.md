@@ -9,6 +9,14 @@ CREATE EXTENSION IF NOT EXISTS vector;
 SELECT extversion FROM pg_extension WHERE extname = 'vector';
 ```
 
+## Contents
+
+- 모델·차원·거리 계약
+- Exact 검색부터 HNSW까지
+- 필터·RLS와 iterative scan
+- 검증과 운영
+- 공식 근거
+
 ## 모델·차원·거리 계약
 
 - 모델명/버전, 차원, 전처리와 정규화, 거리 함수를 함께 기록한다.

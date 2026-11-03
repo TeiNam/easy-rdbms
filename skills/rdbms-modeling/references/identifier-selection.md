@@ -4,6 +4,17 @@ Separating the **logical identifier (UID)** from the **physical primary key**, a
 against the storage model of the target engine. The compact decision table is in `../SKILL.md`
 Stage 3; the reasoning is here.
 
+## Contents
+
+- Universal Rules
+- Identifier Types
+- MySQL / InnoDB
+  - The `UUID_TO_BIN` Swap Flag Applies to v1 Only
+- PostgreSQL
+- Selection Table
+- Warn On These
+- Final Policy
+
 ## Universal Rules
 
 - A PK must be `NOT NULL`, `UNIQUE`, and **immutable**.

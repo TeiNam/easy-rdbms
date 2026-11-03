@@ -14,6 +14,20 @@ description: >
 
 # MySQL Database Guideline
 
+## Contents
+
+- When to Activate
+- MySQL Version and Defaults
+- Naming Rules
+- Data Type Guide
+  - Integer Ranges — pick from the real value range
+  - `UNSIGNED` — use it whenever negatives are impossible
+  - Type Selection
+- Prohibited Items
+- Reference Files
+- Choosing a Database
+- After Writing the Schema
+
 ## When to Activate
 
 - Writing MySQL queries or migrations
@@ -198,6 +212,10 @@ Two things to keep straight:
   the deferred-join fallback, FULLTEXT query, deadlock
   checklist + `SKIP LOCKED` queue claims, Node.js pool sizing and the `wait_timeout` rule, diagnostics,
   replica lag / read-after-write routing, GRANT least privilege + TLS, `my.cnf` baseline, ops anti-patterns
+- Engine-neutral policy the files above defer to — open it directly when the topic comes up:
+  `rdbms-modeling/references/denormalization.md` (the measured-problem bar),
+  `rdbms-modeling/references/history-entities.md` (history mechanism), and
+  `rdbms-modeling/references/partitioning.md` (whether to partition at all)
 
 ## Choosing a Database
 

@@ -29,6 +29,25 @@ Codex both deliver it through `skills/`, and neither loads this file from a plug
   `$easy-rdbms:<skill-name>`; do not add `commands/*.toml`.
 - **Reference filenames in a `SKILL.md` must resolve.** The harness originals shipped broken
   `mysql_`-prefixed references; do not reintroduce that.
+- **Skill files follow Anthropic's revised authoring rules (2026-10).** Agents preview long files
+  partially, so structure decides what gets read. `python3 scripts/check-examples.py --metadata-only`
+  enforces the first three:
+  - A `skills/**/*.md` file over 100 lines opens with `## Contents` — its `##` headings as bullets,
+    `###` nested — before the first section. Update it with every added or renamed section; the
+    check prints the expected list.
+  - A `SKILL.md` body stays at or under 500 lines. Move detail into a file it links directly.
+  - References stay one level deep within a skill: every detail file the skill owns, and every
+    file such a detail file points to, is linked directly from that skill's `SKILL.md`. A file
+    borrowed from another skill is that skill's responsibility; its own `Contents` block keeps a
+    partial read useful.
+  - Match instruction strength to fragility. Judgment steps state the goal; steps that delete data
+    or must run in order give the exact statements and say not to reorder them or add options.
+    An ordered procedure carries a checklist with "if this fails, go back to step N".
+  - A skill that produces an artifact checks it before handing it over — run the DDL, re-verify
+    each finding, re-check the output template — and loops until it passes.
+  - Any tool a skill tells the agent to run names its install command next to it.
+  - Run the same task on Haiku, Sonnet, and Opus (and Opus without the skill) after a substantive
+    skill change, and record the result under README "How it was verified" in both languages.
 - `hooks/detect-db.test.sh` must pass. Run `sh hooks/detect-db.test.sh`.
 - **README is bilingual, and the Korean section is not a translation** — it is written in its own
   voice, so do not diff the prose. But a *factual* correction has to land in **both** sections; it

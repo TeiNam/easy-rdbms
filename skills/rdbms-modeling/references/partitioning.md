@@ -9,6 +9,18 @@ candidate that needs confirmation, and say what figure is missing.
 This mirrors the denormalization rule: a structural cost is paid only against evidence, not against
 an expectation.
 
+## Contents
+
+- What to Analyse
+- Recommend RANGE When Several of These Hold
+- Do Not Recommend Partitioning When
+- Recommendation Output
+- MySQL Policy — RANGE Family Only
+  - Adding Partitions: REORGANIZE, Not ADD
+- PostgreSQL Policy — RANGE, LIST, or HASH
+- Safety-Partition Operating Rules
+- Verify Pruning
+
 ## What to Analyse
 
 | Source | What you are looking for |

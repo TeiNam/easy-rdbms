@@ -12,6 +12,18 @@ description: >
 
 # PostgreSQL Database Guideline
 
+## Contents
+
+- When to Activate
+- PostgreSQL Version and Defaults
+- Naming Rules
+- Data Type Guide
+- Foreign Keys — Differs from MySQL
+- Prohibited Items
+- Reference Files
+- Choosing a Database
+- After Writing the Schema
+
 ## When to Activate
 
 - Writing SQL queries or migrations
@@ -112,6 +124,11 @@ auto-creates the referencing-column index, so condition 2 is the one most often 
 - `index-and-query.md` — Index strategy, query patterns, pagination, queue
 - `partitioning.md` — Partitioning strategy, pg_partman, management
 - `connection-and-features.md` — psycopg 3, Advisory Lock, LISTEN/NOTIFY, server config
+- Engine-neutral policy the files above defer to — open it directly when the topic comes up:
+  `rdbms-modeling/references/identifier-selection.md` (UID vs PK, UUIDv7),
+  `rdbms-modeling/references/index-design.md` (the evidence an index needs),
+  `rdbms-modeling/references/history-entities.md` (history mechanism), and
+  `rdbms-modeling/references/partitioning.md` (whether to partition at all)
 
 ## Choosing a Database
 

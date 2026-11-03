@@ -11,6 +11,19 @@ Do not remove a working FK merely because the engine is MySQL.
 | Referential integrity owner | Application for logical FKs; database for physical FKs | The database, once the constraint is valid |
 | Referencing-column index | Verify it; create by hand for logical FKs | **Created unless an existing index already leads with the column** |
 
+## Contents
+
+- Engine Differences That Drive the Split
+- MySQL / InnoDB — Logical FK Default and Project Overrides
+  - The Index Consequence — Do Not Miss This
+  - Four Compensating Controls
+- PostgreSQL — Allowed by Default, Created When Conditions Are Met
+  - Costs That Remain
+  - A `NOT VALID` Constraint Is Not a Guarantee
+- Reference Target Rule Applies to Logical FKs Too
+- Cost of a UUID as the Referenced Key
+- Inherited MySQL Schemas
+
 ## Engine Differences That Drive the Split
 
 | Aspect | MySQL / InnoDB | PostgreSQL |

@@ -7,6 +7,14 @@ found during an incident, not during development.
 But the prohibition has a shape. Three categories, and the difference is *what the routine does*,
 not *what kind of object it is*.
 
+## Contents
+
+- Category 1 — Sanctioned: Infrequent Operational Utilities
+- Category 2 — Narrow Exception: Audit Triggers
+- Category 3 — Prohibited: Business Logic in the Database
+- MySQL-Specific Note
+- Review Position
+
 ## Category 1 — Sanctioned: Infrequent Operational Utilities
 
 **Allowed.** Scheduled maintenance work with no business semantics, running on a low duty cycle.

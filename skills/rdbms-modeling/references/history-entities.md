@@ -13,6 +13,21 @@ Three different questions get conflated as "history":
 
 A design that answers one does not answer the others. `updated_at` answers none of them.
 
+## Contents
+
+- Methods
+- Choosing
+  - Trigger Audit Is a Narrow, Named Exception
+- Standard History Entity
+- Current + History Flow
+- State-Transition Flow
+- Valid-Period Flow
+- Snapshot vs Delta
+- Indexes and Partitioning
+- Prohibited
+- Code Analysis Signals
+- Final Principle
+
 ## Methods
 
 | Method | Fits | Character |

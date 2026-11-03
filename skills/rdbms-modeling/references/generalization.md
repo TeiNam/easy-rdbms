@@ -3,6 +3,23 @@
 Deciding whether two or more entities are really *kinds of* one thing — and what to build if
 they are. The compact decision path is in `../SKILL.md` Stage 2; this file has the full criteria.
 
+## Contents
+
+- The Test Is IS-A, Not Attribute Overlap
+  - Substitutability
+- Seven Questions
+  - 1. Is it genuinely IS-A?
+  - 2. Does each subtype have its own attributes, relationships, or rules?
+  - 3. Are the types mutually exclusive?
+  - 4. Is every instance in some subtype?
+  - 5. Can an instance's type change over time?
+  - 6. Is it a type, or a state?
+  - 7. Which is queried more — across all types, or one type at a time?
+- The Three Outcomes
+- Identifier Inheritance
+- Physical Mapping
+- Anti-Patterns
+
 ## The Test Is IS-A, Not Attribute Overlap
 
 **Shared attributes are a hint, never the criterion.** Two entities can share half their

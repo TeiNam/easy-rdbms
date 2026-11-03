@@ -21,6 +21,24 @@ physical model and migration SQL.
 Skipping the early stages is what produces schemas that churn: business concepts get missed,
 and every missed concept becomes a migration later.
 
+## Contents
+
+- When to Activate
+- Gate: How Much Rigor Does This Need?
+- Stage 1 — Conceptual Model
+- Stage 2 — Logical Model
+  - Generalization — The Test Is IS-A
+  - History — Identify the Purpose Before the Structure
+- Stage 3 — Physical Model
+  - DB-to-Guideline Mapping
+  - Database Internal Routines
+  - Identifier Decision: UID vs Primary Key
+  - Foreign Keys — The Policy Splits by Engine
+- Deliverable Format
+- Checklist
+- Anti-Patterns (Fix on Sight)
+- Related
+
 ## When to Activate
 
 - Designing tables for a new feature or service
@@ -277,49 +295,41 @@ Then produce:
   partitioning — emit it as a candidate needing volume figures instead. MySQL generates only
   `RANGE`/`RANGE COLUMNS` (a deliberate scope limit, not a technical one); PostgreSQL may use
   `RANGE`, `LIST`, or `HASH`. Always include the trailing safety partition. See
-  `references/partitioning.md`
+  `references/partitioning.md` for the policy, then `mysql-guideline/partitioning.md` or
+  `postgres-guideline/partitioning.md` for the DDL and partition maintenance
 - Migration SQL, ordered, with the rollout considerations from `database-migrations`
 
 If Stage 2 produced a supertype/subtype structure, choose its physical mapping here — the
-tradeoff is about constraints and query shape, so it belongs to the physical model:
+tradeoff is about constraints and query shape. The three strategies (single table + discriminator,
+supertype + one table per subtype, one table per concrete subtype) are compared in
+`references/generalization.md` → Physical Mapping. **Default for ordinary business systems:
+supertype table + one table per subtype**, the most normalized of the three. A single table must
+recover the lost `NOT NULL` guarantees with one conditional `CHECK` per type, and those multiply
+with every type added. Say which you picked and why.
 
-| Strategy | Fits | Watch out for |
-|---|---|---|
-| **Single table + discriminator** | Few types, small differences, most queries span all types | Subtype columns must be nullable, so `NOT NULL` no longer enforces them. Recover with conditional `CHECK` per type — and note these multiply with each type added |
-| **Supertype table + one per subtype** | Differences are substantial and integrity matters | A join for the complete picture. Choose the exclusivity and totality controls from `references/generalization.md` |
-| **One table per concrete subtype** | Types used entirely independently | Shared attributes duplicated; cross-type queries need `UNION ALL`; anything referencing "a customer" has nothing to point at |
+Finally, write sample data and a constraint test — the smallest inserts that prove the keys,
+uniqueness, check constraints, and any subtype rules behave as intended, plus one bad row per
+constraint that must be rejected.
 
-**Default for ordinary business systems: supertype table + one table per subtype.** It is the
-most normalized of the three. Say which you picked and why.
-
-Under the single-table strategy, restore what nullability gave up:
-
-```sql
-ALTER TABLE customer ADD CONSTRAINT chk_customer_corporate
-  CHECK (customer_type <> 'CORPORATE' OR business_registration_number IS NOT NULL);
-```
-
-Two types need two such constraints, five need five, and each new type edits the existing set —
-weigh that before choosing this strategy for a classification you expect to extend.
-
-Finally, propose sample data and a constraint test — the smallest inserts that prove the keys,
-uniqueness, check constraints, and any subtype rules behave as intended.
+**Then run them.** Use a throwaway database of the target engine and major version: Python's
+built-in `sqlite3` module for SQLite, or a disposable `postgres:18` / `mysql:8.4` container with a
+random password and no published port — wait until it accepts connections, pipe SQL in through
+`docker exec -i` (`psql -v ON_ERROR_STOP=1`, or `mysql`, which stops at the first error), and
+remove the container afterwards. Ask before pulling an image the machine does not already have.
+The DDL and the valid rows must run clean as one script; each bad row runs on its own and must
+fail. When either expectation breaks, fix the DDL and rerun everything until both hold. If no
+disposable database is available, report the DDL as unexecuted rather than implying it was tested.
 
 ### Database Internal Routines
 
-Procedures, triggers, and events **default to unused** — business logic belongs in the application,
-where it is version controlled, testable, and visible in a stack trace. Three categories, split by what
-the routine *does*, not what kind of object it is:
-
-| Category | Verdict |
-|---|---|
-| **Infrequent operational utilities** — partition creation/rotation, retention purge, statistics refresh, consistency-check queries, materialized view refresh | **Allowed.** No business semantics, scheduled and low duty cycle, idempotent, version controlled, monitored. Prefer an external scheduler where one exists |
-| **Audit trigger** | **Narrow exception.** Only to capture writes that bypass the application; audit table only, no business logic. See `references/history-entities.md` |
-| **Business logic** — maintaining a denormalized value, setting `updated_at`, enforcing a state transition, workflow in a procedure | **Prohibited.** It belongs in the application transaction |
-
-The tempting case is a trigger maintaining a denormalized column. It does not qualify: it runs on every
-write, and keeping a derived business value correct *is* business logic. Full policy and the inventory
-queries for reviewing an existing schema: `references/db-internal-routines.md`.
+Procedures, triggers, and events **default to unused** — business logic belongs in the application.
+Judge by what the routine *does*: infrequent operational utilities (partition rotation, retention
+purge, statistics or materialized-view refresh) are **allowed**; an audit trigger capturing writes
+that bypass the application is a **narrow exception** (`references/history-entities.md`); anything
+carrying business logic — a trigger maintaining a denormalized value or setting `updated_at`, a
+workflow in a procedure — is **prohibited**. Full policy and inventory queries:
+`references/db-internal-routines.md`; MySQL's per-session stored-program cache cost:
+`mysql-guideline/dev-practices.md`.
 
 ### Identifier Decision: UID vs Primary Key
 
@@ -337,17 +347,11 @@ national ID) go in a `UNIQUE` constraint, never the PK. Never a raw timestamp as
 | Exposed externally | Internal integer PK + public UID column | UUID PK, or integer PK + public UID |
 | Wide natural or composite key | Split out as `UNIQUE` | Split out as `UNIQUE` |
 
-Size the integer by **what makes the row count grow**, not by today's row count — and get it right
-now, because changing a PK's type later needs `ALGORITHM=COPY` on MySQL (full rebuild plus every
-secondary index) or a table rewrite under `ACCESS EXCLUSIVE` on PostgreSQL. Note that retention
-policies and partition drops reclaim storage but **not** ID range: sequences never reuse values.
-An "entity" that turns out to be machine-generated (per-device rows, ad impressions) is an event
-table wearing an entity name.
-
-Why the engines differ: InnoDB clusters on the PK and copies it into every secondary index; PostgreSQL
-heaps rows, so a UUID PK costs less — but not nothing. Two traps: `UUID_TO_BIN(v, 1)`'s swap flag
-is **UUIDv1-only** (swapping a v7 destroys its ordering), and `uuidv7()` is built in only from
-**PG 18** — `gen_random_uuid()` is v4.
+Size the integer by **what makes the row count grow**, not by today's row count — widening a PK
+later is the multi-week rollout in `database-migrations`, and retention never reclaims ID range. An
+"entity" that turns out to be machine-generated (per-device rows, ad impressions) is an event table
+wearing an entity name. Two traps worth knowing before you open the reference: `UUID_TO_BIN(v, 1)`'s
+swap flag is **UUIDv1-only**, and `uuidv7()` is built in only from **PG 18**.
 
 ### Foreign Keys — The Policy Splits by Engine
 
@@ -360,16 +364,12 @@ Full criteria, the SQL, and the exception paths: `references/foreign-keys.md`.
 | Referencing-column index | Verify it; create by hand for logical FKs | Created unless an existing index already leads with it |
 
 This is a policy default, not a claim that MySQL cannot enforce references. Preserve existing
-constraints unless project policy and measured costs justify a change. Engine limitations and
-PostgreSQL's version/partition-aware validation paths live in `references/foreign-keys.md`.
-
-(SQLite targets differ again: physical FKs are fine there but enforcement is per-connection —
-`sqlite-guideline` owns that policy.)
+constraints unless project policy and measured costs justify a change. (SQLite targets differ
+again: physical FKs are fine there but enforcement is per-connection — `sqlite-guideline` owns that
+policy.)
 
 **The MySQL trap**: under a no-FK policy nothing ever auto-creates the child index, so the
-referencing-column index is deliberate and manual. (On inherited schemas, dropping an FK leaves
-its auto-created index behind under an auto-generated name — verify with `SHOW INDEX` and rename
-it before a cleanup job mistakes it for dead weight.)
+referencing-column index is deliberate and manual.
 
 Every **logical** FK carries four controls: `COMMENT`, the index, a named integrity owner, a
 scheduled orphan-detection query. Apply the PostgreSQL gates from `references/foreign-keys.md`
@@ -407,11 +407,16 @@ STAGE 3 — Physical model
   FK decisions:   <per reference — physical (PG, six conditions verified) | logical (COMMENT,
                   index, integrity owner, orphan check query)>
   Migration:      <ordered SQL + rollout notes>
-  Sample data:    <smallest inserts that exercise the constraints>
+  Sample data:    <smallest inserts that exercise the constraints, plus the rows that must fail>
+  Execution:      <engine + version it ran on and the result — or "unexecuted" and why>
   Checklist:      <verified below>
 ```
 
 ## Checklist
+
+Run the boxes for a stage before presenting that stage. A failed box sends you back to the stage
+that owns it: fix it there, then re-run the checklist from that stage down — do not patch the
+deliverable around it.
 
 **Process**
 - [ ] Rigor level stated; any compressed stage called out explicitly
@@ -454,21 +459,15 @@ STAGE 3 — Physical model
       `COMMENT`
 - [ ] Views justified by reuse/security/abstraction, not performance; any MView/summary table
       has refresh interval, staleness tolerance, consistency check, and rebuild path
-- [ ] Sample data and constraint test proposed
+- [ ] Sample data and constraint test written, executed on the target engine until they pass (or
+      reported as unexecuted with the reason)
 
 ## Anti-Patterns (Fix on Sight)
 
+The Checklist covers the structural traps; these are the ones it does not name.
+
 | Anti-pattern | Replacement |
 |---|---|
-| Requirements straight to `CREATE TABLE` | Conceptual → logical → physical, with gates |
-| Engine types in the logical model | Generic types until Stage 3 |
-| Generalizing on attribute overlap with no IS-A relationship | Keep them separate |
-| Subtypes for `pending` / `paid` / `cancelled` | Status column + history table — these are states |
-| Subtypes for overlapping capabilities (manager *and* instructor) | Role table with validity dates |
-| Subtypes that differ only in name | Type column with a `CHECK` on allowed values |
-| Supertype where every meaningful column is nullable | Split into subtype tables, or conditional `CHECK` per type |
-| Separate surrogate key on a subtype row | Subtype PK **is** the supertype PK |
-| Entity/attribute/value table | Real columns; `jsonb`/`json` only for non-queried config |
 | Multi-value storage via CSV or pipe delimiters | Separate N:M table |
 | `'Y'` / `'N'` string flags | MySQL `tinyint unsigned` + 0/1 CHECK / PostgreSQL `boolean` |
 | `timestamp` without timezone (PostgreSQL) | `timestamptz` |
@@ -478,14 +477,7 @@ STAGE 3 — Physical model
 | Dropping a MySQL FK and then "cleaning up" its auto-named index | The index survives the drop — verify with `SHOW INDEX`, rename to `idx_` convention |
 | `ON DELETE CASCADE` on a high-fan-out parent | `RESTRICT` + explicit deletion, or a bounded batch job |
 | PostgreSQL FK with an unindexed referencing column | Create the index — PostgreSQL never auto-creates it |
-| PostgreSQL constraint left `NOT VALID` | `VALIDATE CONSTRAINT`; until then it is a logical FK |
-| Reference to a non-unique column | Target a PK or UNIQUE — otherwise the reference is ambiguous |
-| Logical FK with no orphan check | Violations accumulate silently — schedule the detection query |
-| `updated_at` used as history | Pick a real method — audit columns answer nothing about what changed |
-| Current row and history written in separate transactions | One transaction, or the history lies |
-| `ON DELETE CASCADE` from entity to its history | History must outlive the row it describes |
 | Generic JSON audit log replacing a business history entity | No schema, no reason code, unplannable queries |
-| PII in snapshots with no retention limit | Name the retention period and the purge path |
 | Standalone `is_active` index | Composite index (MySQL) / partial index (PostgreSQL) |
 | `OFFSET` pagination on large log tables | Cursor / keyset pagination |
 | An index on every column | Minimal indexes driven by real query patterns |
@@ -501,10 +493,3 @@ STAGE 3 — Physical model
 - `references/` — one file per policy area: `normalization`, `generalization`,
   `identifier-selection`, `foreign-keys`, `partitioning`, `history-entities`,
   `denormalization`, `db-internal-routines`, `views-and-materialized-views`, `index-design`
-
----
-
-**Remember**: conceptual model first and confirmed, then the logical model normalized to 3NF
-with the BCNF check run on every entity, and only then the physical model in a confirmed
-dialect. Denormalize only against a measurement, with the synchronization mechanism written
-down.

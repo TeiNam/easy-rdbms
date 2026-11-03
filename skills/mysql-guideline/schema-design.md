@@ -1,5 +1,13 @@
 # Schema Design
 
+## Contents
+
+- Primary Key Policy
+- Foreign Key Policy
+  - Control 4: Scheduled Orphan Detection
+- Application-Level Referential Integrity
+- Soft Delete Pattern
+
 ## Primary Key Policy
 - Use `AUTO_INCREMENT` with appropriate unsigned integer type
 - PK는 현재 행 수가 아니라 증가 유형으로 결정한다. 상한이 있는 엔터티는 `int unsigned`,

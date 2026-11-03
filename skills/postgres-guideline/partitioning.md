@@ -1,5 +1,19 @@
 # Partitioning Strategy
 
+## Contents
+
+- Do Not Partition by Default
+- Scope: RANGE, LIST, or HASH
+- The Safety Partition: `DEFAULT`, Not `TO (MAXVALUE)`
+  - Operating Rules
+- Log Tables: Monthly Declarative Partitioning
+- Candidate Tables
+- pg_partman (Recommended)
+- Partition Management
+  - Precreating a Partition With a Weaker Parent Lock
+- Partition Info Query
+- Partition Pruning
+
 ## Do Not Partition by Default
 
 Partitioning is **recommended from evidence in the code**, not applied because a table looks like it

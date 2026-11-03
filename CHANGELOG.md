@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.2...easy-rdbms--v0.6.0) (2026-11-03)
+
+
+### 기능
+
+* 스킬 작성 7규칙 적용 — 목차·500줄·한 단계 참조·검증 루프·설치 명시 ([#31](https://github.com/TeiNam/easy-rdbms/issues/31)) ([ca3bde0](https://github.com/TeiNam/easy-rdbms/commit/ca3bde0bb1dd8e16a9670838e0391a8df9c4f20b))
+
 ## [0.5.2](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.1...easy-rdbms--v0.5.2) (2026-09-25)
 
 

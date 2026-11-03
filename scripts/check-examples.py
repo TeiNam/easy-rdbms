@@ -35,9 +35,13 @@ TOC_MAX_START = 25
 SKILL_BODY_MAX = 500
 
 
+# shortcut: a regex, not a CommonMark parser — nested brackets in link text, links split across
+# lines, and HTML <a href> are not seen. Skill files reference each other with backticks; switch
+# to a Markdown parser if they start using those forms.
 MD_REFERENCE = re.compile(
     r"`([^`\n]+?\.md)(?:#[^`\n]*)?`"  # `file.md`, `file.md#part`
-    r"|\]\(\s*<?([^()<>\s#]+?\.md)(?:#[^()<>\s]*)?>?(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*\)"  # [x](file.md "t")
+    r"|\]\(\s*<?([^()<>\s#]+?\.md)(?:#[^()<>\s]*)?>?"  # [x](file.md), [x](<file.md#part>)
+    r"(?:\s+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?\s*\)"  # + "t" / 't' / (t)
     r"|^ {0,3}\[[^\]\n]+\]:\s*<?([^\s<>#]+?\.md)(?:#[^\s<>]*)?>?",  # [x]: file.md
     re.M,
 )
@@ -245,9 +249,10 @@ def metadata():
         assert md_targets(probe) == {"probe.md": probe.resolve()}, md_targets(probe)
         # 형식마다 다른 대상을 써서, 어느 한 형식의 인식이 빠져도 이 검사가 실패하게 한다.
         probe.write_text("`tick.md#x` [a](anchor.md#a) [b](<angle.md>) [c](dq.md \"t\") [d](sq.md 't')\n"
-                         "[e](paren.md (t)) [web](https://example.com/x.md)\n[ref]: refdef.md\n")
+                         "[e](paren.md (t)) [web](https://example.com/x.md)\n[ref]: refdef.md\n"
+                         r'[f](esc.md (t \(x\))) [g](escq.md "a \"b\"")' "\n")
         assert sorted(md_targets(probe)) == sorted([
-            "tick.md", "anchor.md", "angle.md", "dq.md", "sq.md", "paren.md", "refdef.md",
+            "tick.md", "anchor.md", "angle.md", "dq.md", "sq.md", "paren.md", "refdef.md", "esc.md", "escq.md",
         ]), md_targets(probe)
     # 참조는 한 단계만: 상세 문서와 그 문서가 가리키는 파일은 모두 SKILL.md가 직접 가리켜야 한다.
     for skill in ROOT.glob("skills/*/SKILL.md"):

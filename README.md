@@ -1,6 +1,6 @@
 # Easy RDBMS
 
-![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-Plugin-D97757.svg) ![Codex](https://img.shields.io/badge/Codex-Plugin-412991.svg) ![Kiro](https://img.shields.io/badge/Kiro-Power-9046FF.svg) ![MySQL](https://img.shields.io/badge/MySQL-8.4%20%7C%209.7%20LTS-4479A1.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791.svg) ![SQLite](https://img.shields.io/badge/SQLite-3.37%2B-003B57.svg)
 ![Python](https://img.shields.io/badge/Python-3-blue.svg) ![Shell](https://img.shields.io/badge/Shell-POSIX%20sh-89E051.svg) ![Docker](https://img.shields.io/badge/Docker-Tests-2496ED.svg) ![Markdown](https://img.shields.io/badge/Markdown-Skills-000000.svg) ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%20%26%20Release-2088FF.svg) ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
@@ -38,7 +38,7 @@ things you only learn by running databases:
 - A partition-creation job that stops without raising an error, so nobody notices for months.
 - An index that costs more on every write than it ever gives back on reads.
 
-Works in both **Claude Code** and **Codex** from one shared `skills/` directory. The plugin picks
+Works in **Claude Code**, **Codex**, and **Kiro** (as a power) from one shared `skills/` directory. The plugin picks
 the database for your scale and budget, keeps naming consistent, takes requirements through
 conceptual → logical → physical modeling instead of straight to DDL, and reviews schemas, queries,
 and migrations before they ship. A new build with no version given targets the newest releases:
@@ -74,13 +74,32 @@ codex plugin add easy-rdbms@easy-rdbms
 Codex does not trust plugin hooks automatically. After installation, open `/hooks`, review the
 Easy RDBMS `SessionStart` hook, and trust it to enable automatic engine detection.
 
-Either harness also installs from a local checkout — pass the path instead of the repo slug.
+Claude Code and Codex also install from a local checkout — pass the path instead of the repo slug.
+
+### Kiro
+
+The repository root is a Kiro power in the [Agent Plugins](https://agent-plugins.org/) format: a
+`plugin.json` manifest plus the same `skills/`.
+
+- **Kiro IDE**: Powers panel → **Add Custom Power** → **Import power from GitHub** →
+  `https://github.com/TeiNam/easy-rdbms`
+- **Kiro CLI V3** installs from a catalog name or a local path, so clone first:
+
+  ```bash
+  git clone https://github.com/TeiNam/easy-rdbms.git
+  kiro-cli powers install ./easy-rdbms
+  ```
+
+The power activates when a conversation mentions database work (the `plugin.json` keywords) and
+loads the nine skills. Kiro does not run the session hook, the Claude Code commands, or the
+subagents; the skills confirm the engine from repository files themselves.
 
 ### Updating
 
-In Claude Code, run `/easy-rdbms:update`; in Codex, invoke `$easy-rdbms:update`.
-The shared update skill refreshes this marketplace, updates the installed plugin, and verifies
-the installed version. It operates on the current harness unless you request both.
+In Claude Code, run `/easy-rdbms:update`; in Codex, invoke `$easy-rdbms:update`; in Kiro, ask
+for an easy-rdbms update, or use **Check for updates** on the power in the IDE.
+The shared update skill refreshes the source, updates the installed plugin, and verifies the
+installed version. It operates on the current harness unless you request more than one.
 
 For an older installation that does not have the update skill yet, use the native CLI commands:
 
@@ -94,6 +113,9 @@ claude plugin marketplace update easy-rdbms && \
 codex plugin marketplace upgrade easy-rdbms && \
   codex plugin add easy-rdbms@easy-rdbms && \
   codex plugin list --marketplace easy-rdbms --json
+
+# Kiro CLI V3: update the clone, then reinstall from the same path
+git -C easy-rdbms pull --ff-only && kiro-cli powers install ./easy-rdbms
 ```
 
 Start a new Codex session afterwards. In Claude Code, run `/reload-plugins` or start a new session.
@@ -103,7 +125,7 @@ third-party marketplaces; the plugin does not change that setting.
 
 ## What's inside
 
-Nine skills, shared by both harnesses: eight for database work and one for plugin updates.
+Nine skills, shared by all three harnesses: eight for database work and one for plugin updates.
 They activate when a task mentions relevant work; you can also name one explicitly.
 
 | Skill | Use it for |
@@ -133,7 +155,8 @@ Skills activate automatically when the task matches. To invoke one explicitly:
 | Plugin update | `/easy-rdbms:update` | `$easy-rdbms:update` |
 
 Codex users can browse installed skills with `/skills`. Codex plugins do not register custom slash
-commands.
+commands. In Kiro the power turns on from keywords; name a skill (for example `rdbms-modeling`) in
+the request to pin it.
 
 ### Subagents (Claude Code only)
 
@@ -148,7 +171,8 @@ then reports the engine once. It recognizes PostGIS/pgvector images and Java bui
 keeps both **MariaDB and MySQL** when both are configured. With multiple engines it preserves the
 user's specified target and asks only when the target is unresolved. Silent when nothing is found.
 An explicit project path takes priority; otherwise the hook checks the current directory and its
-ancestors through the Git root. Outside Git it checks only the current directory.
+ancestors through the Git root. Outside Git it checks only the current directory. Kiro powers have
+no hooks, so in Kiro the skills confirm the engine from repository files instead.
 
 ## What's covered, in detail
 
@@ -522,8 +546,9 @@ warned that a floating `lts` tag jumps to the next LTS series; the skills now pi
 
 ## Design decisions
 
-**One skill directory, both harnesses.** `skills/` is shared. Frontmatter is `name` + `description`
-only — the intersection of what Claude Code and Codex accept. Claude Code gets `.md` commands;
+**One skill directory, three harnesses.** `skills/` is shared. Frontmatter is `name` + `description`
+only — the intersection of what Claude Code, Codex, and Kiro's Agent Skills accept. Kiro reads the
+root `plugin.json` and the same skills, and ignores commands, agents, and hooks. Claude Code gets `.md` commands;
 Codex invokes the same procedures through namespaced skills. Codex plugins cannot register named
 subagents, so modeling and review procedures live in the skill bodies and Claude Code gets thin
 agent wrappers pointing at them.
@@ -661,7 +686,7 @@ AI 에이전트는 애플리케이션 코드를 잘 씁니다. 티가 잘 안 �
 - 파티션을 미리 만들어주는 작업이 에러도 없이 멈춰서, 몇 달 뒤에야 발견되는 일
 - 인덱스를 하나 추가했는데, 읽기에서 얻는 것보다 매번 쓰기에서 잃는 게 더 큰 상황
 
-**Claude Code**와 **Codex** 양쪽에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
+**Claude Code**, **Codex**, **Kiro**(Power)에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로
 설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. 버전을 정하지 않은 신규 구성은 최신
 버전을 기준으로 합니다. 설치형·Docker는 PostgreSQL **18**과 MySQL **9.7 LTS**, Aurora·RDS의 MySQL은
@@ -684,16 +709,27 @@ PostgreSQL 16/17·MySQL 8.4·관리형의 호환 조건을 확인하고, 임베�
 # Codex
 codex plugin marketplace add TeiNam/easy-rdbms
 codex plugin add easy-rdbms@easy-rdbms
+
+# Kiro CLI V3: 카탈로그 이름이나 로컬 경로만 받으므로 clone 후 설치
+git clone https://github.com/TeiNam/easy-rdbms.git
+kiro-cli powers install ./easy-rdbms
 ```
+
+Kiro IDE에서는 Powers 패널 → **Add Custom Power** → **Import power from GitHub**에
+`https://github.com/TeiNam/easy-rdbms`를 넣습니다. 저장소 루트의 `plugin.json`([Agent Plugins](https://agent-plugins.org/)
+형식)과 같은 `skills/`가 그대로 Power가 됩니다. 대화에 DB 작업이 나오면(`plugin.json`의 키워드) 켜지고
+9개 스킬을 불러옵니다. Kiro는 세션 훅·Claude Code 명령·서브에이전트를 쓰지 않으며, 엔진은 스킬이
+저장소 파일로 직접 확인합니다.
 
 Codex는 플러그인 훅을 자동으로 신뢰하지 않습니다. 설치 후 `/hooks`에서 Easy RDBMS의
 `SessionStart` 훅을 검토하고 승인해야 자동 엔진 감지가 켜집니다.
 
 ### 업데이트
 
-Claude Code에서는 `/easy-rdbms:update`, Codex에서는 `$easy-rdbms:update`를 호출합니다.
-현재 실행 환경에서 easy-rdbms 마켓플레이스와 설치된 플러그인을 차례로 갱신하고 버전을 확인합니다.
-두 환경 모두 갱신하려면 호출할 때 이를 명시합니다.
+Claude Code에서는 `/easy-rdbms:update`, Codex에서는 `$easy-rdbms:update`를 호출합니다. Kiro에서는
+easy-rdbms 업데이트를 요청하거나 IDE에서 Power의 **Check for updates**를 누릅니다.
+현재 실행 환경에서 출처와 설치된 플러그인을 차례로 갱신하고 버전을 확인합니다.
+여러 환경을 갱신하려면 호출할 때 이를 명시합니다.
 
 업데이트 스킬이 없는 이전 버전은 아래 CLI 명령으로 한 번 갱신합니다.
 
@@ -707,6 +743,9 @@ claude plugin marketplace update easy-rdbms && \
 codex plugin marketplace upgrade easy-rdbms && \
   codex plugin add easy-rdbms@easy-rdbms && \
   codex plugin list --marketplace easy-rdbms --json
+
+# Kiro CLI V3: clone을 갱신한 뒤 같은 경로로 다시 설치
+git -C easy-rdbms pull --ff-only && kiro-cli powers install ./easy-rdbms
 ```
 
 Codex는 새 대화에서 적용됩니다. Claude Code는 `/reload-plugins`를 실행하거나 새 세션을 시작합니다.
@@ -716,7 +755,7 @@ easy-rdbms → Enable auto-update로 자동 갱신을 켤 수도 있습니다. �
 
 ### 구성
 
-DB 작업용 8개와 플러그인 업데이트용 1개, 총 9개 스킬을 두 환경에서 공유합니다.
+DB 작업용 8개와 플러그인 업데이트용 1개, 총 9개 스킬을 세 환경에서 공유합니다.
 
 | 스킬 | 용도 |
 |---|---|
@@ -733,7 +772,8 @@ DB 작업용 8개와 플러그인 업데이트용 1개, 총 9개 스킬을 두 �
 스킬은 관련 작업이 언급되면 자동 발동합니다. 명시적으로 호출할 때는 Claude Code에서
 `/db-select`, `/schema-design`, `/schema-review`를, Codex에서 `$easy-rdbms:db-select`,
 `$easy-rdbms:rdbms-modeling`, `$easy-rdbms:rdbms-review`를 사용합니다. Codex의 `/skills`에서
-설치된 스킬을 찾아볼 수도 있습니다.
+설치된 스킬을 찾아볼 수도 있습니다. Kiro에서는 키워드로 Power가 켜지고, 요청에 스킬 이름(예:
+`rdbms-modeling`)을 넣으면 그 스킬을 씁니다.
 플러그인 업데이트는 Claude Code의 `/easy-rdbms:update`, Codex의 `$easy-rdbms:update`로 호출합니다.
 
 Claude Code 전용 서브에이전트 `rdbms-modeler`·`rdbms-reviewer`는 스킬을 가리키는 얇은 래퍼입니다.
@@ -743,7 +783,8 @@ Codex 플러그인은 이름 붙은 서브에이전트를 등록할 수 없어�
 `package.json`, `requirements.txt`, `Cargo.toml`, `go.mod` 등의 파일을 읽고
 감지한 엔진을 한 번 보고합니다.
 **MariaDB와 SQLite를 MySQL/PostgreSQL과 구분**하고, 엔진이 둘 이상 감지되면 dialect를 추측하지
-말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다.
+말고 **어느 쪽을 대상으로 하는지 묻게** 합니다. 아무것도 없으면 조용히 종료합니다. Kiro Power에는
+훅이 없어서 Kiro에서는 스킬이 저장소 파일로 엔진을 확인합니다.
 명시된 프로젝트 경로가 없으면 현재 디렉토리부터 Git 루트까지 확인합니다.
 Git 밖에서는 현재 디렉토리만 검사합니다. PostGIS·pgvector 이미지와 Java 빌드 파일도 감지하고,
 MySQL·MariaDB가 함께 있으면 둘 다 표시합니다. 사용자가 지정한 대상은 다시 묻지 않습니다.

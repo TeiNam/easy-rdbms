@@ -34,6 +34,11 @@ CLIENTS = {}
 TOC_REQUIRED_OVER = 100
 TOC_MAX_START = 25
 SKILL_BODY_MAX = 500
+# 버전을 함께 올리는 매니페스트: Claude Code, Codex, Kiro(Agent Plugins 형식).
+MANIFESTS = [".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "plugin.json"]
+AGENT_PLUGINS_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+AGENT_PLUGINS_KEYS = {"$schema", "name", "version", "description", "author", "homepage",
+                      "repository", "license", "keywords", "extensions"}
 
 
 # shortcut: a regex, not a CommonMark parser — nested brackets in link text, links split across
@@ -192,18 +197,20 @@ def metadata():
             ast.parse(code, filename=str(path))
     for path in [*ROOT.glob(".*-plugin/*.json"), *ROOT.glob(".agents/plugins/*.json")]:
         json.loads(path.read_text())
-    versions = {
-        json.loads((ROOT / path).read_text())["version"]
-        for path in [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]
-    }
+    versions = {json.loads((ROOT / path).read_text())["version"] for path in MANIFESTS}
     assert len(versions) == 1, versions
     version = versions.pop()
     assert (ROOT / "version.txt").read_text().strip() == version
     assert json.loads((ROOT / ".release-please-manifest.json").read_text()) == {".": version}
     release_config = json.loads((ROOT / "release-please-config.json").read_text())["packages"]["."]
-    assert set(release_config["extra-files"]) == {
-        ".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "README.md",
-    }
+    assert set(release_config["extra-files"]) == {*MANIFESTS, "README.md"}
+    # Kiro Power 매니페스트: 스키마가 허용하는 키만 쓰고, Kiro가 요구하는 필드는 모두 채운다.
+    kiro = json.loads((ROOT / "plugin.json").read_text())
+    assert kiro["$schema"] == AGENT_PLUGINS_SCHEMA, kiro["$schema"]
+    assert set(kiro) <= AGENT_PLUGINS_KEYS, set(kiro) - AGENT_PLUGINS_KEYS
+    assert kiro["name"] == json.loads((ROOT / ".claude-plugin/plugin.json").read_text())["name"], kiro["name"]
+    assert kiro["description"] and kiro["author"]["name"], kiro
+    assert kiro["keywords"] and all(isinstance(k, str) and k for k in kiro["keywords"]), kiro["keywords"]
     readme = (ROOT / "README.md").read_text()
     assert f"Current: **{version}**" in readme
     assert f"현재 배포 버전은 **{version}**" in readme

@@ -1,13 +1,13 @@
 ---
 name: update
-description: Update the installed easy-rdbms plugin itself in Claude Code or Codex, refresh its marketplace, reinstall the current plugin version, and verify the result. Use for easy-rdbms update, plugin update, 플러그인 업데이트, 플러그인 갱신. This is plugin maintenance, not a database engine upgrade, extension update, or schema migration.
+description: Update the installed easy-rdbms plugin itself in Claude Code, Codex, or Kiro (installed as a power), refresh its marketplace or source, reinstall the current version, and verify the result. Use for easy-rdbms update, plugin update, power update, 플러그인 업데이트, 플러그인 갱신, 파워 업데이트. This is plugin maintenance, not a database engine upgrade, extension update, or schema migration.
 ---
 
 # Easy RDBMS 업데이트
 
 사용자가 이 플러그인의 업데이트를 요청했을 때만 실행한다. 현재 대화의 실행 환경에 맞는
-절차 하나를 사용한다. 두 CLI가 설치되어 있다는 이유로 둘 다 갱신하지 않는다.
-사용자가 두 환경을 요청했다면 각각 실행한다.
+절차 하나를 사용한다. 여러 CLI가 설치되어 있다는 이유로 모두 갱신하지 않는다.
+사용자가 여러 환경을 요청했다면 각각 실행한다.
 
 ## Codex
 
@@ -44,6 +44,22 @@ description: Update the installed easy-rdbms plugin itself in Claude Code or Cod
    현재 세션에서는 `/reload-plugins`를 실행하거나
    새 세션을 시작해야 갱신된 플러그인이 적용된다고 안내한다.
 
+## Kiro
+
+1. 설치 출처를 확인한다. IDE에서 GitHub URL로 가져왔다면 Powers 패널 → easy-rdbms →
+   **Check for updates** → **Install updates**로 원격 저장소에서 갱신하도록 안내한다.
+2. CLI V3로 로컬 clone에서 설치했다면 그 clone을 갱신한 뒤 같은 경로로 다시 설치한다.
+   앞 단계가 실패하면 다음 단계를 실행하지 않는다.
+
+   ```bash
+   git -C <clone 경로> pull --ff-only && \
+     kiro-cli powers install <clone 경로>
+   ```
+
+3. 출력의 `Updated power "easy-rdbms"`를 확인하고, 설치본
+   `~/.kiro/powers/installed/easy-rdbms/plugin.json`의 `version`을 clone의 `plugin.json`과
+   대조한다. 다르면 성공으로 보고하지 않는다. 클라우드 세션에서는 Power를 설치·제거할 수 없다.
+
 ## 예외와 완료 보고
 
 - 설치되지 않았으면 이를 알리고 README의 설치 절차를 안내한다. 다른 플러그인을 설치하거나
@@ -60,5 +76,7 @@ description: Update the installed easy-rdbms plugin itself in Claude Code or Cod
 공식 근거:
 [Codex 플러그인](https://developers.openai.com/codex/plugins/) ·
 [Codex 마켓플레이스](https://developers.openai.com/codex/plugins/build/) ·
-[Claude Code 업데이트](https://code.claude.com/docs/en/plugins/install#keep-plugins-updated).
-실행할 CLI의 `plugin --help`와 하위 명령 `--help`도 확인할 수 있다.
+[Claude Code 업데이트](https://code.claude.com/docs/en/plugins/install#keep-plugins-updated) ·
+[Kiro Powers 설치·업데이트](https://kiro.dev/docs/powers/installation/).
+실행할 CLI의 도움말(`claude plugin --help`, `codex plugin --help`, `kiro-cli powers --help`)과
+하위 명령 `--help`도 확인할 수 있다.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "easy-rdbms",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "RDBMS design companion. Picks the database for your scale, enforces naming conventions, models tables to 3NF, and reviews schemas, queries, and migrations for MySQL, PostgreSQL, and SQLite.",
   "author": {
     "name": "TeiNam",
@@ -11,8 +11,25 @@
   "repository": "https://github.com/TeiNam/easy-rdbms",
   "license": "MIT",
   "keywords": [
-    "database", "rdbms", "mysql", "postgresql", "postgres", "sqlite", "aurora",
-    "schema", "ddl", "erd", "data model", "migration", "sql", "query tuning",
-    "데이터베이스", "스키마", "테이블 설계", "마이그레이션", "인덱스", "쿼리"
+    "database",
+    "rdbms",
+    "mysql",
+    "postgresql",
+    "postgres",
+    "sqlite",
+    "aurora",
+    "schema",
+    "ddl",
+    "erd",
+    "data model",
+    "migration",
+    "sql",
+    "query tuning",
+    "데이터베이스",
+    "스키마",
+    "테이블 설계",
+    "마이그레이션",
+    "인덱스",
+    "쿼리"
   ]
 }

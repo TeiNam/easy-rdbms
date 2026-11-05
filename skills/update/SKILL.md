@@ -78,4 +78,5 @@ description: Update the installed easy-rdbms plugin itself in Claude Code, Codex
 [Codex 마켓플레이스](https://developers.openai.com/codex/plugins/build/) ·
 [Claude Code 업데이트](https://code.claude.com/docs/en/plugins/install#keep-plugins-updated) ·
 [Kiro Powers 설치·업데이트](https://kiro.dev/docs/powers/installation/).
-실행할 CLI의 `plugin --help`와 하위 명령 `--help`도 확인할 수 있다.
+실행할 CLI의 도움말(`claude plugin --help`, `codex plugin --help`, `kiro-cli powers --help`)과
+하위 명령 `--help`도 확인할 수 있다.

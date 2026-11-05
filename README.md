@@ -514,6 +514,12 @@ race. No run could reach a database or install anything.
 On a defect set this visible, recall did not separate the runs; policy did. No instruction needed
 removing for Opus, and Haiku needed none added.
 
+A follow-up on **2026-11-06** asked the version-default question — a new project with no versions
+named. With the skills, Haiku, Sonnet, and Opus all chose MySQL 9.7 LTS in Docker, 8.4.x on Aurora
+and RDS, and PostgreSQL 18, and named the change-buffering difference between 8.4 and 9.7. Opus
+without them placed Aurora MySQL on the 8.0-compatible line, predating Aurora's 8.4 line, but
+warned that a floating `lts` tag jumps to the next LTS series; the skills now pin `mysql:9.7`.
+
 ## Design decisions
 
 **One skill directory, both harnesses.** `skills/` is shared. Frontmatter is `name` + `description`
@@ -986,6 +992,12 @@ SELECT 후 갱신 경합입니다. 어떤 실행도 DB에 접속하거나 무엇
 
 이 정도로 드러난 결함에서는 탐지율이 아니라 정책이 실행을 갈랐습니다. Opus에서 지워야 할 지시도,
 Haiku에 더해야 할 지시도 없었습니다.
+
+**2026-11-06**에는 버전을 정하지 않은 신규 프로젝트의 기본 버전을 묻는 후속 과제도 돌렸습니다. 스킬을
+읽은 Haiku·Sonnet·Opus는 모두 Docker MySQL 9.7 LTS, Aurora·RDS 8.4.x, PostgreSQL 18을 고르고
+8.4와 9.7의 change buffer 차이를 짚었습니다. 스킬 없는 Opus는 Aurora MySQL을 8.0 호환 라인으로
+답했지만(Aurora 8.4 라인이 나오기 전 지식), 유동 태그 `lts`가 다음 LTS로 넘어갈 수 있다는 점을
+짚었습니다. 그래서 스킬에 `mysql:9.7` 고정을 넣었습니다.
 
 ### 릴리즈 자동화
 

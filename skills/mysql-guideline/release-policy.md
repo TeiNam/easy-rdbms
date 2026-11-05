@@ -18,7 +18,9 @@ track matters. (Checked 2026-11-06; recheck vendor release notes and support dat
 > Innovation — the **9.7.x series** is LTS (the year.month Innovation releases after it, 26.7 and 26.10, are not).
 >
 > **Docker tags follow the same split.** `mysql:lts` is 9.7.x, while `mysql:latest` and `mysql:innovation`
-> point at the newest Innovation release. A Dockerfile that says `latest` therefore gets Innovation.
+> point at the newest Innovation release. A Dockerfile that says `latest` therefore gets Innovation, and one
+> that says `lts` moves to the next LTS series when it ships. Read `lts` to find the current LTS, then pin
+> `mysql:9.7` (or an exact patch such as `9.7.4`).
 >
 > Also: **Connector/J 9.7.0** and **server 9.7.x** share a number but differ in nature. The connector is a
 > **single track** (no Innovation/LTS split) that just tracks the latest server number and is compatible with
@@ -38,7 +40,8 @@ These are Oracle's support dates, not a managed provider's version-retirement sc
 - **Production defaults to an LTS track.** Current choices: **8.4.x** (mature first LTS) and **9.7.x** (2026-04
   second LTS). Use an Innovation release (now 26.x) only when a specific new feature is required.
   - **New builds with no version specified**: self-managed and Docker take the newest LTS (**9.7.x**,
-    `mysql:lts`); Aurora MySQL and RDS for MySQL take **8.4.x** (the version table in `db-select`). An
+    image pinned to `mysql:9.7`); Aurora MySQL and RDS for MySQL take **8.4.x** — RDS offers 9.7 only in
+    its Database Preview Environment (2026-11) — per the version table in `db-select`. An
     existing 8.4 installation moves to 9.7.x only as a planned LTS→LTS upgrade.
 - **AWS RDS/Aurora for MySQL** keeps its own supported-version roadmap — community Innovation/LTS tracks don't
   necessarily match what RDS offers. **Check the AWS RDS supported-version list separately** before migrating.

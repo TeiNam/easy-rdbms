@@ -170,8 +170,8 @@ recommending against their platform.
 | 배포 형태 | 기본 버전 | 확인 방법 |
 |---|---|---|
 | PostgreSQL 설치형·Docker | 최신 major (**18**) | `https://www.postgresql.org/versions.json`에서 `current`인 major |
-| MySQL 설치형·Docker | 최신 LTS (**9.7**) | `mysql-guideline/release-policy.md`. Docker는 `mysql:lts` 태그 — `mysql:latest`는 Innovation 릴리스다 |
-| Aurora MySQL · RDS for MySQL | **8.4.x** | 리전별 제공 버전: `aws rds describe-db-engine-versions --engine aurora-mysql` (RDS는 `--engine mysql`) |
+| MySQL 설치형·Docker | 최신 LTS (**9.7**) | `mysql-guideline/release-policy.md`, Docker `mysql:lts` 태그. 이미지는 `mysql:9.7`(운영은 `9.7.4` 같은 정확한 패치)로 고정한다 — `lts`는 다음 LTS로 옮겨 가고 `latest`는 Innovation이다 |
+| Aurora MySQL · RDS for MySQL | **8.4.x** | 리전별 제공 버전: `aws rds describe-db-engine-versions --engine aurora-mysql` (RDS는 `--engine mysql`). RDS의 9.7은 2026-11 현재 Database Preview 환경에만 있다 |
 | Aurora PostgreSQL · RDS for PostgreSQL 등 다른 관리형 | 그 서비스가 제공하는 최신 major | 서비스의 지원 버전 목록 |
 
 기존 DB는 실제 버전을 유지하고 PG 16/17·MySQL 8.4 등 그 버전의 호환 조건을 확인한다. 업그레이드는

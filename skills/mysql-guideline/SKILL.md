@@ -39,7 +39,7 @@ description: >
 
 ## MySQL Version and Defaults
 - **신규 구성의 기본 버전은 배포 형태로 정한다**(기존 DB가 없고 사용자가 버전을 지정하지 않은 경우):
-  설치형·Docker는 최신 LTS(2026-11 기준 **9.7**, `mysql:lts`), Aurora MySQL·RDS for MySQL은 **8.4.x**.
+  설치형·Docker는 최신 LTS(2026-11 기준 **9.7**, 이미지는 `mysql:9.7`로 고정), Aurora MySQL·RDS for MySQL은 **8.4.x**.
   확인 방법은 `db-select`의 버전 기본값 표를 따른다. 기존 DB는 실제 버전 기준이다.
 - 이 가이드의 문서 예제는 **8.4와 9.7 LTS 양쪽**에서 실행해 검증했다. 두 버전이 다른 곳 — change
   buffer 기본값, `mysql_native_password` 제거, `VECTOR` 타입 — 은 `operations.md`의 LTS 점검 표에 있다.

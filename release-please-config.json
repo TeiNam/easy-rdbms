@@ -11,6 +11,7 @@
       "extra-files": [
         ".claude-plugin/plugin.json",
         ".codex-plugin/plugin.json",
+        "plugin.json",
         "README.md"
       ],
       "changelog-sections": [

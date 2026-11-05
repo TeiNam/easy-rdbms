@@ -1,17 +1,18 @@
 # Working on this repo
 
-Context for agents editing **this plugin**. It is not how the plugin ships — Claude Code and
-Codex both deliver it through `skills/`, and neither loads this file from a plugin root.
+Context for agents editing **this plugin**. It is not how the plugin ships — Claude Code, Codex,
+and Kiro all deliver it through `skills/`, and none of them loads this file from a plugin root.
 
 ## Layout
 
 | Path | Loaded by | Notes |
 |---|---|---|
-| `skills/*/SKILL.md` | Claude Code + Codex | The delivery channel. Frontmatter is `name` + `description` only |
+| `skills/*/SKILL.md` | Claude Code + Codex + Kiro | The delivery channel. Frontmatter is `name` + `description` only |
 | `commands/*.md` | Claude Code only | Slash commands that point at skills |
 | `agents/*.md` | Claude Code only | Thin wrappers over skills. Codex plugins cannot register named subagents |
 | `hooks/hooks.json` | Claude Code + Codex | Same schema, same `${CLAUDE_PLUGIN_ROOT}` variable |
 | `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/` | Respective harness | Manifests |
+| `plugin.json` | Kiro | Agent Plugins manifest: Kiro installs the repo root as a power with the same `skills/`. Version is synced with the other manifests |
 
 ## Rules
 
@@ -25,6 +26,8 @@ Codex both deliver it through `skills/`, and neither loads this file from a plug
 - **`db-select`, `rdbms-modeling`, `rdbms-review`, `sqlite-guideline` are plugin-authored.** No upstream to sync.
 - **A skill's `description` is its only trigger.** If a skill should fire on a phrase, that
   phrase belongs in the description. Codex rejects descriptions over 1,024 characters.
+- **Kiro uses only `plugin.json` and `skills/`.** It ignores `commands/`, `agents/`, and `hooks/`, so a
+  skill must work without them — never make a skill depend on a command, subagent, or session hook.
 - **Codex plugins do not register custom slash commands.** Invoke a skill explicitly as
   `$easy-rdbms:<skill-name>`; do not add `commands/*.toml`.
 - **Reference filenames in a `SKILL.md` must resolve.** The harness originals shipped broken

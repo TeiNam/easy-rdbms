@@ -1,7 +1,7 @@
 ---
 name: mysql-guideline
 description: >
-  MySQL 8.4 LTS and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
+  MySQL 8.4/9.7 LTS and Aurora MySQL schema design, DDL, indexes, query tuning, partitioning,
   transactions, connections, security, migrations, and JDBC. Use for CREATE or ALTER TABLE,
   utf8mb4, InnoDB, data types, INET_ATON, UUID_TO_BIN, DATETIME or TIMESTAMP, JSON, UPSERT, PK choice, int vs bigint,
   AUTO_INCREMENT exhaustion, UNSIGNED, normalization, composite or covering indexes, FULLTEXT,
@@ -38,11 +38,16 @@ description: >
 - Setting up connection management
 
 ## MySQL Version and Defaults
-- **MySQL 8.4 LTS 기준**. 9.7 LTS 선택은 `release-policy.md`에서 별도로 평가한다.
-  8.0·MariaDB·Aurora에 8.4 SQL/기본값을 그대로 적용하지 않는다.
+- **신규 구성의 기본 버전은 배포 형태로 정한다**(기존 DB가 없고 사용자가 버전을 지정하지 않은 경우):
+  설치형·Docker는 최신 LTS(2026-11 기준 **9.7**, `mysql:lts`), Aurora MySQL·RDS for MySQL은 **8.4.x**.
+  확인 방법은 `db-select`의 버전 기본값 표를 따른다. 기존 DB는 실제 버전 기준이다.
+- 이 가이드의 문서 예제는 **8.4와 9.7 LTS 양쪽**에서 실행해 검증했다. 두 버전이 다른 곳 — change
+  buffer 기본값, `mysql_native_password` 제거, `VECTOR` 타입 — 은 `operations.md`의 LTS 점검 표에 있다.
+  8.0·MariaDB에 8.4+ SQL/기본값을 그대로 적용하지 않고, Aurora·RDS는 엔진 호환 버전과 파라미터 그룹
+  기본값을 따로 확인한다.
 - Character set: utf8mb4, collation `utf8mb4_0900_ai_ci` (team standard; `utf8mb4_general_ci` is legacy)
 - Engine: InnoDB
-- 인증·FK 참조 키 제한·InnoDB 기본값·제거된 옵션은 `operations.md`의 8.4 점검을 따른다.
+- 인증·FK 참조 키 제한·InnoDB 기본값·제거된 옵션은 `operations.md`의 LTS 점검을 따른다.
   `SELECT VERSION()`과 배포 형태를 확인한 뒤 해당 LTS의 최신 패치를 검토한다.
 
 ## Naming Rules
@@ -207,8 +212,9 @@ Two things to keep straight:
   `rdbms-modeling/references/foreign-keys.md`), JSON (multi-valued index)
 - `jdbc-driver.md` — Java driver selection: AWS Advanced JDBC Wrapper vs Connector/J
   9.x; MariaDB Connector/J Aurora EOL, Aurora JDBC Driver EOL; failover tuning
-- `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 Innovation; production = LTS
-- `operations.md` — MySQL vs MariaDB SQL divergence, the `OFFSET` trap with keyset pagination and
+- `release-policy.md` — Innovation vs LTS tracks: 8.4.x / 9.7.x are LTS, 9.0–9.6 and the year.month releases
+  after 9.7 (26.x) are Innovation; production = LTS; `mysql:latest` is Innovation, `mysql:lts` is not
+- `operations.md` — the 8.4/9.7 LTS checklist, MySQL vs MariaDB SQL divergence, the `OFFSET` trap with keyset pagination and
   the deferred-join fallback, FULLTEXT query, deadlock
   checklist + `SKIP LOCKED` queue claims, Node.js pool sizing and the `wait_timeout` rule, diagnostics,
   replica lag / read-after-write routing, GRANT least privilege + TLS, `my.cnf` baseline, ops anti-patterns

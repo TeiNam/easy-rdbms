@@ -41,13 +41,18 @@ jobs:
           '
 
   examples:
-    name: PostgreSQL ${{ matrix.postgres }} and MySQL 8.4
+    name: PostgreSQL ${{ matrix.postgres }} and MySQL ${{ matrix.mysql }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        postgres: [16, 18]
+        # 신규 구성 기본값(최신 PG major + 최신 MySQL LTS)과 기존 설치 호환 조합을 한 잡씩 돌린다.
+        include:
+          - postgres: 18
+            mysql: "9.7"
+          - postgres: 16
+            mysql: "8.4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -62,20 +67,21 @@ jobs:
       - name: 문서 예제 실행
         env:
           PG_MAJOR: ${{ matrix.postgres }}
+          MYSQL_VERSION: ${{ matrix.mysql }}
         run: |
           pg_tag="${PG_MAJOR}-alpine"
           if [ "$PG_MAJOR" = 18 ]; then
             pg_tag="${PG_MAJOR}-bookworm"
           fi
           # ECR 요청 제한 시 같은 공식 이미지를 Docker Hub에서 받는다.
-          for image in "postgres:$pg_tag" "mysql:8.4"; do
+          for image in "postgres:$pg_tag" "mysql:$MYSQL_VERSION"; do
             mirror="public.ecr.aws/docker/library/$image"
             if ! docker pull "$mirror"; then
               docker pull "$image"
               docker tag "$image" "$mirror"
             fi
           done
-          args=(--pg-major "$PG_MAJOR")
+          args=(--pg-major "$PG_MAJOR" --mysql "$MYSQL_VERSION")
           if [ "$PG_MAJOR" = 18 ]; then
             docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
             args+=(--extensions)

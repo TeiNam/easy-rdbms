@@ -270,9 +270,10 @@ Day 7: Migration drops old status column
   downgrade나 `DROP EXTENSION ... CASCADE`를 자동 rollback으로 생성하지 않는다.
 - pgvector 모델 변경은 재임베딩과 품질 검증, PostGIS는 좌표계·라이브러리 변경에 따른 결과
   검증, FDW는 원격 DDL과 mapping 호환성을 포함한다.
-- MySQL 8.4로 전환할 때는 `mysql-guideline/operations.md`의 인증·제거된 옵션·비표준 FK
-  검사를 실행한다. `ALGORITHM=INSTANT`는 지원 작업에만 쓰며, 명시해서 실패하면 COPY/잠금
-  영향과 온라인 이관 도구를 별도로 검토한다.
+- MySQL 8.4나 9.7로 전환할 때는 `mysql-guideline/operations.md`의 LTS 점검(인증·제거된 옵션·
+  비표준 FK·change buffer 기본값)을 실행하고, LTS는 한 단계씩 올린다(8.0→8.4→9.7).
+  `ALGORITHM=INSTANT`는 지원 작업에만 쓰며, 명시해서 실패하면 COPY/잠금 영향과 온라인 이관 도구를
+  별도로 검토한다.
 
 ## Anti-Patterns
 

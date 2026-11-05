@@ -1,7 +1,7 @@
 # MySQL Release Policy — Innovation vs LTS
 
 Since 2023-07 (after 8.0), MySQL ships on **two tracks**. When someone says "use the latest version", which
-track matters. (Checked 2026-09-09; recheck vendor release notes and support dates before acting.)
+track matters. (Checked 2026-11-06; recheck vendor release notes and support dates before acting.)
 
 | Aspect | Innovation | LTS (Long-Term Support) |
 |--------|------------|-------------------------|
@@ -9,13 +9,16 @@ track matters. (Checked 2026-09-09; recheck vendor release notes and support dat
 | Support window | Short (quickly superseded by the next Innovation) | Oracle Lifetime Support — **Premier 5 years + Extended 3 years** from the series release |
 | Behavior changes | Possible even between minor versions | Avoided within the same LTS series — bug and security fixes still land, so read the release notes |
 | Best for | Fast CI/CD with strong automated tests | Production, long-term stability |
-| Representative versions | 9.0 – 9.6 (quarterly; 9.6 is the last Innovation before 9.7 LTS) | **8.4.x** (first LTS) · **9.7.x** (2026-04, second LTS) |
+| Representative versions | 9.0 – 9.6 (quarterly; 9.6 is the last Innovation before 9.7 LTS); after 9.7, numbered by year and month — 26.7, 26.10 | **8.4.x** (first LTS) · **9.7.x** (2026-04, second LTS) |
 | Upgrade path | Direct between Innovation within the same major (9.0 → 9.1) | Cross-major Innovation upgrades must go through the nearest LTS (8.3 → **8.4 LTS** → 9.0). LTS→next LTS supported (**8.4.x → 9.7.x**); skipping an LTS series is not |
 
 > **Common confusion — "9.7 = latest Innovation" is wrong.** **9.7.x is the second LTS** (after 8.4), released
 > 2026-04. The official manual documents the "8.4.x LTS → 9.7.x LTS" upgrade path. 9.0–9.6 are Innovation, and
 > **9.7 returns to LTS** (repeating the 8.1–8.3 Innovation → 8.4 LTS pattern). So don't lump "latest 9.x" as
-> Innovation — the **9.7.x series** is LTS (a later 9.8/10.x Innovation series would not be).
+> Innovation — the **9.7.x series** is LTS (the year.month Innovation releases after it, 26.7 and 26.10, are not).
+>
+> **Docker tags follow the same split.** `mysql:lts` is 9.7.x, while `mysql:latest` and `mysql:innovation`
+> point at the newest Innovation release. A Dockerfile that says `latest` therefore gets Innovation.
 >
 > Also: **Connector/J 9.7.0** and **server 9.7.x** share a number but differ in nature. The connector is a
 > **single track** (no Innovation/LTS split) that just tracks the latest server number and is compatible with
@@ -33,9 +36,10 @@ Oracle's Technology Products support schedule (effective 2026-08-07) lists:
 These are Oracle's support dates, not a managed provider's version-retirement schedule.
 
 - **Production defaults to an LTS track.** Current choices: **8.4.x** (mature first LTS) and **9.7.x** (2026-04
-  second LTS). Use Innovation (9.0–9.6) only when a specific new feature is required.
-  - New builds: 9.7.x LTS is attractive for the longer support window; if proven stability is paramount,
-    staying on 8.4.x is also reasonable.
+  second LTS). Use an Innovation release (now 26.x) only when a specific new feature is required.
+  - **New builds with no version specified**: self-managed and Docker take the newest LTS (**9.7.x**,
+    `mysql:lts`); Aurora MySQL and RDS for MySQL take **8.4.x** (the version table in `db-select`). An
+    existing 8.4 installation moves to 9.7.x only as a planned LTS→LTS upgrade.
 - **AWS RDS/Aurora for MySQL** keeps its own supported-version roadmap — community Innovation/LTS tracks don't
   necessarily match what RDS offers. **Check the AWS RDS supported-version list separately** before migrating.
 - MySQL Connectors (JDBC included) release on a **single track** compatible with all supported server versions

@@ -319,7 +319,8 @@ What to read in the plan:
 - PostgreSQL view 경유 권한: 기본 소유자 기준 RLS와 `security_invoker`를 구분하고 실제
   앱 역할의 조회를 검사. `security_barrier`만 설정해서 호출자 RLS가 유지된다고 가정하지 않음
 - MySQL: anonymous accounts removed; no direct DML against `mysql.user`
-- MySQL 8.4: 비활성 `mysql_native_password`를 다시 켜는 대신 driver/TLS/계정 전환 검증
+- MySQL 8.4: 비활성 `mysql_native_password`를 다시 켜는 대신 driver/TLS/계정 전환 검증. 9.7에는
+  플러그인 자체가 없으므로 9.7로 올리기 전에 모든 계정이 전환됐는지 확인
 - PostgreSQL: custom GUC 기반 RLS는 인증 계층이 값을 정하고 같은 트랜잭션에서 SET LOCAL로
   설정. reset 후 미설정·빈 값, pool 재사용, 소유자 우회, 임의 SQL 권한을 검사
 

@@ -41,9 +41,11 @@ things you only learn by running databases:
 Works in both **Claude Code** and **Codex** from one shared `skills/` directory. The plugin picks
 the database for your scale and budget, keeps naming consistent, takes requirements through
 conceptual → logical → physical modeling instead of straight to DDL, and reviews schemas, queries,
-and migrations before they ship. Targets MySQL **8.4 LTS** and PostgreSQL **18**, with explicit
-compatibility gates for existing PostgreSQL 16/17 and managed/Aurora variants, plus SQLite for
-embedded and prototype workloads. A newer major is a separate upgrade decision.
+and migrations before they ship. A new build with no version given targets the newest releases:
+PostgreSQL **18** and MySQL **9.7 LTS** when self-managed or in Docker, MySQL **8.4** on Aurora and
+RDS (as of 2026-11; the skills look them up again at design time). Existing databases keep their
+version, with compatibility gates for PostgreSQL 16/17, MySQL 8.4, and managed variants; SQLite
+covers embedded and prototype workloads. Upgrading an existing database is a separate decision.
 
 Tested on Claude **Haiku**, **Sonnet**, and **Opus** with the same review task — see
 [Model coverage](#model-coverage).
@@ -110,7 +112,7 @@ They activate when a task mentions relevant work; you can also name one explicit
 | `rdbms-modeling` | Conceptual → logical → physical design with a confirmation gate between stages |
 | `rdbms-review` | Reviewing existing SQL, schemas, and migrations |
 | `rdbms-naming` | Table, column, index, and constraint naming; data type selection |
-| `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL mechanics |
+| `mysql-guideline` | MySQL 8.4 / 9.7 LTS and Aurora MySQL mechanics |
 | `postgres-guideline` | PostgreSQL 18, 16/17 compatibility, managed/Aurora, FDW/PostGIS/pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — embedded, local, prototype |
 | `database-migrations` | Zero-downtime schema change and rollback strategy |
@@ -379,12 +381,13 @@ ordering you chose v7 for; and `uuidv7()` is built in only from **PostgreSQL 18*
 
 | | Covered |
 |---|---|
-| **MySQL** | 8.4 LTS track and release policy, InnoDB + utf8mb4 defaults, per-currency `decimal` precision, `DATETIME` vs `TIMESTAMP` (Y2038), `INET6_ATON`, composite index order, range-column pair optimization, `RANGE COLUMNS` partitioning with `REORGANIZE`, `REPEATABLE READ` and gap locks, deadlock checklist, `SKIP LOCKED` queues, keyset pagination, `FULLTEXT` with the `ngram` parser, replica lag and read-after-write routing, GRANT least privilege and TLS, `my.cnf` baseline, pool sizing against `wait_timeout`, JDBC driver selection for Aurora |
+| **MySQL** | 8.4 and 9.7 LTS tracks and release policy, InnoDB + utf8mb4 defaults, per-currency `decimal` precision, `DATETIME` vs `TIMESTAMP` (Y2038), `INET6_ATON`, composite index order, range-column pair optimization, `RANGE COLUMNS` partitioning with `REORGANIZE`, `REPEATABLE READ` and gap locks, deadlock checklist, `SKIP LOCKED` queues, keyset pagination, `FULLTEXT` with the `ngram` parser, replica lag and read-after-write routing, GRANT least privilege and TLS, `my.cnf` baseline, pool sizing against `wait_timeout`, JDBC driver selection for Aurora |
 | **PostgreSQL** | 18 baseline: native UUIDv7, VIRTUAL/STORED gates, skip scan and async I/O; 16/17 compatibility; schema separation, identity, timestamptz/jsonb, GIN/GiST/BRIN, RLS and pool scope, partitioned FK validation, pg_partman; FDW/PostGIS/pgvector and extension operations below |
 | **SQLite** | 3.37+ `STRICT` tables, the PRAGMA baseline (`foreign_keys` is OFF by default), conventions where no native type exists (integer cents for money), `INTEGER PRIMARY KEY` as rowid and why `AUTOINCREMENT` is usually unnecessary, single-writer design with `BEGIN IMMEDIATE`, why network filesystems are out, FTS5, `VACUUM INTO` backups, and the growth path back to `db-select` |
 
-MySQL 8.4 guidance covers authentication changes, InnoDB defaults, standard FK targets, bounded
-GTID waits and removed commands. SQLite keeps 3.37 as the compatibility floor, with JSONB gated
+MySQL guidance covers both LTS lines: authentication (9.7 removes `mysql_native_password`), InnoDB
+defaults that differ between 8.4 and 9.7 (change buffering), standard FK targets, bounded GTID waits
+and removed commands. SQLite keeps 3.37 as the compatibility floor, with JSONB gated
 at 3.45 and modern `PRAGMA optimize` guidance at 3.46.
 
 ### PostgreSQL extensions
@@ -409,7 +412,9 @@ bundle; pgvector stores/searches embeddings and does not run the embedding model
 The updated suite passed on **2026-09-25** with PostgreSQL **18.6**, MySQL **8.4.11**, PostGIS
 **3.6.4**, pgvector **0.8.6**, Django **5.2.17**, and the runner's SQLite **3.53.1**. The separate
 PostgreSQL **16.15** compatibility run also passed; PostGIS/pgvector were exercised on 18.
-The commands are in Development below. The earlier observations are retained separately:
+On **2026-11-06** it passed again with MySQL **9.7.4**, now the self-managed default, with the LTS
+check asserting the 9.7 defaults (change buffering `all`, no `mysql_native_password`, `VECTOR`
+without `DISTANCE()`). The commands are in Development below. The earlier observations are retained separately:
 
 ### Executed against real servers
 
@@ -550,11 +555,11 @@ diff-only for that reason — never blind-copy over them. See `AGENTS.md` for re
 
 The example check requires Docker, OpenSSL, and test dependencies in a virtual environment:
 `python -m pip install 'Django>=5.2,<5.3' 'psycopg[binary]>=3,<4'`.
-It starts isolated PostgreSQL 18 and MySQL 8.4 containers and removes them afterwards; it does not
+It starts isolated PostgreSQL 18 and MySQL 9.7 containers and removes them afterwards; it does not
 connect to an existing application database. It exercises post-cutover inserts, locked-row backfills,
 concurrent edits, DB alias selection, partition writes, constraints, pagination plans, PostgreSQL
 version gates, RLS session reuse, pg_stat_statements/pg_trgm, FDW TLS and read-only grants, and MySQL
-8.4 authentication/FK defaults. Use `--pg-major 16` for the compatibility run.
+LTS authentication/FK defaults. Use `--pg-major 16 --mysql 8.4` for the compatibility run.
 
 With `uv` installed, run the same checks in an isolated dependency environment from the repo root:
 
@@ -570,7 +575,7 @@ docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
   python scripts/check-examples.py --extensions
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
-  python scripts/check-examples.py --pg-major 16
+  python scripts/check-examples.py --pg-major 16 --mysql 8.4
 ```
 
 The extension run checks spatial radius results/GiST, vector dimensions, exact versus filtered
@@ -580,7 +585,7 @@ is kept for reuse, while test containers/data are removed. No existing applicati
 
 ## Release automation
 
-Merging to `main` runs the same metadata, hook, PostgreSQL 16/18, MySQL 8.4, PostGIS, and pgvector
+Merging to `main` runs the same metadata, hook, PostgreSQL 16/18, MySQL 8.4/9.7, PostGIS, and pgvector
 checks in GitHub Actions. After they pass, release-please creates or updates a release PR:
 
 1. `feat:` raises the minor version; `fix:` or `perf:` raises the patch version.
@@ -652,8 +657,10 @@ AI 에이전트는 애플리케이션 코드를 잘 씁니다. 티가 잘 안 �
 
 **Claude Code**와 **Codex** 양쪽에서 하나의 `skills/` 디렉토리로 동작합니다. 규모와 예산에 맞는
 DB를 고르고, 네이밍을 일관되게 잡고, 요구사항을 DDL로 직행시키지 않고 개념 → 논리 → 물리로
-설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. MySQL **8.4 LTS**와 PostgreSQL
-**18**을 기준으로 Aurora 등 관리형의 호환 조건, 임베디드·프로토타입용 SQLite를 다룹니다.
+설계하며, 배포 전에 스키마·쿼리·마이그레이션을 리뷰합니다. 버전을 정하지 않은 신규 구성은 최신
+버전을 기준으로 합니다. 설치형·Docker는 PostgreSQL **18**과 MySQL **9.7 LTS**, Aurora·RDS의 MySQL은
+**8.4**입니다(2026-11 기준이며 스킬이 설계 시점에 다시 확인합니다). 기존 DB는 그 버전을 유지한 채
+PostgreSQL 16/17·MySQL 8.4·관리형의 호환 조건을 확인하고, 임베디드·프로토타입용 SQLite도 다룹니다.
 
 같은 리뷰 과제로 Claude **Haiku**·**Sonnet**·**Opus**에서 시험했습니다 —
 [모델별 검증](#모델별-검증) 참고.
@@ -711,7 +718,7 @@ DB 작업용 8개와 플러그인 업데이트용 1개, 총 9개 스킬을 두 �
 | `rdbms-modeling` | 개념 → 논리 → 물리 3단계 + 단계별 확인 게이트 (참조파일 10개) |
 | `rdbms-review` | 기존 SQL·스키마·마이그레이션 리뷰 |
 | `rdbms-naming` | 테이블·컬럼·인덱스·제약 네이밍, 데이터 타입 |
-| `mysql-guideline` | MySQL 8.4 LTS+ / Aurora MySQL |
+| `mysql-guideline` | MySQL 8.4 / 9.7 LTS, Aurora MySQL |
 | `postgres-guideline` | PostgreSQL 18, 기존 16/17 호환, 관리형/Aurora, FDW·PostGIS·pgvector |
 | `sqlite-guideline` | SQLite 3.37+ — 임베디드·로컬·프로토타입 |
 | `database-migrations` | 무중단 스키마 변경, 롤백 전략 |
@@ -803,11 +810,12 @@ RTO/RPO, 흐름별 일관성 요구, 전담 DBA 유무, 벤더 종속(lock-in) �
 
 | | 내용 |
 |---|---|
-| **MySQL** | 8.4 LTS 트랙과 릴리스 정책, InnoDB + utf8mb4 기본값, 통화별 `decimal` 정밀도, `DATETIME` vs `TIMESTAMP`(Y2038), `INET6_ATON`, 복합 인덱스 순서, 기간 컬럼 쌍 최적화, `RANGE COLUMNS` 파티셔닝과 `REORGANIZE`, `REPEATABLE READ`와 갭락, 데드락 체크리스트, `SKIP LOCKED` 큐, 키셋 페이지네이션, `ngram` 파서 `FULLTEXT`, 리플리카 지연과 read-after-write 라우팅, GRANT 최소권한과 TLS, `my.cnf` 기준선, `wait_timeout` 대비 풀 사이징, Aurora용 JDBC 드라이버 선정 |
+| **MySQL** | 8.4·9.7 LTS 트랙과 릴리스 정책, InnoDB + utf8mb4 기본값, 통화별 `decimal` 정밀도, `DATETIME` vs `TIMESTAMP`(Y2038), `INET6_ATON`, 복합 인덱스 순서, 기간 컬럼 쌍 최적화, `RANGE COLUMNS` 파티셔닝과 `REORGANIZE`, `REPEATABLE READ`와 갭락, 데드락 체크리스트, `SKIP LOCKED` 큐, 키셋 페이지네이션, `ngram` 파서 `FULLTEXT`, 리플리카 지연과 read-after-write 라우팅, GRANT 최소권한과 TLS, `my.cnf` 기준선, `wait_timeout` 대비 풀 사이징, Aurora용 JDBC 드라이버 선정 |
 | **PostgreSQL** | 18 기준 UUIDv7·VIRTUAL/STORED·skip scan·비동기 I/O, 16/17 호환 경계, 스키마 분리·identity·timestamptz/jsonb·GIN/GiST/BRIN, RLS·풀 설정 범위, 파티션 FK 단계별 검증, pg_partman, FDW·PostGIS·pgvector와 확장 운영 |
 | **SQLite** | 3.37+ `STRICT` 테이블, PRAGMA 기준선(`foreign_keys`는 **기본 OFF**), 네이티브 타입이 없는 것들의 관례(돈은 정수 센트), rowid로서의 `INTEGER PRIMARY KEY`와 `AUTOINCREMENT`가 대개 불필요한 이유, `BEGIN IMMEDIATE` 기반 단일 라이터 설계, 네트워크 파일시스템을 배제하는 이유, FTS5, `VACUUM INTO` 백업, 그리고 `db-select`로 되돌아가는 전환 경로 |
 
-MySQL 8.4의 인증·InnoDB 기본값·비표준 FK 제한·GTID 대기·제거된 명령도 구분합니다.
+MySQL은 두 LTS를 함께 다룹니다. 인증(9.7에서 `mysql_native_password` 제거), 8.4와 9.7에서 다른
+InnoDB 기본값(change buffer), 비표준 FK 제한, GTID 대기, 제거된 명령을 구분합니다.
 SQLite는 3.37 호환 하한을 유지하면서 JSONB는 3.45+, 최신 `PRAGMA optimize`는 3.46+로
 나눕니다. PostgreSQL 16/17과 관리형/Aurora는 제공 버전과 호환 조건을 따로 확인합니다.
 최신 major로 바꾸는 것은 별도의 업그레이드 판단입니다.
@@ -886,14 +894,16 @@ pgvector는 임베딩을 저장·검색하며 임베딩 모델 자체는 앱이�
 2026-09-25 갱신본은 PostgreSQL **18.6**, MySQL **8.4.11**, PostGIS **3.6.4**, pgvector
 **0.8.6**, Django **5.2.17**, 검증 runner의 SQLite **3.53.1**에서 통과했습니다.
 PostgreSQL **16.15** 호환 검사도 별도로 통과했으며, PostGIS·pgvector는 18에서 실행했습니다.
+**2026-11-06**에는 설치형 기본값이 된 MySQL **9.7.4**에서도 다시 통과했습니다. LTS 검사는 9.7의
+기본값(change buffer `all`, `mysql_native_password` 없음, `DISTANCE()` 없는 `VECTOR`)을 확인합니다.
 아래에는 재현 명령과 이전 서버 검증 기록을 구분해 남겼습니다.
 
 `python scripts/check-examples.py`는 문서의 SQL·Django 예제를 직접 읽어 실행합니다.
 Docker·OpenSSL과 가상환경에 설치한 `Django>=5.2,<5.3`, `psycopg[binary]>=3,<4`가 필요합니다.
-검사용 PostgreSQL 18·MySQL 8.4 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
+검사용 PostgreSQL 18·MySQL 9.7 컨테이너를 만들고 종료 후 삭제하며, 기존 앱 DB에는 접속하지 않습니다.
 PK 교체·동시 백필·DB 별칭·파티션·제약·실행계획에 더해 PG 버전 경계, RLS 세션 재사용,
-pg_stat_statements·pg_trgm, FDW TLS·읽기 전용 권한, MySQL 8.4 인증·FK 기본값을 검사합니다.
-`--pg-major 16`으로 기존 버전 호환성도 검사합니다.
+pg_stat_statements·pg_trgm, FDW TLS·읽기 전용 권한, MySQL LTS 인증·FK 기본값을 검사합니다.
+`--pg-major 16 --mysql 8.4`로 기존 버전 호환성도 검사합니다.
 같은 스크립트가 Python 예제 문법, 매니페스트·스킬 frontmatter·버전 일치, SQLite PK와 동기화
 스크립트, SQLite JSONB·optimize 버전 경계와 스킬 참조 경로도 검사합니다. 스킬 파일 구조
 규칙도 함께 강제합니다. 100줄 넘는 스킬 파일은 맨 위에 목차가 있어야 하고, `SKILL.md` 본문은
@@ -916,7 +926,7 @@ docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
   python scripts/check-examples.py --extensions
 uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
-  python scripts/check-examples.py --pg-major 16
+  python scripts/check-examples.py --pg-major 16 --mysql 8.4
 ```
 
 공간 반경 결과·GiST, 벡터 차원·exact/필터 HNSW 결과·RLS를 검사합니다. 작은 검증 데이터의
@@ -979,7 +989,7 @@ Haiku에 더해야 할 지시도 없었습니다.
 
 ### 릴리즈 자동화
 
-`main`에 병합하면 GitHub Actions가 메타데이터·훅·PostgreSQL 16/18·MySQL 8.4·PostGIS·pgvector
+`main`에 병합하면 GitHub Actions가 메타데이터·훅·PostgreSQL 16/18·MySQL 8.4/9.7·PostGIS·pgvector
 검사를 실행합니다. 통과 후 release-please가 릴리즈 PR을 생성하거나 갱신합니다.
 
 1. `feat:`는 minor, `fix:`·`perf:`는 patch, `feat!:`·`BREAKING CHANGE:`는 major를 올립니다.

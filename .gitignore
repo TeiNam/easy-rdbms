@@ -1,4 +1,23 @@
-# 로컬 도구 상태 — 저장소 내용이 아니다
+# 로컬 도구·에디터·OS 상태 — 저장소 내용이 아니다
+.claude/
+.codex/
+.kiro/
 .orca-worktree-trash/
 .code-review-graph/
-.claude/settings.local.json
+.idea/
+.vscode/
+.DS_Store
+
+# Python 실행 부산물 (scripts/는 uv run --no-project로 실행한다)
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# 비밀값이 들어갈 수 있는 로컬 환경 파일
+.env
+.env.*
+!.env.example
+!.env.sample

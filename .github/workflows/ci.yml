@@ -53,7 +53,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: python3 -m pip install 'Django>=5.2,<5.3' 'psycopg[binary]>=3,<4'
+      # 테스트 의존성은 전역 설치 없이 uv가 실행 시점의 격리 환경으로 공급한다.
+      # lockfile·requirements가 없어 캐시가 자동 무효화되지 않으므로 끈다(기존 pip 단계도 캐시 없음).
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+          enable-cache: false
       - name: 문서 예제 실행
         env:
           PG_MAJOR: ${{ matrix.postgres }}
@@ -75,4 +80,5 @@ jobs:
             docker build -f scripts/Dockerfile.postgres -t easy-rdbms-examples-pg18 .
             args+=(--extensions)
           fi
-          python3 scripts/check-examples.py "${args[@]}"
+          uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
+            python scripts/check-examples.py "${args[@]}"

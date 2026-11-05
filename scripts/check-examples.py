@@ -2,7 +2,7 @@
 """Execute the documented regression examples in disposable databases.
 
 Requires Docker, OpenSSL, Django 5.2, and psycopg 3. Run: python scripts/check-examples.py
-Without installing anything globally (CI installs the same pins with pip):
+Without installing anything globally (CI runs this same command):
   uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
     python scripts/check-examples.py
 Default: PostgreSQL 18 / MySQL 8.4. --pg-major 16 checks compatibility.

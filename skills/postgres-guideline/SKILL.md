@@ -36,9 +36,13 @@ description: >
 - Selecting, installing, upgrading, or tuning PostgreSQL extensions
 
 ## PostgreSQL Version and Defaults
-- **PostgreSQL 18** 기준. 실제 서버의 major/minor와 배포 형태를 먼저 확인한다.
-  기존 16/17은 호환 대상으로 유지하며 18 전용 SQL을 혼용하지 않는다.
-  관리형 서비스의 제공 버전·확장 목록을 Community와 같다고 가정하지 않는다.
+- **신규 구성은 최신 major 기준**(기존 DB가 없고 사용자가 버전을 지정하지 않은 경우). 2026-11 기준
+  **PostgreSQL 18**이며, 결정 시점에 `https://www.postgresql.org/versions.json`의 `current`로 다시
+  확인한다. 관리형은 그 서비스가 제공하는 최신 major다(`db-select`의 버전 기본값 표).
+- 기존 DB는 실제 서버의 major/minor와 배포 형태를 먼저 확인한다. 16/17은 호환 대상으로 유지하며
+  18 전용 SQL을 혼용하지 않는다. 관리형 서비스의 제공 버전·확장 목록을 Community와 같다고 가정하지 않는다.
+- 최신 major가 이 가이드의 검증 기준(18)보다 새로우면 가이드를 적용하되, 그 major의 릴리스 노트에서
+  바뀐 기본값과 제거된 기능부터 확인한다.
 - Character set: UTF-8
 - Schema separation by purpose (`public` schema direct use discouraged)
 - 버전별 기능과 업그레이드: `version-and-upgrade.md`. 최신 패치 번호는 고정하지 말고

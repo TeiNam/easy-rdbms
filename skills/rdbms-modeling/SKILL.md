@@ -233,11 +233,14 @@ also covers scale tier and three-year cost). Do not pick on the user's behalf.
 If the engine is decided but unstated, ask:
 
 > The logical model is ready. Which RDBMS is this targeting?
-> 1. **Aurora MySQL** (AWS, MySQL-compatible)
-> 2. **MySQL Community** (8.4 LTS+)
-> 3. **Aurora PostgreSQL** (AWS, PostgreSQL-compatible)
-> 4. **PostgreSQL Community** (18 기준, 기존 16/17 호환 확인)
+> 1. **Aurora MySQL** (AWS, MySQL-compatible — 8.4.x unless you name a version)
+> 2. **MySQL Community** (self-managed or Docker → newest LTS, 9.7 as of 2026-11; RDS for MySQL → 8.4.x)
+> 3. **Aurora PostgreSQL** (AWS, PostgreSQL-compatible — the newest major it offers)
+> 4. **PostgreSQL Community** (self-managed or Docker → newest major, 18 as of 2026-11)
 > 5. **SQLite** (3.37+, embedded / local / Tier 0)
+
+With no existing database and no version named, use those defaults (the version table in `db-select`)
+and write the chosen version into the deliverable. An existing database keeps its version.
 
 If the **session context already names the engine** — the `detect-db` session hook reports it when
 the repository declares one — take it as given and do **not** re-ask which database this is; the
@@ -312,8 +315,9 @@ uniqueness, check constraints, and any subtype rules behave as intended, plus on
 constraint that must be rejected.
 
 **Then run them.** Use a throwaway database of the target engine and major version: Python's
-built-in `sqlite3` module for SQLite, or a disposable `postgres:18` / `mysql:8.4` container with a
-random password and no published port — wait until it accepts connections, pipe SQL in through
+built-in `sqlite3` module for SQLite, or a disposable container of the target version (`postgres:18`,
+`mysql:9.7` or `mysql:8.4` — never `mysql:latest`, an Innovation release) with a random password and
+no published port — wait until it accepts connections, pipe SQL in through
 `docker exec -i` (`psql -v ON_ERROR_STOP=1`, or `mysql`, which stops at the first error), and
 remove the container afterwards. Ask before pulling an image the machine does not already have.
 The DDL and the valid rows must run clean as one script; each bad row runs on its own and must

@@ -7,7 +7,7 @@ grants, and server configuration.
 ## Contents
 
 - Engine and Version Check First
-- MySQL 8.4 LTS 점검
+- MySQL LTS 점검 — 8.4와 9.7
 - Pagination — the `OFFSET` Trap
   - Fix 1 — keyset (seek) pagination
   - Fix 2 — deferred join, when a cursor is impossible
@@ -32,17 +32,19 @@ SHOW VARIABLES LIKE 'version_comment';
 MySQL and MariaDB have diverged in SQL details. Confirm the engine before applying a
 version-specific pattern.
 
-## MySQL 8.4 LTS 점검
+## MySQL LTS 점검 — 8.4와 9.7
 
-| 항목 | 8.4 기준 동작 | 적용 방법 |
-|---|---|---|
-| 인증 | `caching_sha2_password` 기본. `mysql_native_password`는 기본 비활성 | 드라이버·TLS를 검증한 뒤 계정을 전환. 구형 인증을 다시 켜는 것을 기본 해법으로 쓰지 않음 |
-| 제거된 설정·명령 | `default_authentication_plugin`, `SHOW SLAVE STATUS` 등 | 설정 파일·관리 스크립트를 점검. `SHOW REPLICA STATUS` 사용 |
-| FK 부모 키 | `restrict_fk_on_non_standard_key=ON` 기본 | PK/UNIQUE를 참조. 옵션을 끄지 말고 비표준 참조를 수정 |
-| Adaptive hash index | `innodb_adaptive_hash_index=OFF` 기본 | 예전 설정 파일의 ON을 복사하지 말고 실제 부하로 비교 |
-| Change buffer | `innodb_change_buffering=none` 기본 | 저장장치·보조 인덱스 쓰기 부하를 측정한 뒤 검토 |
-| I/O capacity | `innodb_io_capacity=10000` 기본 | 실제 지속 쓰기 성능·checkpoint 지연에 맞춤. 8.0의 200을 관성적으로 복사하지 않음 |
-| Redo 크기 | `innodb_redo_log_capacity` 사용 | 예전 `innodb_log_file_size`/`innodb_log_files_in_group` 중심 설정을 갱신 |
+| 항목 | 8.4 | 9.7 | 적용 방법 |
+|---|---|---|---|
+| 인증 | `caching_sha2_password` 기본. `mysql_native_password`는 기본 비활성(`--mysql-native-password=ON`으로 켤 수 있음) | `mysql_native_password` **제거**. 그 옵션을 주면 `unknown variable`로 서버가 기동하지 않는다 | 드라이버·TLS를 검증한 뒤 계정을 전환. 구형 인증을 다시 켜는 것을 해법으로 쓰지 않으며, 9.7로 올리기 전에 모든 계정을 전환 |
+| 제거된 설정·명령 | `default_authentication_plugin`, `SHOW SLAVE STATUS` 등 | 8.4 목록 + `replica_parallel_type`, `group_replication_allow_local_lower_version_join` | 설정 파일·관리 스크립트를 점검. `SHOW REPLICA STATUS` 사용 |
+| FK 부모 키 | `restrict_fk_on_non_standard_key=ON` 기본 | 같음 | PK/UNIQUE를 참조. 옵션을 끄지 말고 비표준 참조를 수정 |
+| Adaptive hash index | `innodb_adaptive_hash_index=OFF` 기본 | 같음 | 예전 설정 파일의 ON을 복사하지 말고 실제 부하로 비교 |
+| Change buffer | `innodb_change_buffering=none` 기본 | **`all`** 기본 | 버전마다 기본값이 다르니 설정 파일에 값을 명시. 저장장치·보조 인덱스 쓰기 부하를 측정한 뒤 정함 |
+| I/O capacity | `innodb_io_capacity=10000` 기본 | 같음 | 실제 지속 쓰기 성능·checkpoint 지연에 맞춤. 8.0의 200을 관성적으로 복사하지 않음 |
+| Redo 크기 | `innodb_redo_log_capacity` 사용 | 같음 | 예전 `innodb_log_file_size`/`innodb_log_files_in_group` 중심 설정을 갱신 |
+| 벡터 | `VECTOR` 없음(문법 오류) | Community에 `VECTOR(n)` 타입과 `STRING_TO_VECTOR`·`VECTOR_DIM` 등 변환 함수가 있다. `DISTANCE()`는 없고 VECTOR 컬럼에는 인덱스를 만들 수 없다 | 저장만 필요할 때 `VECTOR`를 쓴다. 유사도 검색은 PostgreSQL pgvector나 별도 엔진으로 |
+| 버전 식별 | `VERSION()` 3자리 | 9.7.4+는 `VERSION_WITH_UPDATE()`·`version_with_update`가 4자리(예: `9.7.4.0`) | 같은 패치 줄의 업데이트를 구분할 때 4자리 값을 쓴다 |
 
 ```sql
 -- 권한 있는 진단 세션에서 읽기만 수행한다.
@@ -53,11 +55,11 @@ SELECT @@version, @@transaction_isolation,
 SELECT user, host, plugin FROM mysql.user ORDER BY user, host;
 ```
 
-8.0→8.4에서는 MySQL Shell `util.checkForServerUpgrade()`를 실제 목표 버전으로 실행하고
-설정·인증·예약어·비표준 FK·드라이버·백업 복원을 확인한다. 체크 결과만으로 업그레이드를
-완료 처리하지 않고 복제 환경에서 주요 쿼리·쓰기·failover를 검증한다.
-MySQL 9.x/HeatWave의 기능을 8.4 Community 기능으로 안내하지 않는다. 특히 pgvector의
-`vector`, HNSW, cosine 연산자는 MySQL 8.4 SQL이 아니다.
+8.0→8.4, 8.4→9.7 모두 MySQL Shell `util.checkForServerUpgrade()`를 실제 목표 버전으로 실행하고
+설정·인증·예약어·비표준 FK·드라이버·백업 복원을 확인한다. LTS는 한 단계씩 올린다(8.0→8.4→9.7,
+`release-policy.md`). 체크 결과만으로 업그레이드를 완료 처리하지 않고 복제 환경에서 주요
+쿼리·쓰기·failover를 검증한다. HeatWave 기능을 Community 기능으로 안내하지 않는다. pgvector의
+`vector` 연산자·HNSW는 MySQL SQL이 아니며, 9.7의 `VECTOR`는 검색 없는 저장 형식이다.
 
 | Feature | MySQL 8.0+ | MariaDB |
 |---|---|---|

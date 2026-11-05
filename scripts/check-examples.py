@@ -5,7 +5,8 @@ Requires Docker, OpenSSL, Django 5.2, and psycopg 3. Run: python scripts/check-e
 Without installing anything globally (CI runs this same command):
   uv run --no-project --with 'Django>=5.2,<5.3' --with 'psycopg[binary]>=3,<4' \
     python scripts/check-examples.py
-Default: PostgreSQL 18 / MySQL 8.4. --pg-major 16 checks compatibility.
+Default: PostgreSQL 18 / MySQL 9.7 LTS, the newest of each and what new builds target.
+--pg-major 16 and --mysql 8.4 check compatibility with existing installations.
 --extensions uses scripts/Dockerfile.postgres built as easy-rdbms-examples-pg<major>.
 --metadata-only checks plugin/release metadata without Docker or third-party packages.
 Only containers created here are changed or removed. PostgreSQL is exposed on a random
@@ -137,7 +138,7 @@ def sql(engine, text, error=None):
 
 
 @contextmanager
-def databases(pg_major=18, extensions=False):
+def databases(pg_major=18, extensions=False, mysql="9.7"):
     owned = []
     password = secrets.token_hex(16)
     pg_image = (f"easy-rdbms-examples-pg{pg_major}" if extensions else
@@ -154,7 +155,7 @@ def databases(pg_major=18, extensions=False):
               "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256",
               "-p", "127.0.0.1::5432"],
              ["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "example_check"]),
-            ("mysql", "public.ecr.aws/docker/library/mysql:8.4", "/var/lib/mysql", "768m",
+            ("mysql", f"public.ecr.aws/docker/library/mysql:{mysql}", "/var/lib/mysql", "768m",
              ["--network", "none", "-e", "MYSQL_DATABASE=example_check",
               "-e", "MYSQL_ALLOW_EMPTY_PASSWORD=1"],
              ["mysql", "--protocol=TCP", "-h", "127.0.0.1", "-u", "root",
@@ -614,10 +615,17 @@ def pg_spatial_and_vector(config):
     print("PostGIS: meter radius + GiST; pgvector: exact/HNSW, dimensions, filtered recall and RLS verified", flush=True)
 
 
-def mysql_84():
-    assert sql("mysql", "SELECT @@innodb_adaptive_hash_index,@@innodb_change_buffering,@@restrict_fk_on_non_standard_key;") == "0\tnone\t1"
+def mysql_lts(version):
+    """operations.md의 LTS 점검 표가 8.4와 9.7에 대해 적은 기본값을 실제 서버로 확인한다."""
+    is_97 = version == "9.7"
+    buffering = "all" if is_97 else "none"
+    assert sql("mysql", "SELECT @@innodb_adaptive_hash_index,@@innodb_change_buffering,@@restrict_fk_on_non_standard_key;") \
+        == f"0\t{buffering}\t1"
     sql("mysql", block("skills/mysql-guideline/operations.md", "SELECT @@version,"))
     assert sql("mysql", "SHOW VARIABLES LIKE 'default_authentication_plugin';") == ""
+    # 8.4는 플러그인을 꺼 둘 뿐이고, 9.7에는 플러그인 자체가 없다.
+    native = sql("mysql", "SELECT plugin_status FROM information_schema.plugins WHERE plugin_name='mysql_native_password';")
+    assert native == ("" if is_97 else "DISABLED"), native
     sql("mysql", "CREATE USER 'auth_probe'@'localhost' IDENTIFIED BY 'disposable-test-only';")
     assert sql("mysql", "SELECT plugin FROM mysql.user WHERE user='auth_probe';") == "caching_sha2_password"
     sql("mysql", "ALTER USER 'auth_probe'@'localhost' IDENTIFIED WITH mysql_native_password BY 'disposable-test-only';",
@@ -633,6 +641,17 @@ def mysql_84():
     sql("mysql", "INSERT INTO fk_probe VALUES(1);", error="foreign key constraint fails")
     sql("mysql", "ALTER TABLE fk_probe ADD COLUMN label varchar(30), ALGORITHM=INSTANT;")
     sql("mysql", "DROP TABLE fk_probe; DROP TABLE nonunique_parent;")
+    if not is_97:
+        sql("mysql", "CREATE TABLE vector_probe(embedding VECTOR(3));", error="syntax")
+        return
+    assert sql("mysql", "SELECT VERSION_WITH_UPDATE();").count(".") == 3
+    sql("mysql", "CREATE TABLE vector_probe(vector_probe_id int PRIMARY KEY, embedding VECTOR(3));")
+    assert sql("mysql", "SELECT VECTOR_DIM(STRING_TO_VECTOR('[1,2,3]'));") == "3"
+    sql("mysql", "CREATE INDEX idx_vector_probe_embedding ON vector_probe (embedding);",
+        error="cannot be used as key")
+    sql("mysql", "SELECT DISTANCE(STRING_TO_VECTOR('[1,2,3]'), STRING_TO_VECTOR('[1,2,4]'), 'EUCLIDEAN');",
+        error="DISTANCE does not exist")
+    sql("mysql", "DROP TABLE vector_probe;")
 
 
 def parent_locks(config):
@@ -771,6 +790,7 @@ def django_backfill(config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pg-major", type=int, choices=[16, 18], default=18)
+    parser.add_argument("--mysql", choices=["8.4", "9.7"], default="9.7")
     parser.add_argument("--extensions", action="store_true", help="Run PostGIS/pgvector examples using the test image")
     parser.add_argument("--metadata-only", action="store_true", help="Check plugin and release metadata only")
     options = parser.parse_args()
@@ -783,12 +803,12 @@ if __name__ == "__main__":
     assert shutil.which("openssl"), "OpenSSL is required for the FDW TLS check"
     sqlite_and_sync()
     print("PASS sqlite_and_sync", flush=True)
-    with databases(options.pg_major, options.extensions) as config:
+    with databases(options.pg_major, options.extensions, options.mysql) as config:
         for check, args in [
             (pg_cutover, ()), (pg_backfill, (config,)), (showcase, ()),
             (partitions_and_subtypes, ()), (parent_locks, (config,)),
             (pg_version_and_rls, (config,)), (pg_builtin_extensions, ()), (pg_fdw, ()),
-            (mysql_examples, ()), (mysql_84, ()), (django_backfill, (config,)),
+            (mysql_examples, ()), (mysql_lts, (options.mysql,)), (django_backfill, (config,)),
         ]:
             check(*args)
             print(f"PASS {check.__name__}", flush=True)

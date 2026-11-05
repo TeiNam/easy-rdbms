@@ -1,0 +1,4 @@
+# 로컬 도구 상태 — 저장소 내용이 아니다
+.orca-worktree-trash/
+.code-review-graph/
+.claude/settings.local.json

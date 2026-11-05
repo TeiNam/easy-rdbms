@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.6.0...easy-rdbms--v0.7.0) (2026-11-05)
+
+
+### 기능
+
+* 신규 구성 기본 버전(PG 최신 major·MySQL 최신 LTS)과 MySQL 9.7 지원 ([#34](https://github.com/TeiNam/easy-rdbms/issues/34)) ([63dfa79](https://github.com/TeiNam/easy-rdbms/commit/63dfa79df6bc95c04650a3cc39b24bc05034fced))
+
 ## [0.6.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.5.2...easy-rdbms--v0.6.0) (2026-11-03)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.7.0...easy-rdbms--v0.8.0) (2026-11-05)
+
+
+### 기능
+
+* Kiro Power(Agent Plugins) 지원 — 루트 plugin.json으로 같은 skills/ 배포 ([#37](https://github.com/TeiNam/easy-rdbms/issues/37)) ([f359576](https://github.com/TeiNam/easy-rdbms/commit/f359576c0188ca870a2724a687e9f6f1082ae446))
+
 ## [0.7.0](https://github.com/TeiNam/easy-rdbms/compare/easy-rdbms--v0.6.0...easy-rdbms--v0.7.0) (2026-11-05)
 
 

@@ -54,7 +54,7 @@ jobs:
         with:
           python-version: "3.12"
       # 테스트 의존성은 전역 설치 없이 uv가 실행 시점의 격리 환경으로 공급한다.
-      # 이 저장소에는 lockfile이 없어 캐시 키를 만들 수 없으므로 캐시는 끈다.
+      # lockfile·requirements가 없어 캐시가 자동 무효화되지 않으므로 끈다(기존 pip 단계도 캐시 없음).
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
